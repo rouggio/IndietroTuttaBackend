@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const cors = require("cors");
 
 const app = express();
@@ -6,6 +7,9 @@ const PORT = process.env.PORT || 3000;
 
 // CORS access for frontend
 app.use(cors());
+
+// serve public site
+app.use(express.static(path.join(__dirname, "public")));
 
 // Parse JSON bodies
 app.use(express.json());
