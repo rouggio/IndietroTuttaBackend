@@ -1,7 +1,11 @@
 const express = require("express");
+const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// CORS access for frontend
+app.use(cors());
 
 // Parse JSON bodies
 app.use(express.json());
