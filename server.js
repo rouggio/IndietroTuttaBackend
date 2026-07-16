@@ -15,7 +15,7 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json());
 
 // Circular buffer (simple implementation)
-const MAX_POINTS = 100;
+const MAX_POINTS = 500;
 const points = [];
 
 /**
