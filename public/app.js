@@ -38,9 +38,9 @@ async function refresh() {
         .addTo(map)
         .bindPopup("Latest position");
 
-    map.fitBounds(polyline.getBounds(), {
-        padding: [40,40]
-    });
+    // map.fitBounds(polyline.getBounds(), {
+    //     padding: [40,40]
+    // });
 }
 
 refresh();
