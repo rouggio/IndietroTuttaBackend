@@ -8,3 +8,31 @@ html, body {
     width: 100%;
     height: 100vh;
 }
+
+.gps-info {
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    font: 14px Arial, sans-serif;
+    min-width: 220px;
+}
+
+.gps-info h4 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+}
+
+.gps-info table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.gps-info td:first-child {
+    font-weight: bold;
+    padding-right: 10px;
+}
+
+.gps-info td {
+    padding: 2px 0;
+}
