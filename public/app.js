@@ -27,7 +27,7 @@ info.update = function (p) {
         <table>
             <tr><td>Lat</td><td>${p.lat.toFixed(6)}</td></tr>
             <tr><td>Lon</td><td>${p.lon.toFixed(6)}</td></tr>
-            <tr><td>Speed</td><td>${p.speed ?? "-"} km/h</td></tr>
+            <tr><td>Speed</td><td>${p.speed ?? "-"} knots</td></tr>
             <tr><td>Course</td><td>${p.course ?? "-"}°</td></tr>
             <tr><td>Altitude</td><td>${p.altitude ?? "-"} m</td></tr>
             <tr><td>Sats</td><td>${p.sats ?? "-"}</td></tr>
