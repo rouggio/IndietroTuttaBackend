@@ -25,7 +25,7 @@ info.update = function (p) {
     this._div.innerHTML = `
         <h4>Latest GPS</h4>
         <table>
-            <tr><td>Time</td><td>${p.deviceId}</td></tr>
+            <tr><td>Device</td><td>${p.deviceId}</td></tr>
             <tr><td>Lat</td><td>${p.lat.toFixed(6)}</td></tr>
             <tr><td>Lon</td><td>${p.lon.toFixed(6)}</td></tr>
             <tr><td>Speed</td><td>${p.speed ?? "-"} knots</td></tr>

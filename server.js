@@ -33,6 +33,8 @@ const points = [];
  * }
  */
 app.post("/gps", (req, res) => {
+    const deviceId = req.header("DeviceId");
+
     const {
         lat,
         lon,
@@ -57,7 +59,8 @@ app.post("/gps", (req, res) => {
         altitude,
         sats,
         timestamp,
-        receivedAt: new Date().toISOString()
+        receivedAt: new Date().toISOString(),
+        deviceId: deviceId
     });
 
     // Keep only last 100 entries
@@ -98,9 +101,12 @@ app.get("/gps/latest", (req, res) => {
  * Health check
  */
 app.get("/health", (req, res) => {
+    const deviceId = req.header("DeviceId");
+
     res.json({
         status: "ok",
-        storedPoints: points.length
+        storedPoints: points.length,
+        deviceId: deviceId || null
     });
 });
 
