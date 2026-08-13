@@ -42,12 +42,19 @@ app.post("/gps", (req, res) => {
         course = null,
         altitude = null,
         sats = null,
+        flagged = false,
         timestamp = new Date().toISOString()
     } = req.body;
 
     if (typeof lat !== "number" || typeof lon !== "number") {
         return res.status(400).json({
             error: "lat and lon must be numbers"
+        });
+    }
+
+    if (typeof flagged !== "boolean") {
+        return res.status(400).json({
+            error: "flagged must be a boolean"
         });
     }
 
@@ -58,6 +65,7 @@ app.post("/gps", (req, res) => {
         course,
         altitude,
         sats,
+        flagged,
         timestamp,
         receivedAt: new Date().toISOString(),
         deviceId: deviceId

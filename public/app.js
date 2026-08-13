@@ -42,6 +42,7 @@ info.addTo(map);
 
 let marker = null;
 let polyline = null;
+let flaggedMarkers = [];
 
 async function refresh() {
 
@@ -60,6 +61,19 @@ async function refresh() {
         color: "blue",
         weight: 4
     }).addTo(map);
+
+    flaggedMarkers.forEach(flaggedMarker => flaggedMarker.remove());
+    flaggedMarkers = points
+        .filter(p => p.flagged)
+        .map(p => L.circleMarker([p.lat, p.lon], {
+            color: "#dc2626",
+            fillColor: "#ef4444",
+            fillOpacity: 0.9,
+            radius: 8,
+            weight: 2
+        })
+            .addTo(map)
+            .bindPopup(`Flagged position<br>${p.timestamp}`));
 
     const last = latlngs[latlngs.length - 1];
 
