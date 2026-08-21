@@ -267,10 +267,15 @@ app.get('/map/device.rgb565', async (req, res) => {
     if (req.query.zoom) {
         zoom = parseInt(req.query.zoom);
     } else {
-        // Target approximately 200 meters across the screen
+        // Approximate width of the map shown on screen, in meters.
+        // Increase this value to zoom OUT.
         const desiredWidthMeters = 200.0;
-        const latRadForZoom = lat * Math.PI / 180.0;
-        const metersPerPixelTarget = desiredWidthMeters / width;
+
+        const latRadForZoom =
+            lat * Math.PI / 180.0;
+
+        const metersPerPixelTarget =
+            desiredWidthMeters / width;
 
         const rawZoom =
             Math.log2(
@@ -279,18 +284,31 @@ app.get('/map/device.rgb565', async (req, res) => {
                 metersPerPixelTarget
             );
 
-        zoom = Math.max(0, Math.min(19, Math.floor(rawZoom)));
+        zoom = Math.max(
+            0,
+            Math.min(19, Math.floor(rawZoom))
+        );
     }
 
+    console.log(
+        `[Map] RGB565 ${width}x${height}, ` +
+        `lat=${lat}, lon=${lon}, zoom=${zoom}`
+    );
+
     function lon2xtile(lon, z) {
-        return (lon + 180) / 360 * Math.pow(2, z);
+        return (
+            (lon + 180) / 360 *
+            Math.pow(2, z)
+        );
     }
 
     function lat2ytile(lat, z) {
-        const latRad = lat * Math.PI / 180;
+        const latRad =
+            lat * Math.PI / 180.0;
 
         return (
-            (1 -
+            (
+                1 -
                 Math.log(
                     Math.tan(latRad) +
                     1 / Math.cos(latRad)
@@ -300,79 +318,122 @@ app.get('/map/device.rgb565', async (req, res) => {
     }
 
     try {
+
         const tileSize = 256;
 
-        const centerX = lon2xtile(lon, zoom);
-        const centerY = lat2ytile(lat, zoom);
+        const centerX =
+            lon2xtile(lon, zoom);
 
-        const tileX = Math.floor(centerX);
-        const tileY = Math.floor(centerY);
+        const centerY =
+            lat2ytile(lat, zoom);
+
+        const tileX =
+            Math.floor(centerX);
+
+        const tileY =
+            Math.floor(centerY);
 
         const pixelOffsetX =
-            Math.floor((centerX - tileX) * tileSize);
+            Math.floor(
+                (centerX - tileX) * tileSize
+            );
 
         const pixelOffsetY =
-            Math.floor((centerY - tileY) * tileSize);
+            Math.floor(
+                (centerY - tileY) * tileSize
+            );
 
         /*
-         * We need enough tiles to guarantee that the
-         * 320x240 viewport is covered.
-         *
-         * 3x3 is sufficient for a 320x240 screen.
+         * Compose a 3x3 tile area.
          */
         const bigN = 3;
-        const bigW = bigN * tileSize;
-        const bigH = bigN * tileSize;
 
-        const bigImg = PImage.make(bigW, bigH);
-        const bigCtx = bigImg.getContext('2d');
+        const bigW =
+            bigN * tileSize;
 
-        // Fallback background
-        bigCtx.fillStyle = '#e8edf0';
-        bigCtx.fillRect(0, 0, bigW, bigH);
+        const bigH =
+            bigN * tileSize;
 
-        const tileBase = 'https://tile.openstreetmap.org';
+        const bigImg =
+            PImage.make(bigW, bigH);
+
+        const bigCtx =
+            bigImg.getContext('2d');
 
         /*
-         * Download and compose the 3x3 tile area.
+         * Fallback background.
+         */
+        bigCtx.fillStyle = '#e8edf0';
+
+        bigCtx.fillRect(
+            0,
+            0,
+            bigW,
+            bigH
+        );
+
+        const tileBase =
+            'https://tile.openstreetmap.org';
+
+        const tilesPerSide =
+            Math.pow(2, zoom);
+
+        /*
+         * Download the 3x3 OSM tiles.
          */
         for (let dx = -1; dx <= 1; dx++) {
+
             for (let dy = -1; dy <= 1; dy++) {
 
                 let tx = tileX + dx;
-                let ty = tileY + dy;
+                const ty = tileY + dy;
 
                 /*
-                 * Horizontal world wrapping.
+                 * Wrap longitude around the world.
                  */
-                const tilesPerSide = Math.pow(2, zoom);
-
-                tx = ((tx % tilesPerSide) + tilesPerSide) %
-                     tilesPerSide;
+                tx =
+                    ((tx % tilesPerSide) +
+                        tilesPerSide) %
+                    tilesPerSide;
 
                 /*
-                 * Don't request tiles outside the valid
-                 * vertical range.
+                 * Latitude cannot wrap.
                  */
-                if (ty < 0 || ty >= tilesPerSide) {
+                if (
+                    ty < 0 ||
+                    ty >= tilesPerSide
+                ) {
                     continue;
                 }
 
                 const url =
                     `${tileBase}/${zoom}/${tx}/${ty}.png`;
 
-                const drawX = (dx + 1) * tileSize;
-                const drawY = (dy + 1) * tileSize;
+                const drawX =
+                    (dx + 1) * tileSize;
+
+                const drawY =
+                    (dy + 1) * tileSize;
 
                 try {
-                    const tResp = await fetch(url, {
-                        headers: {
-                            'User-Agent': 'ESP32-Map-Project/1.0'
-                        }
-                    });
+
+                    console.log(
+                        `[Map] Downloading tile ${zoom}/${tx}/${ty}`
+                    );
+
+                    const tResp =
+                        await fetch(url, {
+                            headers: {
+                                'User-Agent':
+                                    'ESP32-Map-Project/1.0'
+                            }
+                        });
 
                     if (tResp.ok) {
-                        console.log(`[Map] Tile OK: ${zoom}/${tx}/${ty}`);
+
+                        console.log(
+                            `[Map] Tile OK ${zoom}/${tx}/${ty}`
+                        );
 
                         const tileImg =
                             await PImage.decodePNGFromStream(
@@ -384,14 +445,20 @@ app.get('/map/device.rgb565', async (req, res) => {
                             drawX,
                             drawY
                         );
+
                     } else {
+
                         console.error(
-                            `[Map] Tile HTTP ${tResp.status}: ${zoom}/${tx}/${ty}`
+                            `[Map] Tile HTTP ${tResp.status}: ` +
+                            `${zoom}/${tx}/${ty}`
                         );
                     }
+
                 } catch (e) {
+
                     console.error(
-                        `[Map] Tile failed ${zoom}/${tx}/${ty}:`,
+                        `[Map] Tile failed ` +
+                        `${zoom}/${tx}/${ty}:`,
                         e
                     );
                 }
@@ -399,7 +466,7 @@ app.get('/map/device.rgb565', async (req, res) => {
         }
 
         /*
-         * Position of GPS location inside the large image.
+         * GPS position inside the composed image.
          */
         const centerPixelX =
             tileSize + pixelOffsetX;
@@ -408,29 +475,49 @@ app.get('/map/device.rgb565', async (req, res) => {
             tileSize + pixelOffsetY;
 
         /*
-         * Crop a 320x240 viewport centered on GPS.
+         * Crop around the current GPS position.
          */
         let cropX =
-            Math.floor(centerPixelX - width / 2);
+            Math.floor(
+                centerPixelX -
+                width / 2
+            );
 
         let cropY =
-            Math.floor(centerPixelY - height / 2);
+            Math.floor(
+                centerPixelY -
+                height / 2
+            );
 
         /*
-         * Keep crop inside the composed image.
+         * Keep crop inside the 3x3 image.
          */
-        cropX = Math.max(
-            0,
-            Math.min(cropX, bigW - width)
-        );
+        cropX =
+            Math.max(
+                0,
+                Math.min(
+                    cropX,
+                    bigW - width
+                )
+            );
 
-        cropY = Math.max(
-            0,
-            Math.min(cropY, bigH - height)
-        );
+        cropY =
+            Math.max(
+                0,
+                Math.min(
+                    cropY,
+                    bigH - height
+                )
+            );
 
-        const img = PImage.make(width, height);
-        const ctx = img.getContext('2d');
+        const img =
+            PImage.make(
+                width,
+                height
+            );
+
+        const ctx =
+            img.getContext('2d');
 
         ctx.drawImage(
             bigImg,
@@ -440,18 +527,20 @@ app.get('/map/device.rgb565', async (req, res) => {
 
         /*
          * --------------------------------------------------
-         * Draw GPS track
+         * GPS track
          * --------------------------------------------------
          */
 
-        const latRad = lat * Math.PI / 180.0;
+        const latRad =
+            lat * Math.PI / 180.0;
 
         const metersPerPixel =
             156543.03392 *
             Math.cos(latRad) /
             Math.pow(2, zoom);
 
-        const metersPerDegLat = 111132.92;
+        const metersPerDegLat =
+            111132.92;
 
         const metersPerDegLon =
             111319.49 *
@@ -459,8 +548,11 @@ app.get('/map/device.rgb565', async (req, res) => {
 
         function toPixel(ptLat, ptLon) {
 
-            const dLat = ptLat - lat;
-            const dLon = ptLon - lon;
+            const dLat =
+                ptLat - lat;
+
+            const dLon =
+                ptLon - lon;
 
             const dxMeters =
                 dLon * metersPerDegLon;
@@ -471,13 +563,15 @@ app.get('/map/device.rgb565', async (req, res) => {
             const px =
                 Math.floor(
                     width / 2 +
-                    dxMeters / metersPerPixel
+                    dxMeters /
+                    metersPerPixel
                 );
 
             const py =
                 Math.floor(
                     height / 2 -
-                    dyMeters / metersPerPixel
+                    dyMeters /
+                    metersPerPixel
                 );
 
             return {
@@ -487,26 +581,45 @@ app.get('/map/device.rgb565', async (req, res) => {
         }
 
         const maxDraw =
-            Math.min(points.length, 200);
+            Math.min(
+                points.length,
+                200
+            );
 
         if (maxDraw >= 2) {
 
-            ctx.strokeStyle = '#1f77b4';
+            ctx.strokeStyle =
+                '#1f77b4';
+
             ctx.lineWidth = 3;
 
-            let first = true;
+            let lastX = null;
+            let lastY = null;
+            let started = false;
 
             for (
-                let i = points.length - maxDraw;
+                let i =
+                    points.length -
+                    maxDraw;
+
                 i < points.length;
+
                 i++
             ) {
 
-                const p = points[i];
+                const p =
+                    points[i];
 
                 const pt =
-                    toPixel(p.lat, p.lon);
+                    toPixel(
+                        p.lat,
+                        p.lon
+                    );
 
+                /*
+                 * Ignore points outside the
+                 * visible screen.
+                 */
                 if (
                     pt.x < -10 ||
                     pt.x > width + 10 ||
@@ -516,7 +629,20 @@ app.get('/map/device.rgb565', async (req, res) => {
                     continue;
                 }
 
-                if (first) {
+                /*
+                 * Ignore duplicate projected
+                 * pixels. PureImage doesn't
+                 * like zero-length paths.
+                 */
+                if (
+                    lastX !== null &&
+                    pt.x === lastX &&
+                    pt.y === lastY
+                ) {
+                    continue;
+                }
+
+                if (!started) {
 
                     ctx.beginPath();
 
@@ -525,7 +651,7 @@ app.get('/map/device.rgb565', async (req, res) => {
                         pt.y + 0.5
                     );
 
-                    first = false;
+                    started = true;
 
                 } else {
 
@@ -534,9 +660,12 @@ app.get('/map/device.rgb565', async (req, res) => {
                         pt.y + 0.5
                     );
                 }
+
+                lastX = pt.x;
+                lastY = pt.y;
             }
 
-            if (!first) {
+            if (started) {
                 ctx.stroke();
             }
         }
@@ -547,52 +676,81 @@ app.get('/map/device.rgb565', async (req, res) => {
          * --------------------------------------------------
          */
 
-        const mx = Math.floor(width / 2);
-        const my = Math.floor(height / 2);
+        const mx =
+            Math.floor(width / 2);
+
+        const my =
+            Math.floor(height / 2);
 
         const markerSize =
             Math.max(
                 8,
                 Math.floor(
-                    Math.min(width, height) * 0.06
+                    Math.min(
+                        width,
+                        height
+                    ) * 0.06
                 )
             );
 
         /*
-         * White outline
+         * White outline.
          */
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle =
+            '#ffffff';
 
         ctx.fillRect(
-            mx - Math.floor(markerSize / 2) - 2,
-            my - Math.floor(markerSize / 2) - 2,
+            mx -
+                Math.floor(
+                    markerSize / 2
+                ) -
+                2,
+
+            my -
+                Math.floor(
+                    markerSize / 2
+                ) -
+                2,
+
             markerSize + 4,
             markerSize + 4
         );
 
         /*
-         * Red center
+         * Red center.
          */
-        ctx.fillStyle = '#d62728';
+        ctx.fillStyle =
+            '#d62728';
 
         ctx.fillRect(
-            mx - Math.floor(markerSize / 2),
-            my - Math.floor(markerSize / 2),
+            mx -
+                Math.floor(
+                    markerSize / 2
+                ),
+
+            my -
+                Math.floor(
+                    markerSize / 2
+                ),
+
             markerSize,
             markerSize
         );
 
         /*
          * --------------------------------------------------
-         * Convert RGBA -> RGB565 little-endian
+         * RGBA -> RGB565
          * --------------------------------------------------
          */
 
-        const data = img.data;
+        const data =
+            img.data;
 
         const out =
             Buffer.alloc(
-                width * height * 2
+                width *
+                height *
+                2
             );
 
         for (
@@ -601,16 +759,23 @@ app.get('/map/device.rgb565', async (req, res) => {
             i++
         ) {
 
-            const r = data[i * 4];
-            const g = data[i * 4 + 1];
-            const b = data[i * 4 + 2];
+            const r =
+                data[i * 4];
+
+            const g =
+                data[i * 4 + 1];
+
+            const b =
+                data[i * 4 + 2];
 
             const rgb565 =
                 ((r >> 3) << 11) |
                 ((g >> 2) << 5) |
                 (b >> 3);
 
-            // Little endian
+            /*
+             * Little endian.
+             */
             out[i * 2] =
                 rgb565 & 0xFF;
 
@@ -619,8 +784,11 @@ app.get('/map/device.rgb565', async (req, res) => {
         }
 
         /*
-         * Send raw RGB565 to ESP32.
+         * --------------------------------------------------
+         * Send RGB565 to ESP32
+         * --------------------------------------------------
          */
+
         res.set(
             'Content-Type',
             'application/octet-stream'
@@ -634,6 +802,10 @@ app.get('/map/device.rgb565', async (req, res) => {
         res.set(
             'Cache-Control',
             'no-cache, no-store, must-revalidate'
+        );
+
+        console.log(
+            `[Map] Sending ${out.length} bytes`
         );
 
         return res.send(out);
