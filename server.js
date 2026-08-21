@@ -267,8 +267,8 @@ app.get('/map/device.rgb565', async (req, res) => {
     if (req.query.zoom) {
         zoom = parseInt(req.query.zoom);
     } else {
-        // Target approximately 50 meters across the screen
-        const desiredWidthMeters = 50.0;
+        // Target approximately 200 meters across the screen
+        const desiredWidthMeters = 200.0;
         const latRadForZoom = lat * Math.PI / 180.0;
         const metersPerPixelTarget = desiredWidthMeters / width;
 
