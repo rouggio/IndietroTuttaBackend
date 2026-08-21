@@ -261,78 +261,385 @@ app.get('/map/device.rgb565', async (req, res) => {
 
     const width = parseInt(req.query.width) || 320;
     const height = parseInt(req.query.height) || 240;
-    const zoom = parseInt(req.query.zoom) || 15;
+
+    let zoom;
+
+    if (req.query.zoom) {
+        zoom = parseInt(req.query.zoom);
+    } else {
+        // Target approximately 50 meters across the screen
+        const desiredWidthMeters = 50.0;
+        const latRadForZoom = lat * Math.PI / 180.0;
+        const metersPerPixelTarget = desiredWidthMeters / width;
+
+        const rawZoom =
+            Math.log2(
+                156543.03392 *
+                Math.cos(latRadForZoom) /
+                metersPerPixelTarget
+            );
+
+        zoom = Math.max(0, Math.min(19, Math.floor(rawZoom)));
+    }
+
+    function lon2xtile(lon, z) {
+        return (lon + 180) / 360 * Math.pow(2, z);
+    }
+
+    function lat2ytile(lat, z) {
+        const latRad = lat * Math.PI / 180;
+
+        return (
+            (1 -
+                Math.log(
+                    Math.tan(latRad) +
+                    1 / Math.cos(latRad)
+                ) / Math.PI
+            ) / 2
+        ) * Math.pow(2, z);
+    }
 
     try {
-        // For simplicity, render same offline map as fallback (grid + polyline)
+        const tileSize = 256;
+
+        const centerX = lon2xtile(lon, zoom);
+        const centerY = lat2ytile(lat, zoom);
+
+        const tileX = Math.floor(centerX);
+        const tileY = Math.floor(centerY);
+
+        const pixelOffsetX =
+            Math.floor((centerX - tileX) * tileSize);
+
+        const pixelOffsetY =
+            Math.floor((centerY - tileY) * tileSize);
+
+        /*
+         * We need enough tiles to guarantee that the
+         * 320x240 viewport is covered.
+         *
+         * 3x3 is sufficient for a 320x240 screen.
+         */
+        const bigN = 3;
+        const bigW = bigN * tileSize;
+        const bigH = bigN * tileSize;
+
+        const bigImg = PImage.make(bigW, bigH);
+        const bigCtx = bigImg.getContext('2d');
+
+        // Fallback background
+        bigCtx.fillStyle = '#e8edf0';
+        bigCtx.fillRect(0, 0, bigW, bigH);
+
+        const tileBase = 'https://tile.openstreetmap.org';
+
+        /*
+         * Download and compose the 3x3 tile area.
+         */
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+
+                let tx = tileX + dx;
+                let ty = tileY + dy;
+
+                /*
+                 * Horizontal world wrapping.
+                 */
+                const tilesPerSide = Math.pow(2, zoom);
+
+                tx = ((tx % tilesPerSide) + tilesPerSide) %
+                     tilesPerSide;
+
+                /*
+                 * Don't request tiles outside the valid
+                 * vertical range.
+                 */
+                if (ty < 0 || ty >= tilesPerSide) {
+                    continue;
+                }
+
+                const url =
+                    `${tileBase}/${zoom}/${tx}/${ty}.png`;
+
+                const drawX = (dx + 1) * tileSize;
+                const drawY = (dy + 1) * tileSize;
+
+                try {
+                    const tResp = await fetch(url);
+
+                    if (tResp.ok) {
+                        const tileImg =
+                            await PImage.decodePNGFromStream(
+                                tResp.body
+                            );
+
+                        bigCtx.drawImage(
+                            tileImg,
+                            drawX,
+                            drawY
+                        );
+                    }
+                } catch (e) {
+                    console.error(
+                        `[Map] Tile failed ${zoom}/${tx}/${ty}:`,
+                        e.message
+                    );
+
+                    // Keep fallback background
+                }
+            }
+        }
+
+        /*
+         * Position of GPS location inside the large image.
+         */
+        const centerPixelX =
+            tileSize + pixelOffsetX;
+
+        const centerPixelY =
+            tileSize + pixelOffsetY;
+
+        /*
+         * Crop a 320x240 viewport centered on GPS.
+         */
+        let cropX =
+            Math.floor(centerPixelX - width / 2);
+
+        let cropY =
+            Math.floor(centerPixelY - height / 2);
+
+        /*
+         * Keep crop inside the composed image.
+         */
+        cropX = Math.max(
+            0,
+            Math.min(cropX, bigW - width)
+        );
+
+        cropY = Math.max(
+            0,
+            Math.min(cropY, bigH - height)
+        );
+
         const img = PImage.make(width, height);
         const ctx = img.getContext('2d');
 
-        // background
-        ctx.fillStyle = '#e8edf0';
-        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(
+            bigImg,
+            -cropX,
+            -cropY
+        );
 
-        // grid
-        ctx.fillStyle = '#dfe6ea';
-        const gridSize = 32;
-        for (let x = 0; x < width; x += gridSize) ctx.fillRect(x, 0, 1, height);
-        for (let y = 0; y < height; y += gridSize) ctx.fillRect(0, y, width, 1);
+        /*
+         * --------------------------------------------------
+         * Draw GPS track
+         * --------------------------------------------------
+         */
 
-        // draw track as before
-        const latRad = (lat * Math.PI) / 180.0;
-        const metersPerPixel = 156543.03392 * Math.cos(latRad) / Math.pow(2, zoom);
-        const metersPerDegLat = 111132.92; // approx
-        const metersPerDegLon = 111319.49 * Math.cos(latRad);
+        const latRad = lat * Math.PI / 180.0;
+
+        const metersPerPixel =
+            156543.03392 *
+            Math.cos(latRad) /
+            Math.pow(2, zoom);
+
+        const metersPerDegLat = 111132.92;
+
+        const metersPerDegLon =
+            111319.49 *
+            Math.cos(latRad);
+
         function toPixel(ptLat, ptLon) {
+
             const dLat = ptLat - lat;
             const dLon = ptLon - lon;
-            const dxMeters = dLon * metersPerDegLon;
-            const dyMeters = dLat * metersPerDegLat;
-            const px = Math.floor(width / 2 + dxMeters / metersPerPixel);
-            const py = Math.floor(height / 2 - dyMeters / metersPerPixel);
-            return {x: px, y: py};
+
+            const dxMeters =
+                dLon * metersPerDegLon;
+
+            const dyMeters =
+                dLat * metersPerDegLat;
+
+            const px =
+                Math.floor(
+                    width / 2 +
+                    dxMeters / metersPerPixel
+                );
+
+            const py =
+                Math.floor(
+                    height / 2 -
+                    dyMeters / metersPerPixel
+                );
+
+            return {
+                x: px,
+                y: py
+            };
         }
 
-        const maxDraw = Math.min(points.length, 200);
+        const maxDraw =
+            Math.min(points.length, 200);
+
         if (maxDraw >= 2) {
+
             ctx.strokeStyle = '#1f77b4';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 3;
+
             let first = true;
-            for (let i = points.length - maxDraw; i < points.length; i++) {
+
+            for (
+                let i = points.length - maxDraw;
+                i < points.length;
+                i++
+            ) {
+
                 const p = points[i];
-                const pt = toPixel(p.lat, p.lon);
-                if (first) { ctx.beginPath(); ctx.moveTo(pt.x+0.5, pt.y+0.5); first=false; }
-                else { ctx.lineTo(pt.x+0.5, pt.y+0.5); }
+
+                const pt =
+                    toPixel(p.lat, p.lon);
+
+                if (
+                    pt.x < -10 ||
+                    pt.x > width + 10 ||
+                    pt.y < -10 ||
+                    pt.y > height + 10
+                ) {
+                    continue;
+                }
+
+                if (first) {
+
+                    ctx.beginPath();
+
+                    ctx.moveTo(
+                        pt.x + 0.5,
+                        pt.y + 0.5
+                    );
+
+                    first = false;
+
+                } else {
+
+                    ctx.lineTo(
+                        pt.x + 0.5,
+                        pt.y + 0.5
+                    );
+                }
             }
-            ctx.stroke();
+
+            if (!first) {
+                ctx.stroke();
+            }
         }
 
-        // center marker
+        /*
+         * --------------------------------------------------
+         * Current position marker
+         * --------------------------------------------------
+         */
+
         const mx = Math.floor(width / 2);
         const my = Math.floor(height / 2);
-        const mSize = Math.max(6, Math.floor(Math.min(width, height) * 0.06));
-        ctx.fillStyle = '#d62728';
-        ctx.fillRect(mx - Math.floor(mSize/2), my - Math.floor(mSize/2), mSize, mSize);
 
-        // convert RGBA buffer to RGB565 little-endian
-        const data = img.data; // Uint8Array
-        const out = Buffer.alloc(width * height * 2);
-        for (let i = 0; i < width * height; i++) {
-            const r = data[i*4];
-            const g = data[i*4 + 1];
-            const b = data[i*4 + 2];
-            const rgb565 = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
-            out[i*2] = rgb565 & 0xFF; // LSB
-            out[i*2 + 1] = (rgb565 >> 8) & 0xFF; // MSB
+        const markerSize =
+            Math.max(
+                8,
+                Math.floor(
+                    Math.min(width, height) * 0.06
+                )
+            );
+
+        /*
+         * White outline
+         */
+        ctx.fillStyle = '#ffffff';
+
+        ctx.fillRect(
+            mx - Math.floor(markerSize / 2) - 2,
+            my - Math.floor(markerSize / 2) - 2,
+            markerSize + 4,
+            markerSize + 4
+        );
+
+        /*
+         * Red center
+         */
+        ctx.fillStyle = '#d62728';
+
+        ctx.fillRect(
+            mx - Math.floor(markerSize / 2),
+            my - Math.floor(markerSize / 2),
+            markerSize,
+            markerSize
+        );
+
+        /*
+         * --------------------------------------------------
+         * Convert RGBA -> RGB565 little-endian
+         * --------------------------------------------------
+         */
+
+        const data = img.data;
+
+        const out =
+            Buffer.alloc(
+                width * height * 2
+            );
+
+        for (
+            let i = 0;
+            i < width * height;
+            i++
+        ) {
+
+            const r = data[i * 4];
+            const g = data[i * 4 + 1];
+            const b = data[i * 4 + 2];
+
+            const rgb565 =
+                ((r >> 3) << 11) |
+                ((g >> 2) << 5) |
+                (b >> 3);
+
+            // Little endian
+            out[i * 2] =
+                rgb565 & 0xFF;
+
+            out[i * 2 + 1] =
+                (rgb565 >> 8) & 0xFF;
         }
 
-        res.set('Content-Type', 'application/octet-stream');
-        res.set('Content-Length', out.length);
+        /*
+         * Send raw RGB565 to ESP32.
+         */
+        res.set(
+            'Content-Type',
+            'application/octet-stream'
+        );
+
+        res.set(
+            'Content-Length',
+            out.length
+        );
+
+        res.set(
+            'Cache-Control',
+            'no-cache, no-store, must-revalidate'
+        );
+
         return res.send(out);
 
     } catch (err) {
-        console.error('RGB565 render error', err);
-        return res.status(500).send('Failed to render RGB565');
+
+        console.error(
+            '[Map] RGB565 render error:',
+            err
+        );
+
+        return res.status(500).send(
+            'Failed to render RGB565 map'
+        );
     }
 });
 
