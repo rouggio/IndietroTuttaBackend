@@ -365,9 +365,15 @@ app.get('/map/device.rgb565', async (req, res) => {
                 const drawY = (dy + 1) * tileSize;
 
                 try {
-                    const tResp = await fetch(url);
+                    const tResp = await fetch(url, {
+                        headers: {
+                            'User-Agent': 'ESP32-Map-Project/1.0'
+                        }
+                    });
 
                     if (tResp.ok) {
+                        console.log(`[Map] Tile OK: ${zoom}/${tx}/${ty}`);
+
                         const tileImg =
                             await PImage.decodePNGFromStream(
                                 tResp.body
@@ -378,14 +384,16 @@ app.get('/map/device.rgb565', async (req, res) => {
                             drawX,
                             drawY
                         );
+                    } else {
+                        console.error(
+                            `[Map] Tile HTTP ${tResp.status}: ${zoom}/${tx}/${ty}`
+                        );
                     }
                 } catch (e) {
                     console.error(
                         `[Map] Tile failed ${zoom}/${tx}/${ty}:`,
-                        e.message
+                        e
                     );
-
-                    // Keep fallback background
                 }
             }
         }
