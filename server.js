@@ -196,7 +196,38 @@ app.get('/map/device.png', async (req, res) => {
 
         const img = PImage.make(width, height);
         const ctx = img.getContext('2d');
-        ctx.drawImage(bigImg, -cropX, -cropY);
+
+        /*
+        * Copy the cropped region pixel-by-pixel.
+        *
+        * PureImage stores pixels as RGBA bytes.
+        */
+        for (let y = 0; y < height; y++) {
+
+            for (let x = 0; x < width; x++) {
+
+                const srcX = cropX + x;
+                const srcY = cropY + y;
+
+                const srcIndex =
+                    (srcY * bigW + srcX) * 4;
+
+                const dstIndex =
+                    (y * width + x) * 4;
+
+                img.data[dstIndex] =
+                    bigImg.data[srcIndex];
+
+                img.data[dstIndex + 1] =
+                    bigImg.data[srcIndex + 1];
+
+                img.data[dstIndex + 2] =
+                    bigImg.data[srcIndex + 2];
+
+                img.data[dstIndex + 3] =
+                    bigImg.data[srcIndex + 3];
+            }
+        }
 
         // draw simple track
         const latRad = (lat * Math.PI)/180.0;
