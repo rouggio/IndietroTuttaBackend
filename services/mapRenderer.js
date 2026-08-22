@@ -170,10 +170,6 @@ async function composeTiles(
 
             try {
 
-                console.log(
-                    `[Map] Downloading tile ${zoom}/${tx}/${ty}`
-                );
-
                 const response =
                     await fetch(url, {
                         headers: {
@@ -191,10 +187,6 @@ async function composeTiles(
 
                     continue;
                 }
-
-                console.log(
-                    `[Map] Tile OK ${zoom}/${tx}/${ty}`
-                );
 
                 const tileImg =
                     await PImage.decodePNGFromStream(
@@ -516,11 +508,6 @@ async function renderMap({
                 MAP.RGB565_WIDTH_METERS
             );
     }
-
-    console.log(
-        `[Map] Render ${width}x${height}, ` +
-        `lat=${lat}, lon=${lon}, zoom=${zoom}`
-    );
 
     const composed =
         await composeTiles(
