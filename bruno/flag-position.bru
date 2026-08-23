@@ -1,0 +1,29 @@
+meta {
+  name: Flag position
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/gps
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  DeviceId: {{deviceId}}
+}
+
+body:json {
+  {
+    "lat": 39.925,
+    "lon": 9.655,
+    "speed": 0.0,
+    "course": 0.0,
+    "altitude": 12.3,
+    "sats": 9,
+    "flagged": true,
+    "username": "{{username}}"
+  }
+}

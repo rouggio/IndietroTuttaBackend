@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "IndietroTutta Backend",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

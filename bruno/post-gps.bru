@@ -1,0 +1,29 @@
+meta {
+  name: Post GPS position
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/gps
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  DeviceId: {{deviceId}}
+}
+
+body:json {
+  {
+    "lat": 39.92,
+    "lon": 9.65,
+    "speed": 5.2,
+    "course": 180.0,
+    "altitude": 12.3,
+    "sats": 9,
+    "flagged": false,
+    "username": "{{username}}"
+  }
+}
