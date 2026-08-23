@@ -6,6 +6,12 @@ const {
     getLatestPoint
 } = require("../store/gpsStore");
 
+const {
+    upsertDevice,
+    getDevice,
+    sanitizeUsername
+} = require("../store/deviceStore");
+
 const router = express.Router();
 
 // --------------------------------------------------
@@ -24,6 +30,7 @@ router.post("/gps", (req, res) => {
         altitude = null,
         sats = null,
         flagged = false,
+        username = null,
         timestamp = new Date().toISOString()
     } = req.body;
 
@@ -51,6 +58,12 @@ router.post("/gps", (req, res) => {
     }
 
     // --------------------------------------------------
+    // Register/update the device identity (keyed by MAC)
+    // --------------------------------------------------
+
+    const device = upsertDevice(deviceId, { username });
+
+    // --------------------------------------------------
     // Store point
     // --------------------------------------------------
 
@@ -64,7 +77,10 @@ router.post("/gps", (req, res) => {
         flagged,
         timestamp,
         receivedAt: new Date().toISOString(),
-        deviceId
+        deviceId,
+        username: sanitizeUsername(username) ||
+                  (device && device.username) ||
+                  null
     });
 
     // --------------------------------------------------
