@@ -146,3 +146,82 @@ html, body {
     padding-left: 4px;
     padding-right: 4px;
 }
+
+/* Builder panel */
+#builder-panel {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    z-index: 1000;
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    min-width: 260px;
+    max-width: 320px;
+    max-height: 45vh;
+    overflow-y: auto;
+}
+
+#builder-panel h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+}
+
+#builder-panel button {
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    background: #e5e7eb;
+}
+
+#builder-panel button:hover {
+    background: #d1d5db;
+}
+
+.course-item {
+    padding: 6px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.course-item:hover {
+    background: #f3f4f6;
+}
+
+.course-item.active {
+    background: #eff6ff;
+    border-color: #3b82f6;
+}
+
+.mark-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0;
+    font-size: 12px;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.mark-row select, .mark-row input {
+    padding: 3px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.builder-marker {
+    background: #f59e0b;
+    border: 2px solid #d97706;
+    border-radius: 50%;
+    text-align: center;
+    font-weight: bold;
+    color: white;
+    font-size: 11px;
+    line-height: 18px;
+}

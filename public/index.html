@@ -23,6 +23,28 @@
     <div id="device-list">Loading...</div>
 </div>
 
+<div id="builder-panel">
+    <h4>Courses <button id="toggleBuilderBtn" style="float:right;border:none;background:none;cursor:pointer">▾</button></h4>
+    <div id="builder-content">
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+            <select id="templateSelect" style="flex:1"><option>Loading templates...</option></select>
+            <button id="createCourseBtn">New</button>
+        </div>
+        <div id="course-list"></div>
+        <div id="course-editor" style="display:none;margin-top:10px;border-top:1px solid #e5e7eb;padding-top:10px">
+            <input id="courseName" placeholder="Course name" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px">
+            <textarea id="courseDesc" placeholder="Description" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px" rows="2"></textarea>
+            <div id="mark-list" style="max-height:150px;overflow-y:auto"></div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+                <button id="saveCourseBtn" style="background:#16a34a;color:white">Save</button>
+                <button id="cancelCourseBtn">Cancel</button>
+                <button id="deleteCourseBtn" style="background:#dc2626;color:white;margin-left:auto">Delete</button>
+            </div>
+            <small style="color:#6b7280">Click map to add mark • Drag marks to move</small>
+        </div>
+    </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="app.js"></script>
 

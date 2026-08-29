@@ -16,7 +16,9 @@ function validateCourse({ name, marks }) {
     if (!Array.isArray(marks) || marks.length === 0) return "marks array required";
     if (marks.length > 10) return "max 10 marks";
     for (const m of marks) {
-        if (typeof m.latOffset !== "number" || typeof m.lonOffset !== "number") return "each mark needs latOffset/lonOffset numbers";
+        const hasLat = typeof m.lat === "number" || typeof m.latOffset === "number";
+        const hasLon = typeof m.lon === "number" || typeof m.lonOffset === "number";
+        if (!hasLat || !hasLon) return "each mark needs lat/lon or latOffset/lonOffset numbers";
         if (m.radius != null && typeof m.radius !== "number") return "radius must be number";
         if (m.side && !["P","S","G"].includes(m.side)) return "side must be P/S/G";
     }

@@ -215,3 +215,200 @@ setInterval(() => {
 document.addEventListener("visibilitychange", () => {
     if (!document.hidden) { refresh(); refreshDevices(); }
 });
+
+// --- Course Builder ---
+const templateSelect = document.getElementById("templateSelect");
+const createCourseBtn = document.getElementById("createCourseBtn");
+const courseListEl = document.getElementById("course-list");
+const courseEditor = document.getElementById("course-editor");
+const courseNameEl = document.getElementById("courseName");
+const courseDescEl = document.getElementById("courseDesc");
+const markListEl = document.getElementById("mark-list");
+const saveCourseBtn = document.getElementById("saveCourseBtn");
+const cancelCourseBtn = document.getElementById("cancelCourseBtn");
+const deleteCourseBtn = document.getElementById("deleteCourseBtn");
+const toggleBuilderBtn = document.getElementById("toggleBuilderBtn");
+
+let templates = [];
+let courses = [];
+let editingId = null;
+let editingMarks = [];
+let builderMarkers = [];
+let builderPolyline = null;
+
+async function loadTemplates() {
+    try {
+        const res = await fetch("/courses/templates");
+        templates = await res.json();
+        templateSelect.innerHTML = templates.map(t => `<option value="${t.id}">${t.name} — ${t.description}</option>`).join("");
+    } catch (e) { templateSelect.innerHTML = '<option>Failed to load</option>'; }
+}
+
+async function loadCourses() {
+    try {
+        const res = await fetch("/courses");
+        courses = await res.json();
+        renderCourseList();
+    } catch (e) { console.error(e); }
+}
+
+function renderCourseList() {
+    if (courses.length === 0) {
+        courseListEl.innerHTML = '<div class="device-meta">No courses yet — pick a template</div>';
+        return;
+    }
+    courseListEl.innerHTML = courses.map(c => `
+        <div class="course-item ${editingId===c.id?'active':''}" data-id="${c.id}">
+            <div><strong>${c.name}</strong> <span class="device-meta">v${c.version} • ${c.marks.length} marks</span></div>
+            <div class="device-meta">${c.description||''}</div>
+        </div>
+    `).join("");
+    courseListEl.querySelectorAll(".course-item").forEach(el => {
+        el.addEventListener("click", () => startEdit(el.getAttribute("data-id")));
+    });
+}
+
+function renderBuilder() {
+    // clear old markers/polyline
+    builderMarkers.forEach(m => map.removeLayer(m));
+    builderMarkers = [];
+    if (builderPolyline) { map.removeLayer(builderPolyline); builderPolyline = null; }
+
+    if (editingMarks.length === 0) {
+        markListEl.innerHTML = '<div class="device-meta">Click map to add marks</div>';
+        return;
+    }
+
+    const latlngs = [];
+    editingMarks.forEach((m, idx) => {
+        const lat = m.lat != null ? m.lat : (map.getCenter().lat + (m.latOffset||0));
+        const lon = m.lon != null ? m.lon : (map.getCenter().lng + (m.lonOffset||0));
+        // keep absolute for editing
+        m.lat = lat; m.lon = lon; delete m.latOffset; delete m.lonOffset;
+        latlngs.push([lat, lon]);
+
+        const marker = L.marker([lat, lon], {
+            draggable: true,
+            icon: L.divIcon({ className: 'builder-marker', html: `${idx+1}`, iconSize: [22,22] })
+        }).addTo(map);
+        marker.on('dragend', e => {
+            const ll = e.target.getLatLng();
+            m.lat = ll.lat; m.lon = ll.lng;
+            renderBuilder();
+        });
+        marker.bindPopup(`Mark ${idx+1}<br><small>${lat.toFixed(5)}, ${lon.toFixed(5)}</small>`);
+        builderMarkers.push(marker);
+    });
+
+    builderPolyline = L.polyline(latlngs, { color: '#f59e0b', weight: 3, dashArray: '8 8' }).addTo(map);
+
+    markListEl.innerHTML = editingMarks.map((m, idx) => `
+        <div class="mark-row">
+            <span style="min-width:20px;font-weight:bold">${idx+1}</span>
+            <span style="flex:1">${m.lat.toFixed(5)}, ${m.lon.toFixed(5)}</span>
+            <select data-idx="${idx}" data-field="side">
+                <option value="P" ${m.side==='P'?'selected':''}>P</option>
+                <option value="S" ${m.side==='S'?'selected':''}>S</option>
+                <option value="G" ${m.side==='G'?'selected':''}>G</option>
+            </select>
+            <input type="number" data-idx="${idx}" data-field="radius" value="${m.radius||30}" style="width:50px" title="radius m">
+            <button data-idx="${idx}" data-action="remove" style="background:#fee2e2">×</button>
+        </div>
+    `).join("");
+
+    markListEl.querySelectorAll("select, input").forEach(el => {
+        el.addEventListener("change", e => {
+            const idx = +e.target.getAttribute("data-idx");
+            const field = e.target.getAttribute("data-field");
+            editingMarks[idx][field] = field === 'radius' ? parseInt(e.target.value,10) : e.target.value;
+        });
+    });
+    markListEl.querySelectorAll("button[data-action='remove']").forEach(el => {
+        el.addEventListener("click", e => {
+            const idx = +e.target.getAttribute("data-idx");
+            editingMarks.splice(idx, 1);
+            renderBuilder();
+        });
+    });
+}
+
+function startEdit(id) {
+    const c = courses.find(x => x.id === id);
+    if (!c) return;
+    editingId = id;
+    editingMarks = JSON.parse(JSON.stringify(c.marks));
+    courseNameEl.value = c.name;
+    courseDescEl.value = c.description || "";
+    courseEditor.style.display = "block";
+    renderCourseList();
+    renderBuilder();
+    if (editingMarks.length > 0) {
+        const bounds = L.latLngBounds(editingMarks.map(m => [m.lat || (map.getCenter().lat + m.latOffset), m.lon || (map.getCenter().lng + m.lonOffset)]));
+        map.fitBounds(bounds.pad(0.3));
+    }
+}
+
+function startNewFromTemplate() {
+    const tid = templateSelect.value;
+    const tmpl = templates.find(t => t.id === tid);
+    if (!tmpl) return;
+    const center = map.getCenter();
+    editingId = null;
+    editingMarks = tmpl.marks.map(m => ({
+        lat: center.lat + (m.latOffset || 0),
+        lon: center.lng + (m.lonOffset || 0),
+        radius: m.radius || 30,
+        side: m.side || "P",
+        type: m.type || "mark"
+    }));
+    courseNameEl.value = tmpl.name + " Copy";
+    courseDescEl.value = tmpl.description || "";
+    courseEditor.style.display = "block";
+    renderBuilder();
+}
+
+createCourseBtn.addEventListener("click", startNewFromTemplate);
+cancelCourseBtn.addEventListener("click", () => {
+    editingId = null;
+    editingMarks = [];
+    courseEditor.style.display = "none";
+    builderMarkers.forEach(m => map.removeLayer(m)); builderMarkers = [];
+    if (builderPolyline) { map.removeLayer(builderPolyline); builderPolyline = null; }
+    renderCourseList();
+});
+deleteCourseBtn.addEventListener("click", async () => {
+    if (!editingId) return;
+    if (!confirm("Delete course?")) return;
+    await fetch(`/courses/${editingId}`, { method: "DELETE" });
+    editingId = null; editingMarks = []; courseEditor.style.display = "none";
+    await loadCourses(); renderBuilder();
+});
+saveCourseBtn.addEventListener("click", async () => {
+    const name = courseNameEl.value.trim();
+    if (!name) { alert("Name required"); return; }
+    if (editingMarks.length === 0) { alert("Add at least one mark"); return; }
+    const payload = { name, description: courseDescEl.value, marks: editingMarks };
+    if (editingId) {
+        await fetch(`/courses/${editingId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    } else {
+        const res = await fetch("/courses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const created = await res.json();
+        editingId = created.id;
+    }
+    await loadCourses(); renderCourseList(); renderBuilder();
+});
+toggleBuilderBtn.addEventListener("click", () => {
+    const content = document.getElementById("builder-content");
+    const hidden = content.style.display === "none";
+    content.style.display = hidden ? "block" : "none";
+    toggleBuilderBtn.textContent = hidden ? "▾" : "▸";
+});
+
+map.on("click", e => {
+    if (courseEditor.style.display === "none") return;
+    editingMarks.push({ lat: e.latlng.lat, lon: e.latlng.lng, radius: 30, side: "P", type: "mark" });
+    renderBuilder();
+});
+
+loadTemplates();
+loadCourses();
