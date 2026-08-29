@@ -72,6 +72,13 @@
     </div>
 </div>
 
+<div id="playback">
+    <button id="playBtn">▶</button>
+    <input type="range" id="playSlider" min="0" max="100" value="0" style="flex:1">
+    <select id="playSpeed"><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option></select>
+    <span id="playLabel">0/0</span>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="app.js"></script>
 

@@ -569,3 +569,102 @@ loadCourses = async function() {
 loadRaces();
 refreshDevicesForRace();
 setInterval(() => { if (document.getElementById("race-editor").style.display === "none") loadRaces(); }, 8000);
+
+// --- Playback ---
+const playBtn = document.getElementById("playBtn");
+const playSlider = document.getElementById("playSlider");
+const playSpeedSel = document.getElementById("playSpeed");
+const playLabel = document.getElementById("playLabel");
+
+let playbackPoints = [];
+let playbackIdx = 0;
+let playbackTimer = null;
+let playbackSpeed = 1;
+
+function updatePlaybackSlider() {
+    if (playbackPoints.length === 0) {
+        playSlider.max = 100;
+        playSlider.value = 0;
+        playLabel.textContent = "0/0";
+        return;
+    }
+    playSlider.max = playbackPoints.length - 1;
+    playSlider.value = playbackIdx;
+    playLabel.textContent = `${playbackIdx+1}/${playbackPoints.length}`;
+}
+
+function showPlaybackPoint(idx) {
+    if (playbackPoints.length === 0) return;
+    playbackIdx = Math.max(0, Math.min(idx, playbackPoints.length - 1));
+    const p = playbackPoints[playbackIdx];
+    const latlng = [p.lat, p.lon];
+    if (marker) marker.setLatLng(latlng);
+    else marker = L.marker(latlng).addTo(map);
+    info.update(p);
+    playSlider.value = playbackIdx;
+    playLabel.textContent = `${playbackIdx+1}/${playbackPoints.length}`;
+    // keep polyline as full race, but pan to playback point
+    map.panTo(latlng);
+}
+
+function startPlayback() {
+    if (playbackPoints.length === 0) return;
+    if (playbackTimer) return;
+    playBtn.textContent = "⏸";
+    playbackTimer = setInterval(() => {
+        if (playbackIdx >= playbackPoints.length - 1) {
+            stopPlayback();
+            return;
+        }
+        showPlaybackPoint(playbackIdx + 1);
+    }, 800 / playbackSpeed);
+}
+
+function stopPlayback() {
+    if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
+    playBtn.textContent = "▶";
+}
+
+playBtn.addEventListener("click", () => {
+    if (playbackTimer) stopPlayback();
+    else startPlayback();
+});
+
+playSlider.addEventListener("input", e => {
+    stopPlayback();
+    showPlaybackPoint(parseInt(e.target.value, 10));
+});
+
+playSpeedSel.addEventListener("change", e => {
+    playbackSpeed = parseInt(e.target.value, 10);
+    if (playbackTimer) { stopPlayback(); startPlayback(); }
+});
+
+// Hook into refresh to update playbackPoints
+const origRefresh = refresh;
+refresh = async function() {
+    await origRefresh();
+    // after refresh, update playbackPoints from current gps data (filtered)
+    try {
+        const params = new URLSearchParams();
+        if (selectedDate) params.set("date", selectedDate);
+        if (selectedDeviceId) params.set("deviceId", selectedDeviceId);
+        const qs = params.toString() ? `?${params.toString()}` : "";
+        const res = await fetch(`/gps${qs}`);
+        playbackPoints = await res.json();
+        // keep idx in bounds
+        if (playbackIdx >= playbackPoints.length) playbackIdx = playbackPoints.length - 1;
+        updatePlaybackSlider();
+        // if not playing, show latest
+        if (!playbackTimer && playbackPoints.length > 0) {
+            // don't override manual slider position if user is scrubbing? just update label
+        }
+    } catch {}
+};
+
+// Initialize playback after first refresh
+setTimeout(async () => {
+    await refresh();
+    playbackPoints = await (await fetch(`/gps?date=${todayStr()}`)).json().catch(()=>[]);
+    updatePlaybackSlider();
+}, 1000);
