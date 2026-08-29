@@ -67,6 +67,18 @@ async function initDb() {
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_flagged ON gps_points(flagged)`);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_timestamp ON gps_points(timestamp)`);
 
+        await c.execute(`
+            CREATE TABLE IF NOT EXISTS courses (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                marks TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                createdAt TEXT NOT NULL,
+                updatedAt TEXT NOT NULL
+            )
+        `);
+
         console.log("[DB] Turso tables ready");
 
         // Enforce MAX_POINTS via trigger or app-level trim - keep app trim for now
