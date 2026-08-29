@@ -45,6 +45,33 @@
     </div>
 </div>
 
+<div id="race-panel">
+    <h4>Races <button id="toggleRaceBtn" style="float:right;border:none;background:none;cursor:pointer">▾</button></h4>
+    <div id="race-content">
+        <div id="race-list"></div>
+        <button id="newRaceBtn" style="width:100%;margin-top:6px">+ New Race</button>
+        <div id="race-editor" style="display:none;margin-top:10px;border-top:1px solid #e5e7eb;padding-top:10px">
+            <input id="raceName" placeholder="Race name" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px">
+            <select id="raceCourseSelect" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px"><option value="">-- Course --</option></select>
+            <input id="raceStartTime" type="datetime-local" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px">
+            <select id="raceStatus" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px">
+                <option value="scheduled">scheduled</option>
+                <option value="live">live</option>
+                <option value="finished">finished</option>
+                <option value="protest">protest</option>
+                <option value="final">final</option>
+            </select>
+            <div style="margin-bottom:6px"><strong>Participants</strong> <small>(devices)</small></div>
+            <div id="raceParticipants" style="max-height:100px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:6px"></div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+                <button id="saveRaceBtn" style="background:#16a34a;color:white">Save</button>
+                <button id="cancelRaceBtn">Cancel</button>
+                <button id="deleteRaceBtn" style="background:#dc2626;color:white;margin-left:auto">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="app.js"></script>
 

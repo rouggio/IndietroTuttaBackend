@@ -412,3 +412,160 @@ map.on("click", e => {
 
 loadTemplates();
 loadCourses();
+
+// --- Race Builder ---
+const raceListEl = document.getElementById("race-list");
+const newRaceBtn = document.getElementById("newRaceBtn");
+const raceEditor = document.getElementById("race-editor");
+const raceNameEl = document.getElementById("raceName");
+const raceCourseSelect = document.getElementById("raceCourseSelect");
+const raceStartTimeEl = document.getElementById("raceStartTime");
+const raceStatusEl = document.getElementById("raceStatus");
+const raceParticipantsEl = document.getElementById("raceParticipants");
+const saveRaceBtn = document.getElementById("saveRaceBtn");
+const cancelRaceBtn = document.getElementById("cancelRaceBtn");
+const deleteRaceBtn = document.getElementById("deleteRaceBtn");
+const toggleRaceBtn = document.getElementById("toggleRaceBtn");
+
+let races = [];
+let editingRaceId = null;
+let allDevicesForRace = [];
+
+async function loadRaces() {
+    try {
+        const res = await fetch("/races");
+        races = await res.json();
+        renderRaceList();
+        // also refresh course dropdown
+        raceCourseSelect.innerHTML = '<option value="">-- Course --</option>' + courses.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+    } catch (e) { console.error(e); }
+}
+
+function renderRaceList() {
+    if (races.length === 0) {
+        raceListEl.innerHTML = '<div class="device-meta">No races yet</div>';
+        return;
+    }
+    raceListEl.innerHTML = races.map(r => {
+        const courseName = courses.find(c => c.id === r.courseId)?.name || (r.courseId ? r.courseId.slice(0,6) : "no course");
+        const when = r.startTime ? new Date(r.startTime).toLocaleString() : "no start";
+        const count = r.participants ? r.participants.length : 0;
+        return `
+            <div class="race-item ${editingRaceId===r.id?'active':''}" data-id="${r.id}">
+                <div><strong>${r.name}</strong> <span class="device-meta">${r.status}</span></div>
+                <div class="device-meta">${courseName} • ${when} • ${count} boats</div>
+            </div>
+        `;
+    }).join("");
+    raceListEl.querySelectorAll(".race-item").forEach(el => {
+        el.addEventListener("click", () => startEditRace(el.getAttribute("data-id")));
+    });
+}
+
+function renderRaceParticipants() {
+    if (allDevicesForRace.length === 0) {
+        raceParticipantsEl.innerHTML = '<div class="device-meta">No devices</div>';
+        return;
+    }
+    const selected = new Set((races.find(r=>r.id===editingRaceId)?.participants) || []);
+    // if editing, use current editor selection? For new race, use empty
+    // For editing, we need to track checked state from DOM or from editingRace participants
+    // We'll read from editingRaceId's race object if exists, else from current checkbox state
+    const currentSelected = editingRaceId ? (races.find(r=>r.id===editingRaceId)?.participants || []) : [];
+    const currentSet = new Set(currentSelected);
+    // But if user has toggled checkboxes, we need to preserve — instead read from DOM before re-render? Simpler: rebuild from currentSet
+    raceParticipantsEl.innerHTML = allDevicesForRace.map(d => {
+        const checked = currentSet.has(d.deviceId) ? "checked" : "";
+        const name = d.username ? `${d.username} (${d.deviceId.slice(-5)})` : d.deviceId;
+        return `<label style="display:flex;align-items:center;gap:6px;padding:2px 0"><input type="checkbox" value="${d.deviceId}" ${checked}> <span>${name}</span> <span class="device-meta">${d.status}</span></label>`;
+    }).join("");
+}
+
+async function refreshDevicesForRace() {
+    try {
+        const res = await fetch("/devices");
+        allDevicesForRace = await res.json();
+        if (raceEditor.style.display !== "none") renderRaceParticipants();
+    } catch {}
+}
+
+function startEditRace(id) {
+    const r = races.find(x => x.id === id);
+    if (!r) return;
+    editingRaceId = id;
+    raceNameEl.value = r.name;
+    raceCourseSelect.value = r.courseId || "";
+    raceStatusEl.value = r.status || "scheduled";
+    // datetime-local needs local format: YYYY-MM-DDTHH:mm
+    if (r.startTime) {
+        const d = new Date(r.startTime);
+        const pad = n => String(n).padStart(2,"0");
+        raceStartTimeEl.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } else {
+        raceStartTimeEl.value = "";
+    }
+    raceEditor.style.display = "block";
+    renderRaceList();
+    refreshDevicesForRace();
+}
+
+function startNewRace() {
+    editingRaceId = null;
+    raceNameEl.value = "";
+    raceCourseSelect.value = "";
+    raceStartTimeEl.value = "";
+    raceStatusEl.value = "scheduled";
+    raceEditor.style.display = "block";
+    refreshDevicesForRace();
+}
+
+newRaceBtn.addEventListener("click", startNewRace);
+cancelRaceBtn.addEventListener("click", () => {
+    editingRaceId = null;
+    raceEditor.style.display = "none";
+    renderRaceList();
+});
+deleteRaceBtn.addEventListener("click", async () => {
+    if (!editingRaceId) return;
+    if (!confirm("Delete race?")) return;
+    await fetch(`/races/${editingRaceId}`, { method: "DELETE" });
+    editingRaceId = null; raceEditor.style.display = "none";
+    await loadRaces();
+});
+saveRaceBtn.addEventListener("click", async () => {
+    const name = raceNameEl.value.trim();
+    if (!name) { alert("Name required"); return; }
+    const courseId = raceCourseSelect.value || null;
+    const startTime = raceStartTimeEl.value ? new Date(raceStartTimeEl.value).toISOString() : null;
+    const status = raceStatusEl.value;
+    const participants = Array.from(raceParticipantsEl.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
+    const payload = { name, courseId, startTime, status, participants };
+    if (editingRaceId) {
+        await fetch(`/races/${editingRaceId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    } else {
+        const res = await fetch("/races", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const created = await res.json();
+        editingRaceId = created.id;
+    }
+    await loadRaces();
+    renderRaceList();
+});
+toggleRaceBtn.addEventListener("click", () => {
+    const content = document.getElementById("race-content");
+    const hidden = content.style.display === "none";
+    content.style.display = hidden ? "block" : "none";
+    toggleRaceBtn.textContent = hidden ? "▾" : "▸";
+});
+
+// Re-render race list when courses/devices change
+const origLoadCourses = loadCourses;
+loadCourses = async function() {
+    await origLoadCourses();
+    // refresh race course dropdown if races loaded
+    raceCourseSelect.innerHTML = '<option value="">-- Course --</option>' + courses.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+    await loadRaces();
+};
+
+loadRaces();
+refreshDevicesForRace();
+setInterval(() => { if (document.getElementById("race-editor").style.display === "none") loadRaces(); }, 8000);
