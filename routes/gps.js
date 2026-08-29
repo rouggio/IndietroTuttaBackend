@@ -18,7 +18,7 @@ const router = express.Router();
 // POST /gps
 // --------------------------------------------------
 
-router.post("/gps", (req, res) => {
+router.post("/gps", async (req, res) => {
 
     const deviceId = req.header("DeviceId");
 
@@ -61,13 +61,13 @@ router.post("/gps", (req, res) => {
     // Register/update the device identity (keyed by MAC)
     // --------------------------------------------------
 
-    const device = upsertDevice(deviceId, { username });
+    const device = await upsertDevice(deviceId, { username });
 
     // --------------------------------------------------
     // Store point
     // --------------------------------------------------
 
-    addPoint({
+    await addPoint({
         lat,
         lon,
         speed,
@@ -87,9 +87,10 @@ router.post("/gps", (req, res) => {
     // Response
     // --------------------------------------------------
 
+    const count = (await getPoints()).length;
     res.json({
         status: "ok",
-        stored: getPoints().length
+        stored: count
     });
 });
 
@@ -97,17 +98,17 @@ router.post("/gps", (req, res) => {
 // GET /gps
 // --------------------------------------------------
 
-router.get("/gps", (req, res) => {
-    res.json(getPoints());
+router.get("/gps", async (req, res) => {
+    res.json(await getPoints());
 });
 
 // --------------------------------------------------
 // GET /gps/latest
 // --------------------------------------------------
 
-router.get("/gps/latest", (req, res) => {
+router.get("/gps/latest", async (req, res) => {
 
-    const latest = getLatestPoint();
+    const latest = await getLatestPoint();
 
     if (!latest) {
         return res.status(404).json({

@@ -10,8 +10,8 @@ const router = express.Router();
 // GET /devices
 // --------------------------------------------------
 
-router.get("/devices", (req, res) => {
-    res.json(getDevices());
+router.get("/devices", async (req, res) => {
+    res.json(await getDevices());
 });
 
 module.exports = router;
