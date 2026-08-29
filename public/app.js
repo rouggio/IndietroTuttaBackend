@@ -44,8 +44,17 @@ info.addTo(map);
 
 let marker = null;
 let polyline = null;
+let polylines = [];
 let flaggedMarkers = [];
+let fleetMarkers = [];
 let selectedDeviceId = null;
+
+const palette = ["#2563eb","#dc2626","#16a34a","#ea580c","#9333ea","#0891b2","#be123c","#475569"];
+function colorForDevice(id) {
+    if (!id) return "#2563eb";
+    let h = 0; for (let i=0;i<id.length;i++) h = (h*31 + id.charCodeAt(i)) >>> 0;
+    return palette[h % palette.length];
+}
 
 // --- Controls: Live vs date ---
 const liveBtn = document.getElementById("liveBtn");
@@ -151,21 +160,35 @@ async function refresh() {
 
     if (points.length === 0) {
         if (polyline) { map.removeLayer(polyline); polyline = null; }
+        polylines.forEach(l => map.removeLayer(l)); polylines = [];
         if (marker) { map.removeLayer(marker); marker = null; }
+        fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
         flaggedMarkers.forEach(m => m.remove());
         flaggedMarkers = [];
         info.update(null);
         return;
     }
 
-    const latlngs = points.map(p => [p.lat, p.lon]);
+    // clear previous tracks
+    if (polyline) { map.removeLayer(polyline); polyline = null; }
+    polylines.forEach(l => map.removeLayer(l)); polylines = [];
+    fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
 
-    if (polyline) map.removeLayer(polyline);
-
-    polyline = L.polyline(latlngs, {
-        color: selectedDeviceId ? "#16a34a" : "blue",
-        weight: 4
-    }).addTo(map);
+    if (selectedDeviceId) {
+        const latlngs = points.map(p => [p.lat, p.lon]);
+        polyline = L.polyline(latlngs, { color: colorForDevice(selectedDeviceId), weight: 4 }).addTo(map);
+    } else {
+        const byDevice = new Map();
+        points.forEach(p => {
+            const id = p.deviceId || "unknown";
+            if (!byDevice.has(id)) byDevice.set(id, []);
+            byDevice.get(id).push([p.lat, p.lon]);
+        });
+        byDevice.forEach((latlngs, id) => {
+            const line = L.polyline(latlngs, { color: colorForDevice(id), weight: 4 }).addTo(map);
+            polylines.push(line);
+        });
+    }
 
     flaggedMarkers.forEach(m => m.remove());
     flaggedMarkers = points
@@ -182,22 +205,38 @@ async function refresh() {
                 ? `<br><b>${p.username}</b>`
                 : ""}<br>${p.timestamp}`));
 
-    const last = latlngs[latlngs.length - 1];
     const latest = points[points.length - 1];
 
-    if (marker) marker.remove();
+    if (marker) { map.removeLayer(marker); marker = null; }
+    fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
 
-    marker = L.marker(last)
-        .addTo(map)
-        .bindPopup(latest.username
-            ? `Latest position<br><b>${latest.username}</b>`
-            : "Latest position");
+    if (selectedDeviceId) {
+        const last = [latest.lat, latest.lon];
+        marker = L.marker(last).addTo(map).bindPopup(latest.username ? `Latest position<br><b>${latest.username}</b>` : "Latest position");
+    } else {
+        const latestByDevice = new Map();
+        points.forEach(p => latestByDevice.set(p.deviceId, p));
+        latestByDevice.forEach(p => {
+            const m = L.marker([p.lat, p.lon]).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
+            fleetMarkers.push(m);
+        });
+    }
 
     // Fit bounds only for historical view or first load
-    if (!isLive || !polyline._map) {
-        map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+    if (selectedDeviceId) {
+        if (!isLive || !polyline || !polyline._map) {
+            map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+        } else {
+            map.panTo([latest.lat, latest.lon]);
+        }
     } else {
-        map.panTo(last);
+        const allLatLngs = points.map(p => [p.lat, p.lon]);
+        const bounds = L.latLngBounds(allLatLngs);
+        if (!isLive || polylines.length === 0 || !polylines[0]._map) {
+            map.fitBounds(bounds, { padding: [20, 20] });
+        } else {
+            map.panTo([latest.lat, latest.lon]);
+        }
     }
 
     info.update(latest);
@@ -208,7 +247,7 @@ refreshDevices();
 
 setInterval(() => {
     refreshDevices();
-    if (isLive) refresh();
+    if (isLive && !playbackTimer) refresh();
 }, 5000);
 
 // Also refresh when tab becomes visible
@@ -581,6 +620,17 @@ let playbackIdx = 0;
 let playbackTimer = null;
 let playbackSpeed = 1;
 
+function getFleetSize() {
+    if (selectedDeviceId) return 1;
+    const s = new Set(playbackPoints.map(p => p.deviceId));
+    return s.size || 1;
+}
+function getPlaybackSteps() {
+    if (playbackPoints.length === 0) return 0;
+    if (selectedDeviceId) return playbackPoints.length;
+    const fleetSize = getFleetSize();
+    return Math.ceil(playbackPoints.length / fleetSize);
+}
 function updatePlaybackSlider() {
     if (playbackPoints.length === 0) {
         playSlider.max = 100;
@@ -588,31 +638,56 @@ function updatePlaybackSlider() {
         playLabel.textContent = "0/0";
         return;
     }
-    playSlider.max = playbackPoints.length - 1;
+    const steps = getPlaybackSteps();
+    playSlider.max = steps - 1;
     playSlider.value = playbackIdx;
-    playLabel.textContent = `${playbackIdx+1}/${playbackPoints.length}`;
+    playLabel.textContent = `${playbackIdx+1}/${steps}`;
 }
 
 function showPlaybackPoint(idx) {
     if (playbackPoints.length === 0) return;
-    playbackIdx = Math.max(0, Math.min(idx, playbackPoints.length - 1));
-    const p = playbackPoints[playbackIdx];
-    const latlng = [p.lat, p.lon];
-    if (marker) marker.setLatLng(latlng);
-    else marker = L.marker(latlng).addTo(map);
-    info.update(p);
+    const steps = getPlaybackSteps();
+    playbackIdx = Math.max(0, Math.min(idx, steps - 1));
     playSlider.value = playbackIdx;
-    playLabel.textContent = `${playbackIdx+1}/${playbackPoints.length}`;
-    // keep polyline as full race, but pan to playback point
-    map.panTo(latlng);
+    playLabel.textContent = `${playbackIdx+1}/${steps}`;
+
+    if (selectedDeviceId) {
+        const p = playbackPoints[playbackIdx];
+        if (!p) return;
+        const latlng = [p.lat, p.lon];
+        if (marker) marker.setLatLng(latlng);
+        else marker = L.marker(latlng).addTo(map);
+        // hide fleet markers when filtered
+        fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
+        info.update(p);
+        map.panTo(latlng);
+    } else {
+        const fleetSize = getFleetSize();
+        const start = playbackIdx * fleetSize;
+        const slice = playbackPoints.slice(start, start + fleetSize);
+        // clear single marker, show fleet playback markers
+        if (marker) { map.removeLayer(marker); marker = null; }
+        fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
+        slice.forEach(p => {
+            const m = L.marker([p.lat, p.lon], { icon: L.divIcon({ className: 'builder-marker', html: p.username ? p.username[0] : '?', iconSize: [18,18], iconAnchor: [9,9] }) }).addTo(map);
+            m.bindPopup(`${p.username||p.deviceId}<br>${p.timestamp}`);
+            fleetMarkers.push(m);
+        });
+        if (slice[0]) {
+            info.update(slice[0]);
+            const center = slice.reduce((a,p)=>[a[0]+p.lat/slice.length, a[1]+p.lon/slice.length], [0,0]);
+            map.panTo(center);
+        }
+    }
 }
 
 function startPlayback() {
     if (playbackPoints.length === 0) return;
     if (playbackTimer) return;
     playBtn.textContent = "⏸";
+    const steps = getPlaybackSteps();
     playbackTimer = setInterval(() => {
-        if (playbackIdx >= playbackPoints.length - 1) {
+        if (playbackIdx >= steps - 1) {
             stopPlayback();
             return;
         }
@@ -643,6 +718,8 @@ playSpeedSel.addEventListener("change", e => {
 // Hook into refresh to update playbackPoints
 const origRefresh = refresh;
 refresh = async function() {
+    // don't refresh map while playback is scrubbing
+    if (playbackTimer) return origRefresh();
     await origRefresh();
     // after refresh, update playbackPoints from current gps data (filtered)
     try {
@@ -652,13 +729,10 @@ refresh = async function() {
         const qs = params.toString() ? `?${params.toString()}` : "";
         const res = await fetch(`/gps${qs}`);
         playbackPoints = await res.json();
-        // keep idx in bounds
-        if (playbackIdx >= playbackPoints.length) playbackIdx = playbackPoints.length - 1;
+        // keep idx in bounds (steps for fleet, flat for single)
+        const steps = getPlaybackSteps();
+        if (playbackIdx >= steps) playbackIdx = steps - 1;
         updatePlaybackSlider();
-        // if not playing, show latest
-        if (!playbackTimer && playbackPoints.length > 0) {
-            // don't override manual slider position if user is scrubbing? just update label
-        }
     } catch {}
 };
 
