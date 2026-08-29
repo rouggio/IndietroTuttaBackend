@@ -1,0 +1,21 @@
+meta {
+  name: Races Update
+  type: http
+  seq: 17
+}
+
+put {
+  url: {{baseUrl}}/races/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: {{raceId}}
+}
+
+body:json {
+  {
+    "status": "live"
+  }
+}

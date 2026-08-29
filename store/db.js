@@ -79,6 +79,20 @@ async function initDb() {
             )
         `);
 
+        await c.execute(`
+            CREATE TABLE IF NOT EXISTS races (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                courseId TEXT,
+                startTime TEXT,
+                status TEXT NOT NULL DEFAULT 'scheduled',
+                participants TEXT,
+                createdAt TEXT NOT NULL,
+                updatedAt TEXT NOT NULL,
+                FOREIGN KEY(courseId) REFERENCES courses(id)
+            )
+        `);
+
         console.log("[DB] Turso tables ready");
 
         // Enforce MAX_POINTS via trigger or app-level trim - keep app trim for now

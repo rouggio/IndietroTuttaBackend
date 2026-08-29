@@ -1,0 +1,15 @@
+meta {
+  name: Races Active for Device
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{baseUrl}}/races/active
+  body: none
+  auth: none
+}
+
+params:query {
+  deviceId: {{deviceId}}
+}
