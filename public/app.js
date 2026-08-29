@@ -45,26 +45,129 @@ info.addTo(map);
 let marker = null;
 let polyline = null;
 let flaggedMarkers = [];
+let selectedDeviceId = null;
+
+// --- Controls: Live vs date ---
+const liveBtn = document.getElementById("liveBtn");
+const datePicker = document.getElementById("datePicker");
+const dateLabel = document.getElementById("dateLabel");
+
+function todayStr() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+let isLive = true;
+let selectedDate = todayStr();
+datePicker.value = selectedDate;
+dateLabel.textContent = "Live — Today";
+
+liveBtn.addEventListener("click", () => {
+    isLive = true;
+    selectedDate = todayStr();
+    datePicker.value = selectedDate;
+    dateLabel.textContent = "Live — Today";
+    liveBtn.classList.add("active");
+    refresh();
+});
+
+datePicker.addEventListener("change", () => {
+    if (!datePicker.value) return;
+    selectedDate = datePicker.value;
+    isLive = false;
+    liveBtn.classList.remove("active");
+    dateLabel.textContent = selectedDate === todayStr() ? "Today" : selectedDate;
+    refresh();
+});
+
+// --- Device list ---
+async function refreshDevices() {
+    try {
+        const res = await fetch("/devices");
+        const devices = await res.json();
+        const list = document.getElementById("device-list");
+
+        if (devices.length === 0) {
+            list.innerHTML = '<div class="device-meta">No devices yet</div>';
+            return;
+        }
+
+        list.innerHTML = devices.map(d => {
+            const status = d.status || "offline";
+            const isActive = d.deviceId === selectedDeviceId;
+            const shortId = d.deviceId ? d.deviceId.slice(-5) : "";
+            const name = d.username ? `${d.username} <span class="device-meta">${shortId}</span>` : (d.deviceId || "-");
+            const lastSeen = d.lastSeen ? new Date(d.lastSeen).toLocaleTimeString() : "-";
+            return `
+                <div class="device-item ${isActive ? "active" : ""}" data-id="${d.deviceId}" style="cursor:pointer">
+                    <div style="display:flex;align-items:center;overflow:hidden">
+                        <span class="dot ${status}"></span>
+                        <span class="device-name">${name}</span>
+                    </div>
+                    <div style="text-align:right">
+                        <div class="device-meta">${status}</div>
+                        <div class="device-meta">${lastSeen}</div>
+                    </div>
+                </div>
+            `;
+        }).join("");
+
+        // click to filter by device
+        list.querySelectorAll(".device-item").forEach(el => {
+            el.addEventListener("click", () => {
+                const id = el.getAttribute("data-id");
+                selectedDeviceId = selectedDeviceId === id ? null : id;
+                refresh();
+                refreshDevices();
+            });
+        });
+
+    } catch (e) {
+        console.error("devices refresh failed", e);
+    }
+}
 
 async function refresh() {
 
-    const response = await fetch("/gps");
+    const params = new URLSearchParams();
+    // When not live, use selectedDate; when live, still filter to today so we don't pull years of data
+    // If user wants all history, they can clear the date filter - but we default to today for live
+    if (selectedDate) {
+        params.set("date", selectedDate);
+    }
+    if (selectedDeviceId) {
+        params.set("deviceId", selectedDeviceId);
+    }
+
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const response = await fetch(`/gps${qs}`);
     const points = await response.json();
 
-    if (points.length === 0)
+    // Update label with count
+    if (isLive) {
+        dateLabel.textContent = `Live — Today (${points.length})${selectedDeviceId ? " • filtered" : ""}`;
+    } else {
+        dateLabel.textContent = `${selectedDate} (${points.length})${selectedDeviceId ? " • filtered" : ""}`;
+    }
+
+    if (points.length === 0) {
+        if (polyline) { map.removeLayer(polyline); polyline = null; }
+        if (marker) { map.removeLayer(marker); marker = null; }
+        flaggedMarkers.forEach(m => m.remove());
+        flaggedMarkers = [];
+        info.update(null);
         return;
+    }
 
     const latlngs = points.map(p => [p.lat, p.lon]);
 
-    if (polyline)
-        map.removeLayer(polyline);
+    if (polyline) map.removeLayer(polyline);
 
     polyline = L.polyline(latlngs, {
-        color: "blue",
+        color: selectedDeviceId ? "#16a34a" : "blue",
         weight: 4
     }).addTo(map);
 
-    flaggedMarkers.forEach(flaggedMarker => flaggedMarker.remove());
+    flaggedMarkers.forEach(m => m.remove());
     flaggedMarkers = points
         .filter(p => p.flagged)
         .map(p => L.circleMarker([p.lat, p.lon], {
@@ -82,8 +185,7 @@ async function refresh() {
     const last = latlngs[latlngs.length - 1];
     const latest = points[points.length - 1];
 
-    if (marker)
-        marker.remove();
+    if (marker) marker.remove();
 
     marker = L.marker(last)
         .addTo(map)
@@ -91,10 +193,25 @@ async function refresh() {
             ? `Latest position<br><b>${latest.username}</b>`
             : "Latest position");
 
-    info.update(latest);
+    // Fit bounds only for historical view or first load
+    if (!isLive || !polyline._map) {
+        map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+    } else {
+        map.panTo(last);
+    }
 
+    info.update(latest);
 }
 
 refresh();
+refreshDevices();
 
-setInterval(refresh, 5000);
+setInterval(() => {
+    refreshDevices();
+    if (isLive) refresh();
+}, 5000);
+
+// Also refresh when tab becomes visible
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { refresh(); refreshDevices(); }
+});

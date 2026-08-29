@@ -14,22 +14,33 @@ const router = express.Router();
 // GET /health
 // --------------------------------------------------
 
-router.get("/health", (req, res) => {
-
+// GET /health doubles as heartbeat: every poll re-registers the device
+// so the backend learns the username within ~30s even without GPS.
+// Also updates lastSeen for live/idle status.
+router.get("/health", async (req, res) => {
     const deviceId = req.header("DeviceId");
     const username = req.header("Username");
 
-    // Every poll re-registers the device, so the backend learns the
-    // username within ~30s of the device coming online even without GPS
     if (deviceId) {
-        upsertDevice(deviceId, { username });
+        await upsertDevice(deviceId, { username });
     }
 
+    const count = await getPointCount();
     res.json({
         status: "ok",
-        storedPoints: getPointCount(),
-        deviceId: deviceId || null
+        storedPoints: count,
+        deviceId: deviceId || null,
+        heartbeat: !!deviceId,
     });
+});
+
+// POST /health alias for devices that prefer POST as heartbeat
+router.post("/health", async (req, res) => {
+    const deviceId = req.header("DeviceId") || req.body?.deviceId;
+    const username = req.header("Username") || req.body?.username;
+    if (deviceId) await upsertDevice(deviceId, { username });
+    const count = await getPointCount();
+    res.json({ status: "ok", storedPoints: count, deviceId: deviceId || null, heartbeat: !!deviceId });
 });
 
 module.exports = router;

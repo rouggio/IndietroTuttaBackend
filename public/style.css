@@ -2,6 +2,7 @@ html, body {
     margin: 0;
     padding: 0;
     height: 100%;
+    font-family: Arial, sans-serif;
 }
 
 #map {
@@ -35,4 +36,113 @@ html, body {
 
 .gps-info td {
     padding: 2px 0;
+}
+
+/* Controls: calendar + live toggle */
+#controls {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    background: white;
+    padding: 8px 12px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#controls button {
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+    background: #e5e7eb;
+    color: #374151;
+}
+
+#controls button.active {
+    background: #16a34a;
+    color: white;
+}
+
+#controls input[type="date"] {
+    padding: 5px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+#dateLabel {
+    font-size: 13px;
+    color: #6b7280;
+    min-width: 80px;
+}
+
+/* Device panel */
+#device-panel {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 1000;
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    min-width: 220px;
+    max-width: 280px;
+}
+
+#device-panel h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+}
+
+.device-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 13px;
+}
+
+.device-item:last-child {
+    border-bottom: none;
+}
+
+.device-name {
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
+}
+
+.device-meta {
+    font-size: 11px;
+    color: #6b7280;
+}
+
+.dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.dot.live { background: #16a34a; box-shadow: 0 0 6px rgba(22,163,74,.6); }
+.dot.idle { background: #f59e0b; }
+.dot.offline { background: #9ca3af; }
+
+.device-item.active {
+    background: #f0fdf4;
+    border-radius: 4px;
+    padding-left: 4px;
+    padding-right: 4px;
 }

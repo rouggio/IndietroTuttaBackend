@@ -67,13 +67,23 @@ async function getDevice(deviceId) {
     return res.rows[0] || null;
 }
 
+function computeStatus(lastSeen) {
+    if (!lastSeen) return "offline";
+    const ageMs = Date.now() - new Date(lastSeen).getTime();
+    if (ageMs < 90 * 1000) return "live";      // < 90s
+    if (ageMs < 10 * 60 * 1000) return "idle"; // < 10min
+    return "offline";
+}
+
 async function getDevices() {
     const client = getClient();
-    if (!client) return Array.from(memDevices.values());
+    if (!client) {
+        return Array.from(memDevices.values()).map(d => ({ ...d, status: computeStatus(d.lastSeen) }));
+    }
 
     await initDb();
     const res = await client.execute("SELECT deviceId, username, firstSeen, lastSeen FROM devices ORDER BY lastSeen DESC");
-    return res.rows;
+    return res.rows.map(r => ({ ...r, status: computeStatus(r.lastSeen) }));
 }
 
 module.exports = { sanitizeUsername, upsertDevice, getDevice, getDevices };

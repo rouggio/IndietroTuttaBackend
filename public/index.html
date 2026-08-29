@@ -3,18 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Indietro Tutta - GPS</title>
-
-    <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
 <div id="map"></div>
+
+<div id="controls">
+    <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
+    <input type="date" id="datePicker" />
+    <span id="dateLabel">Today</span>
+</div>
+
+<div id="device-panel">
+    <h4>Devices</h4>
+    <div id="device-list">Loading...</div>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="app.js"></script>

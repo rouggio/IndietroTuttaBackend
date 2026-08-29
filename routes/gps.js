@@ -99,7 +99,11 @@ router.post("/gps", async (req, res) => {
 // --------------------------------------------------
 
 router.get("/gps", async (req, res) => {
-    res.json(await getPoints());
+    const { date, deviceId } = req.query;
+    // date expected as YYYY-MM-DD; validates simple pattern
+    const cleanDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+    const cleanDeviceId = deviceId && typeof deviceId === "string" ? deviceId.trim() : null;
+    res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId }));
 });
 
 // --------------------------------------------------

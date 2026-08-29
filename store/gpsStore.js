@@ -48,15 +48,39 @@ async function addPoint(point) {
     return point;
 }
 
-async function getPoints() {
+async function getPoints(filter = {}) {
     const client = getClient();
-    if (!client) return memPoints;
+    const { date, deviceId } = filter;
+
+    if (!client) {
+        let pts = memPoints;
+        if (date) pts = pts.filter(p => (p.timestamp || p.receivedAt || "").slice(0, 10) === date);
+        if (deviceId) pts = pts.filter(p => p.deviceId === deviceId);
+        return pts;
+    }
 
     await initDb();
-    const res = await client.execute("SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, timestamp, receivedAt FROM gps_points ORDER BY id ASC");
-    // Convert flagged INTEGER to BOOLEAN for API compatibility
+
+    let sql = "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, timestamp, receivedAt FROM gps_points WHERE 1=1";
+    const args = [];
+
+    if (date) {
+        sql += " AND substr(timestamp,1,10) = ?";
+        args.push(date);
+    }
+    if (deviceId) {
+        sql += " AND deviceId = ?";
+        args.push(deviceId);
+    }
+
+    sql += " ORDER BY id ASC";
+
+    const res = await client.execute({ sql, args });
     return res.rows.map(r => ({ ...r, flagged: !!r.flagged }));
 }
+
+// Backward compat: getPoints() with no filter returns all
+// New: getPoints({date, deviceId}) filters
 
 async function getLatestPoint() {
     const client = getClient();
