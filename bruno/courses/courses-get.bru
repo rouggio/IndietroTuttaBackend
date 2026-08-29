@@ -1,0 +1,15 @@
+meta {
+  name: Courses Get
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/courses/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: {{courseId}}
+}

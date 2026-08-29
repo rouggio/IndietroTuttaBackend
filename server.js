@@ -7,6 +7,8 @@ const { initDb } = require("./store/db");
 const gpsRoutes = require("./routes/gps");
 const healthRoutes = require("./routes/health");
 const devicesRoutes = require("./routes/devices");
+const coursesRoutes = require("./routes/courses");
+const racesRoutes = require("./routes/races");
 
 const app = express();
 
@@ -29,6 +31,8 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use("/", gpsRoutes);
 app.use("/", healthRoutes);
 app.use("/", devicesRoutes);
+app.use("/", coursesRoutes);
+app.use("/", racesRoutes);
 
 // --------------------------------------------------
 // Start server

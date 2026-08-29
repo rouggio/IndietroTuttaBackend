@@ -1,0 +1,52 @@
+[
+  {
+    "id": "wl",
+    "name": "Windward-Leeward",
+    "description": "Start → 1 → 2 → 1 → Finish",
+    "marks": [
+      { "order": 1, "latOffset": 0.009, "lonOffset": 0, "radius": 30, "side": "P", "type": "windward" },
+      { "order": 2, "latOffset": 0, "lonOffset": 0, "radius": 30, "side": "P", "type": "leeward" }
+    ]
+  },
+  {
+    "id": "wl-gate",
+    "name": "W/L with Gate",
+    "description": "Start → 1 → Gate → 1 → Finish",
+    "marks": [
+      { "order": 1, "latOffset": 0.009, "lonOffset": 0, "radius": 30, "side": "P", "type": "windward" },
+      { "order": 2, "latOffset": 0, "lonOffset": -0.0005, "radius": 30, "side": "P", "type": "gate-port" },
+      { "order": 3, "latOffset": 0, "lonOffset": 0.0005, "radius": 30, "side": "S", "type": "gate-starboard" }
+    ]
+  },
+  {
+    "id": "triangle",
+    "name": "Triangle",
+    "description": "Start → 1 → 2 → 3 → Finish",
+    "marks": [
+      { "order": 1, "latOffset": 0.009, "lonOffset": 0, "radius": 30, "side": "P", "type": "windward" },
+      { "order": 2, "latOffset": 0.0045, "lonOffset": 0.0078, "radius": 30, "side": "P", "type": "gybe" },
+      { "order": 3, "latOffset": 0.0045, "lonOffset": -0.0078, "radius": 30, "side": "P", "type": "leeward" }
+    ]
+  },
+  {
+    "id": "wlt",
+    "name": "WLT Olympic",
+    "description": "Start → 1 → 2 → 3 → 1 → Finish",
+    "marks": [
+      { "order": 1, "latOffset": 0.009, "lonOffset": 0, "radius": 30, "side": "P", "type": "windward" },
+      { "order": 2, "latOffset": 0.0045, "lonOffset": 0.0078, "radius": 30, "side": "P", "type": "gybe" },
+      { "order": 3, "latOffset": 0.0045, "lonOffset": -0.0078, "radius": 30, "side": "P", "type": "leeward" }
+    ]
+  },
+  {
+    "id": "trapezoid",
+    "name": "Trapezoid",
+    "description": "Start → 1 → 2 → 3 → 4 → Finish",
+    "marks": [
+      { "order": 1, "latOffset": 0.009, "lonOffset": -0.004, "radius": 30, "side": "P", "type": "windward-port" },
+      { "order": 2, "latOffset": 0.009, "lonOffset": 0.004, "radius": 30, "side": "P", "type": "windward-starboard" },
+      { "order": 3, "latOffset": 0, "lonOffset": 0.004, "radius": 30, "side": "P", "type": "leeward-starboard" },
+      { "order": 4, "latOffset": 0, "lonOffset": -0.004, "radius": 30, "side": "P", "type": "leeward-port" }
+    ]
+  }
+]

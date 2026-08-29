@@ -1,0 +1,21 @@
+meta {
+  name: Courses Update
+  type: http
+  seq: 11
+}
+
+put {
+  url: {{baseUrl}}/courses/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: {{courseId}}
+}
+
+body:json {
+  {
+    "name": "Test W/L Updated"
+  }
+}
