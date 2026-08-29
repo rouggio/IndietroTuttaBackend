@@ -1,0 +1,22 @@
+meta {
+  name: Courses Create
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/courses
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "name": "Test W/L",
+    "description": "Windward-Leeward from Bruno",
+    "marks": [
+      { "latOffset": 0.009, "lonOffset": 0, "radius": 30, "side": "P", "type": "windward" },
+      { "order": 2, "latOffset": 0, "lonOffset": 0, "radius": 30, "side": "P", "type": "leeward" }
+    ]
+  }
+}
