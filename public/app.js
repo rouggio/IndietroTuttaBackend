@@ -25,9 +25,7 @@ info.update = function (p) {
     this._div.innerHTML = `
         <h4>Latest GPS</h4>
         <table>
-            <tr><td>Device</td><td>${p.username
-                ? `<b>${p.username}</b> <small>${p.deviceId ?? ""}</small>`
-                : (p.deviceId ?? "-")}</td></tr>
+            <tr><td>Boat</td><td>${p.username ? `<b>${p.username}</b>` : "-"}</td></tr>
             <tr><td>Lat</td><td>${p.lat.toFixed(6)}</td></tr>
             <tr><td>Lon</td><td>${p.lon.toFixed(6)}</td></tr>
             <tr><td>Speed</td><td>${p.speed ?? "-"} knots</td></tr>
@@ -91,12 +89,12 @@ datePicker.addEventListener("change", () => {
 // --- Device list ---
 async function refreshDevices() {
     try {
-        const res = await fetch("/devices");
+        const res = await fetch("/boats");
         const devices = await res.json();
         const list = document.getElementById("device-list");
 
         if (devices.length === 0) {
-            list.innerHTML = '<div class="device-meta">No devices yet</div>';
+            list.innerHTML = '<div class="device-meta">No boats yet</div>';
             return;
         }
 
@@ -139,13 +137,10 @@ async function refresh() {
 
     const params = new URLSearchParams();
     // When not live, use selectedDate; when live, still filter to today so we don't pull years of data
-    // If user wants all history, they can clear the date filter - but we default to today for live
     if (selectedDate) {
         params.set("date", selectedDate);
     }
-    if (selectedDeviceId) {
-        params.set("deviceId", selectedDeviceId);
-    }
+    // Always fetch all boats' points — highlighting is client-side (all routes always displayed)
 
     const qs = params.toString() ? `?${params.toString()}` : "";
     const response = await fetch(`/gps${qs}`);
@@ -174,21 +169,18 @@ async function refresh() {
     polylines.forEach(l => map.removeLayer(l)); polylines = [];
     fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
 
-    if (selectedDeviceId) {
-        const latlngs = points.map(p => [p.lat, p.lon]);
-        polyline = L.polyline(latlngs, { color: colorForDevice(selectedDeviceId), weight: 4 }).addTo(map);
-    } else {
-        const byDevice = new Map();
-        points.forEach(p => {
-            const id = p.deviceId || "unknown";
-            if (!byDevice.has(id)) byDevice.set(id, []);
-            byDevice.get(id).push([p.lat, p.lon]);
-        });
-        byDevice.forEach((latlngs, id) => {
-            const line = L.polyline(latlngs, { color: colorForDevice(id), weight: 4 }).addTo(map);
-            polylines.push(line);
-        });
-    }
+    const byDevice = new Map();
+    points.forEach(p => {
+        const id = p.deviceId || "unknown";
+        if (!byDevice.has(id)) byDevice.set(id, []);
+        byDevice.get(id).push([p.lat, p.lon]);
+    });
+    byDevice.forEach((latlngs, id) => {
+        const isSelected = id === selectedDeviceId;
+        const line = L.polyline(latlngs, { color: isSelected ? "#eab308" : colorForDevice(id), weight: isSelected ? 6 : 4, opacity: isSelected ? 1 : 0.85 }).addTo(map);
+        polylines.push(line);
+        if (isSelected) line.bringToFront();
+    });
 
     flaggedMarkers.forEach(m => m.remove());
     flaggedMarkers = points
@@ -210,36 +202,34 @@ async function refresh() {
     if (marker) { map.removeLayer(marker); marker = null; }
     fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
 
-    if (selectedDeviceId) {
-        const last = [latest.lat, latest.lon];
-        marker = L.marker(last).addTo(map).bindPopup(latest.username ? `Latest position<br><b>${latest.username}</b>` : "Latest position");
-    } else {
-        const latestByDevice = new Map();
-        points.forEach(p => latestByDevice.set(p.deviceId, p));
-        latestByDevice.forEach(p => {
-            const m = L.marker([p.lat, p.lon]).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
-            fleetMarkers.push(m);
+    const latestByDevice = new Map();
+    points.forEach(p => latestByDevice.set(p.deviceId, p));
+    latestByDevice.forEach(p => {
+        const isSelected = p.deviceId === selectedDeviceId;
+        const icon = L.divIcon({
+            className: isSelected ? 'builder-marker' : 'fleet-marker',
+            html: isSelected ? '⛵' : (p.username ? p.username[0].toUpperCase() : '?'),
+            iconSize: isSelected ? [24,24] : [20,20],
+            iconAnchor: isSelected ? [12,12] : [10,10]
         });
-    }
+        const m = L.marker([p.lat, p.lon], { icon }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b>${isSelected ? '<br><em>selected</em>' : ''}` : `Latest`);
+        if (isSelected) m.setZIndexOffset(1000);
+        fleetMarkers.push(m);
+    });
+    // info shows selected boat if any, else overall latest
+    const infoPoint = selectedDeviceId ? (latestByDevice.get(selectedDeviceId) || latest) : latest;
 
-    // Fit bounds only for historical view or first load
-    if (selectedDeviceId) {
-        if (!isLive || !polyline || !polyline._map) {
-            map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
-        } else {
-            map.panTo([latest.lat, latest.lon]);
-        }
+    // Fit bounds only for historical view or first load — always show all routes
+    const allLatLngs = points.map(p => [p.lat, p.lon]);
+    const bounds = L.latLngBounds(allLatLngs);
+    const targetForPan = infoPoint;
+    if (!isLive || polylines.length === 0 || !polylines[0]._map) {
+        map.fitBounds(bounds, { padding: [20, 20] });
     } else {
-        const allLatLngs = points.map(p => [p.lat, p.lon]);
-        const bounds = L.latLngBounds(allLatLngs);
-        if (!isLive || polylines.length === 0 || !polylines[0]._map) {
-            map.fitBounds(bounds, { padding: [20, 20] });
-        } else {
-            map.panTo([latest.lat, latest.lon]);
-        }
+        map.panTo([targetForPan.lat, targetForPan.lon]);
     }
 
-    info.update(latest);
+    info.update(infoPoint);
 }
 
 refresh();
@@ -274,6 +264,27 @@ let editingId = null;
 let editingMarks = [];
 let builderMarkers = [];
 let builderPolyline = null;
+let previewCourseId = null;
+let previewMarkers = [];
+let previewPolyline = null;
+function clearPreview() { previewMarkers.forEach(m => map.removeLayer(m)); previewMarkers = []; if (previewPolyline) { map.removeLayer(previewPolyline); previewPolyline = null; } }
+function previewCourse(id) {
+    const c = courses.find(x => x.id === id);
+    if (!c) return;
+    previewCourseId = id;
+    clearPreview();
+    const latlngs = c.marks.map(m => [m.lat != null ? m.lat : (map.getCenter().lat + (m.latOffset||0)), m.lon != null ? m.lon : (map.getCenter().lng + (m.lonOffset||0))]);
+    previewPolyline = L.polyline(latlngs, { color: '#a78bfa', weight: 3, dashArray: '6 6', opacity: 0.9 }).addTo(map);
+    c.marks.forEach((m, idx) => {
+        const lat = m.lat != null ? m.lat : (map.getCenter().lat + (m.latOffset||0));
+        const lon = m.lon != null ? m.lon : (map.getCenter().lng + (m.lonOffset||0));
+        const mk = L.marker([lat, lon], { icon: L.divIcon({ className: 'builder-marker', html: `${idx+1}`, iconSize: [18,18] }), interactive: false }).addTo(map);
+        mk.bindPopup(`${c.name} — Mark ${idx+1}<br>${m.side||'P'} • ${m.radius||30}m`);
+        previewMarkers.push(mk);
+    });
+    renderCourseList();
+    if (latlngs.length) map.fitBounds(L.latLngBounds(latlngs).pad(0.3));
+}
 
 async function loadTemplates() {
     try {
@@ -297,13 +308,27 @@ function renderCourseList() {
         return;
     }
     courseListEl.innerHTML = courses.map(c => `
-        <div class="course-item ${editingId===c.id?'active':''}" data-id="${c.id}">
-            <div><strong>${c.name}</strong> <span class="device-meta">v${c.version} • ${c.marks.length} marks</span></div>
-            <div class="device-meta">${c.description||''}</div>
+        <div class="course-item ${editingId===c.id?'active':''} ${previewCourseId===c.id?'active':''}" data-id="${c.id}" style="display:flex;justify-content:space-between;align-items:center">
+            <div style="cursor:pointer;flex:1" data-action="preview">
+                <div><strong>${c.name}</strong> <span class="device-meta">v${c.version} • ${c.marks.length} marks</span></div>
+                <div class="device-meta">${c.description||''}</div>
+            </div>
+            <button class="editCourseBtn" data-id="${c.id}" style="margin-left:8px;background:#3b82f6;color:white">Edit</button>
         </div>
     `).join("");
-    courseListEl.querySelectorAll(".course-item").forEach(el => {
-        el.addEventListener("click", () => startEdit(el.getAttribute("data-id")));
+    courseListEl.querySelectorAll("[data-action='preview']").forEach(el => {
+        el.addEventListener("click", () => {
+            const id = el.parentElement.getAttribute("data-id");
+            if (previewCourseId === id) { clearPreview(); previewCourseId = null; renderCourseList(); }
+            else previewCourse(id);
+        });
+    });
+    courseListEl.querySelectorAll(".editCourseBtn").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            clearPreview(); previewCourseId = null;
+            startEdit(btn.getAttribute("data-id"));
+        });
     });
 }
 
@@ -503,7 +528,7 @@ function renderRaceList() {
 
 function renderRaceParticipants() {
     if (allDevicesForRace.length === 0) {
-        raceParticipantsEl.innerHTML = '<div class="device-meta">No devices</div>';
+        raceParticipantsEl.innerHTML = '<div class="device-meta">No boats</div>';
         return;
     }
     const selected = new Set((races.find(r=>r.id===editingRaceId)?.participants) || []);
@@ -742,3 +767,62 @@ setTimeout(async () => {
     playbackPoints = await (await fetch(`/gps?date=${todayStr()}`)).json().catch(()=>[]);
     updatePlaybackSlider();
 }, 1000);
+
+// Top bar dropdowns
+document.querySelectorAll(".dropdown").forEach(dd => {
+    const btn = dd.querySelector(".dropbtn");
+    btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        document.querySelectorAll(".dropdown").forEach(d => { if (d !== dd) d.classList.remove("active"); });
+        dd.classList.toggle("active");
+    });
+});
+document.addEventListener("click", () => {
+    document.querySelectorAll(".dropdown").forEach(d => d.classList.remove("active"));
+});
+function showPanel(id) { const el = document.getElementById(id); if (el) el.style.display = "block"; }
+function hidePanel(id) { const el = document.getElementById(id); if (el) el.style.display = "none"; }
+document.querySelectorAll(".dropdown-content a").forEach(a => {
+    a.addEventListener("click", (e) => {
+        e.preventDefault();
+        const action = a.getAttribute("data-action");
+        document.querySelectorAll(".dropdown").forEach(d => d.classList.remove("active"));
+        switch(action) {
+            case "courses-new": showPanel("builder-panel"); document.getElementById("templateSelect")?.focus(); break;
+            case "courses-list": showPanel("builder-panel"); break;
+            case "courses-hide": hidePanel("builder-panel"); break;
+            case "races-new": showPanel("race-panel"); document.getElementById("newRaceBtn")?.click(); break;
+            case "races-list": showPanel("race-panel"); break;
+            case "races-past": case "past-show": showPanel("race-panel"); document.getElementById("pastRaceSelect")?.scrollIntoView({ behavior: "smooth", block: "nearest" }); document.getElementById("pastRaceSelect")?.focus(); break;
+            case "races-hide": hidePanel("race-panel"); break;
+            case "devices-show": showPanel("device-panel"); break;
+            case "devices-hide": hidePanel("device-panel"); break;
+            case "devices-clear-filter": selectedDeviceId = null; refresh(); refreshDevices(); break;
+            case "past-load": document.getElementById("loadPastRaceBtn")?.click(); break;
+            case "view-gps-toggle": const gpsPanel = document.querySelector(".gps-info"); if (gpsPanel) { const hidden = gpsPanel.style.display === "none" || getComputedStyle(gpsPanel).display === "none"; gpsPanel.style.display = hidden ? "block" : "none"; } break;
+        }
+    });
+});
+
+// Mode harmonisation: editor / live / replay
+function setMode(mode) {
+    document.querySelectorAll("#mode-switch button").forEach(b => b.classList.toggle("active", b.getAttribute("data-mode")===mode));
+    const builder = document.getElementById("builder-panel");
+    const race = document.getElementById("race-panel");
+    const devices = document.getElementById("device-panel");
+    const playback = document.getElementById("playback");
+    const controls = document.getElementById("topbar-controls");
+    const gpsInfo = document.querySelector(".gps-info");
+    if (mode === "editor") {
+        builder.style.display = "block"; race.style.display = "block"; devices.style.display = "block"; playback.style.display = "none"; controls.style.display = "none"; if (gpsInfo) gpsInfo.style.display = "none";
+    } else if (mode === "live") {
+        builder.style.display = "none"; race.style.display = "none"; devices.style.display = "block"; playback.style.display = "none"; controls.style.display = "flex"; if (gpsInfo) gpsInfo.style.display = "block";
+    } else if (mode === "replay") {
+        builder.style.display = "none"; race.style.display = "block"; devices.style.display = "block"; playback.style.display = "flex"; controls.style.display = "flex"; if (gpsInfo) gpsInfo.style.display = "block";
+    }
+    localStorage.setItem("mode", mode);
+}
+document.querySelectorAll("#mode-switch button").forEach(btn => {
+    btn.addEventListener("click", () => setMode(btn.getAttribute("data-mode")));
+});
+setMode(localStorage.getItem("mode") || "live");

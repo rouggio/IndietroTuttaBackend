@@ -7,7 +7,8 @@ html, body {
 
 #map {
     width: 100%;
-    height: 100vh;
+    height: calc(100vh - 48px);
+    margin-top: 48px;
 }
 
 .gps-info {
@@ -38,23 +39,82 @@ html, body {
     padding: 2px 0;
 }
 
-/* Controls: calendar + live toggle */
-#controls {
+#topbar {
     position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 48px;
     z-index: 1000;
     background: white;
-    padding: 8px 12px;
+    border-bottom: 1px solid #e5e7eb;
+    box-shadow: 0 1px 6px rgba(0,0,0,.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    gap: 12px;
+}
+
+#topbar-logo {
+    font-weight: 800;
+    font-size: 15px;
+    color: #0f172a;
+    white-space: nowrap;
+}
+
+#topbar-menu {
+    display: flex;
+    gap: 6px;
+}
+
+#topbar-menu button {
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    background: #f1f5f9;
+    color: #334155;
+}
+
+#topbar-menu button.active {
+    background: #0f172a;
+    color: white;
+}
+
+#mode-switch {
+    display: flex;
+    gap: 4px;
+    background: #f1f5f9;
+    padding: 3px;
     border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+}
+
+#mode-switch button {
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    color: #475569;
+}
+
+#mode-switch button.active {
+    background: white;
+    color: #0f172a;
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+}
+
+#topbar-controls {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-#controls button {
+#topbar-controls button {
     border: none;
     padding: 6px 12px;
     border-radius: 6px;
@@ -64,12 +124,12 @@ html, body {
     color: #374151;
 }
 
-#controls button.active {
+#topbar-controls button.active {
     background: #16a34a;
     color: white;
 }
 
-#controls input[type="date"] {
+#topbar-controls input[type="date"] {
     padding: 5px 8px;
     border: 1px solid #d1d5db;
     border-radius: 6px;
@@ -82,10 +142,47 @@ html, body {
     min-width: 80px;
 }
 
+.dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-content {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: white;
+    min-width: 180px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.15);
+    border-radius: 8px;
+    padding: 6px 0;
+    z-index: 1001;
+    border: 1px solid #e5e7eb;
+}
+
+.dropdown:hover .dropdown-content,
+.dropdown.active .dropdown-content {
+    display: block;
+}
+
+.dropdown-content a {
+    display: block;
+    padding: 8px 14px;
+    color: #334155;
+    text-decoration: none;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.dropdown-content a:hover {
+    background: #f1f5f9;
+}
+
 /* Device panel */
 #device-panel {
     position: absolute;
-    top: 10px;
+    top: 58px;
     left: 10px;
     z-index: 1000;
     background: white;
@@ -224,6 +321,22 @@ html, body {
     color: white;
     font-size: 11px;
     line-height: 18px;
+}
+
+.fleet-marker {
+    background: #3b82f6;
+    border: 2px solid #1d4ed8;
+    border-radius: 50%;
+    text-align: center;
+    font-weight: bold;
+    color: white;
+    font-size: 10px;
+    line-height: 16px;
+}
+
+.fleet-marker.selected {
+    background: #eab308;
+    border-color: #a16207;
 }
 
 /* Race panel */
