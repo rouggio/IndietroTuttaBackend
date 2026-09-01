@@ -1,0 +1,15 @@
+meta {
+  name: Devices Delete
+  type: http
+  seq: 19
+}
+
+delete {
+  url: {{baseUrl}}/devices/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: {{deviceId}}
+}

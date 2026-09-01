@@ -106,25 +106,38 @@ async function refreshDevices() {
             const lastSeen = d.lastSeen ? new Date(d.lastSeen).toLocaleTimeString() : "-";
             return `
                 <div class="device-item ${isActive ? "active" : ""}" data-id="${d.deviceId}" style="cursor:pointer">
-                    <div style="display:flex;align-items:center;overflow:hidden">
+                    <div style="display:flex;align-items:center;overflow:hidden;flex:1">
                         <span class="dot ${status}"></span>
                         <span class="device-name">${name}</span>
                     </div>
-                    <div style="text-align:right">
+                    <div style="text-align:right;margin-right:6px">
                         <div class="device-meta">${status}</div>
                         <div class="device-meta">${lastSeen}</div>
                     </div>
+                    <button class="delete-boat-btn" data-id="${d.deviceId}" title="Delete boat" style="background:#fee2e2;color:#991b1b;border:none;border-radius:4px;padding:2px 6px;font-size:11px;cursor:pointer">×</button>
                 </div>
             `;
         }).join("");
 
-        // click to filter by device
+        // click to filter by device (ignore delete button)
         list.querySelectorAll(".device-item").forEach(el => {
-            el.addEventListener("click", () => {
+            el.addEventListener("click", (e) => {
+                if (e.target.closest(".delete-boat-btn")) return;
                 const id = el.getAttribute("data-id");
                 selectedDeviceId = selectedDeviceId === id ? null : id;
                 refresh();
                 refreshDevices();
+            });
+        });
+        list.querySelectorAll(".delete-boat-btn").forEach(btn => {
+            btn.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                const id = btn.getAttribute("data-id");
+                if (!confirm(`Delete boat ${id} and its points?`)) return;
+                await fetch(`/boats/${encodeURIComponent(id)}`, { method: "DELETE" });
+                if (selectedDeviceId === id) selectedDeviceId = null;
+                await refreshDevices();
+                await refresh();
             });
         });
 
