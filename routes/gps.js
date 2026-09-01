@@ -100,9 +100,11 @@ router.post("/gps", async (req, res) => {
 
 router.get("/gps", async (req, res) => {
     const { date, deviceId } = req.query;
-    // date expected as YYYY-MM-DD; validates simple pattern
+    if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
+        return res.status(400).json({ error: "deviceId query param required" });
+    }
     const cleanDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
-    const cleanDeviceId = deviceId && typeof deviceId === "string" ? deviceId.trim() : null;
+    const cleanDeviceId = deviceId.trim();
     res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId }));
 });
 
@@ -111,8 +113,11 @@ router.get("/gps", async (req, res) => {
 // --------------------------------------------------
 
 router.get("/gps/latest", async (req, res) => {
-
-    const latest = await getLatestPoint();
+    const { deviceId } = req.query;
+    if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
+        return res.status(400).json({ error: "deviceId query param required" });
+    }
+    const latest = await getLatestPoint(deviceId.trim());
 
     if (!latest) {
         return res.status(404).json({

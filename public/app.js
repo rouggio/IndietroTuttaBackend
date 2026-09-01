@@ -141,19 +141,33 @@ async function refreshDevices() {
 
 async function refresh() {
 
-    const params = new URLSearchParams();
-    // When not live, use selectedDate; when live, still filter to today so we don't pull years of data
-    // If user wants all history, they can clear the date filter - but we default to today for live
-    if (selectedDate) {
-        params.set("date", selectedDate);
-    }
+    let points = [];
     if (selectedDeviceId) {
+        const params = new URLSearchParams();
+        if (selectedDate) params.set("date", selectedDate);
         params.set("deviceId", selectedDeviceId);
+        const res = await fetch(`/gps?${params.toString()}`);
+        if (res.ok) points = await res.json();
+        else points = [];
+    } else {
+        // All fleet: fetch per boat and merge (GET /gps now requires deviceId)
+        try {
+            const devRes = await fetch("/boats");
+            const boats = await devRes.json();
+            const all = await Promise.all(boats.map(async b => {
+                const p = new URLSearchParams();
+                if (selectedDate) p.set("date", selectedDate);
+                p.set("deviceId", b.deviceId);
+                const r = await fetch(`/gps?${p.toString()}`);
+                if (!r.ok) return [];
+                return r.json();
+            }));
+            points = all.flat().sort((a,b) => new Date(a.timestamp||a.receivedAt) - new Date(b.timestamp||b.receivedAt));
+        } catch (e) {
+            console.error("fleet fetch failed", e);
+            points = [];
+        }
     }
-
-    const qs = params.toString() ? `?${params.toString()}` : "";
-    const response = await fetch(`/gps${qs}`);
-    const points = await response.json();
 
     // Update label with count
     if (isLive) {
