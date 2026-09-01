@@ -86,4 +86,15 @@ async function getDevices() {
     return res.rows.map(r => ({ ...r, status: computeStatus(r.lastSeen) }));
 }
 
-module.exports = { sanitizeUsername, upsertDevice, getDevice, getDevices };
+async function deleteDevice(deviceId) {
+    if (!deviceId) return false;
+    const client = getClient();
+    if (!client) return memDevices.delete(deviceId);
+    await initDb();
+    const res = await client.execute({ sql: "DELETE FROM devices WHERE deviceId = ?", args: [deviceId] });
+    // also clean its points
+    await client.execute({ sql: "DELETE FROM gps_points WHERE deviceId = ?", args: [deviceId] });
+    return res.rowsAffected > 0;
+}
+
+module.exports = { sanitizeUsername, upsertDevice, getDevice, getDevices, deleteDevice };
