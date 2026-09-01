@@ -82,18 +82,31 @@ async function getPoints(filter = {}) {
 // Backward compat: getPoints() with no filter returns all
 // New: getPoints({date, deviceId}) filters
 
-async function getLatestPoint() {
+async function getLatestPoint(deviceId = null) {
     const client = getClient();
     if (!client) {
         if (memPoints.length === 0) return null;
+        if (deviceId) {
+            for (let i = memPoints.length - 1; i >= 0; i--) {
+                if (memPoints[i].deviceId === deviceId) return memPoints[i];
+            }
+            return null;
+        }
         return memPoints[memPoints.length - 1];
     }
 
     await initDb();
-    const res = await client.execute("SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, timestamp, receivedAt FROM gps_points ORDER BY id DESC LIMIT 1");
-    if (res.rows.length === 0) return null;
-    const r = res.rows[0];
-    return { ...r, flagged: !!r.flagged };
+    if (deviceId) {
+        const res = await client.execute({ sql: "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, timestamp, receivedAt FROM gps_points WHERE deviceId = ? ORDER BY id DESC LIMIT 1", args: [deviceId] });
+        if (res.rows.length === 0) return null;
+        const r = res.rows[0];
+        return { ...r, flagged: !!r.flagged };
+    } else {
+        const res = await client.execute("SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, timestamp, receivedAt FROM gps_points ORDER BY id DESC LIMIT 1");
+        if (res.rows.length === 0) return null;
+        const r = res.rows[0];
+        return { ...r, flagged: !!r.flagged };
+    }
 }
 
 async function getPointCount() {
