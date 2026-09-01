@@ -1,0 +1,15 @@
+meta {
+  name: Races Delete
+  type: http
+  seq: 18
+}
+
+delete {
+  url: {{baseUrl}}/races/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: {{raceId}}
+}

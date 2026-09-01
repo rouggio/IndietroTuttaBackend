@@ -1,0 +1,21 @@
+meta {
+  name: Races Create
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/races
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "name": "Test Race",
+    "courseId": "{{courseId}}",
+    "startTime": "2026-08-30T14:00:00Z",
+    "status": "scheduled",
+    "participants": ["{{deviceId}}"]
+  }
+}
