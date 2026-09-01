@@ -14,8 +14,6 @@ router.get("/devices", async (req, res) => {
     res.json(await getDevices());
 });
 
-<<<<<<< HEAD
-=======
 router.delete("/devices/:id", async (req, res) => {
     const { deleteDevice } = require("../store/deviceStore");
     const ok = await deleteDevice(req.params.id);
@@ -23,20 +21,15 @@ router.delete("/devices/:id", async (req, res) => {
     res.json({ status: "deleted" });
 });
 
->>>>>>> main
 // Alias: /boats — globally renamed from Devices to Boats (keeps /devices for compat)
 router.get("/boats", async (req, res) => {
     res.json(await getDevices());
 });
 
-<<<<<<< HEAD
-=======
 router.delete("/boats/:id", async (req, res) => {
     const { deleteDevice } = require("../store/deviceStore");
     const ok = await deleteDevice(req.params.id);
     if (!ok) return res.status(404).json({ error: "Device not found" });
     res.json({ status: "deleted" });
 });
-
->>>>>>> main
 module.exports = router;
