@@ -83,6 +83,12 @@ html, body {
     color: white;
 }
 
+#topbar-menu #boatsToggleBtn.active {
+    background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 50%, #1e40af 100%);
+    color: white;
+    box-shadow: 0 1px 6px rgba(37,99,235,.4);
+}
+
 #mode-switch {
     display: flex;
     gap: 4px;
@@ -202,9 +208,10 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 0;
+    padding: 6px 6px;
     border-bottom: 1px solid #f3f4f6;
     font-size: 13px;
+    border-radius: 4px;
 }
 
 .device-item:last-child {
@@ -240,8 +247,7 @@ html, body {
 .device-item.active {
     background: #f0fdf4;
     border-radius: 4px;
-    padding-left: 4px;
-    padding-right: 4px;
+    box-shadow: inset 0 0 0 1px #bbf7d0;
 }
 
 /* Builder panel */
@@ -391,21 +397,66 @@ html, body {
     border-color: #3b82f6;
 }
 
-/* Playback */
+/* Playback - south anchored timeline */
 #playback {
     position: absolute;
-    bottom: 10px;
-    left: 50%;
-    transform: translateX(-50%);
+    bottom: 0;
+    left: 0;
+    right: 0;
     z-index: 1000;
     background: white;
-    padding: 8px 12px;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    border-top: 1px solid #e5e7eb;
+    box-shadow: 0 -2px 8px rgba(0,0,0,.08);
+    padding: 10px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#playback-header {
     display: flex;
     align-items: center;
     gap: 8px;
-    min-width: 340px;
+}
+#timeline {
+    position: relative;
+    height: 44px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.timeline-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 10px;
+    border-radius: 2px;
+}
+.timeline-segment {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-radius: 2px;
+    opacity: 0.9;
+}
+#timeline-cursor {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #0f172a;
+    pointer-events: none;
+    z-index: 2;
+}
+#timeline-time {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    font-size: 10px;
+    color: #64748b;
+    pointer-events: none;
 }
 
 #playback button, #playback select {

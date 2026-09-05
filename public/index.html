@@ -11,67 +11,47 @@
 <body>
 
 <div id="topbar">
-    <div id="topbar-logo">⛵ Indietro Tutta</div>
-    <div id="mode-switch">
-        <button data-mode="editor">Editor</button>
-        <button data-mode="live" class="active">Live</button>
-        <button data-mode="replay">Replay</button>
+    <div style="display:flex;align-items:center;gap:12px">
+        <div id="topbar-logo">⛵ Indietro Tutta</div>
     </div>
-    <div id="topbar-menu">
-        <div class="dropdown">
-            <button class="dropbtn">Courses ▾</button>
-            <div class="dropdown-content">
-                <a href="#" data-action="courses-new">New Course</a>
-                <a href="#" data-action="courses-list">Show Courses Panel</a>
-                <a href="#" data-action="courses-hide">Hide Panel</a>
+    <div style="display:flex;align-items:center;gap:12px;margin-left:auto">
+        <div id="topbar-menu">
+            <div class="dropdown">
+                <button class="dropbtn">Courses ▾</button>
+                <div class="dropdown-content">
+                    <a href="#" data-action="courses-new">New Course</a>
+                    <a href="#" data-action="courses-list">Show Courses Panel</a>
+                    <a href="#" data-action="courses-hide">Hide Panel</a>
+                </div>
             </div>
-        </div>
-        <div class="dropdown">
-            <button class="dropbtn">Races ▾</button>
-            <div class="dropdown-content">
-                <a href="#" data-action="races-new">New Race</a>
-                <a href="#" data-action="races-list">Show Races Panel</a>
-                <a href="#" data-action="races-past">Past Races</a>
-                <a href="#" data-action="races-hide">Hide Panel</a>
+            <div class="dropdown">
+                <button class="dropbtn">Races ▾</button>
+                <div class="dropdown-content">
+                    <a href="#" data-action="races-new">New Race</a>
+                    <a href="#" data-action="races-list">Show Races Panel</a>
+                    <a href="#" data-action="races-past">Past Races</a>
+                    <a href="#" data-action="races-hide">Hide Panel</a>
+                </div>
             </div>
+            <button id="boatsToggleBtn" class="dropbtn">Boats</button>
         </div>
-        <div class="dropdown">
-            <button class="dropbtn">Boats ▾</button>
-            <div class="dropdown-content">
-                <a href="#" data-action="devices-show">Show Boats</a>
-                <a href="#" data-action="devices-hide">Hide</a>
-                <a href="#" data-action="devices-clear-filter">Clear Filter</a>
-            </div>
+        <div id="topbar-controls">
+            <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
+            <input type="date" id="datePicker" />
+            <span id="dateLabel">Today</span>
         </div>
-        <div class="dropdown">
-            <button class="dropbtn">Past Races ▾</button>
-            <div class="dropdown-content">
-                <a href="#" data-action="past-show">Show Past List</a>
-                <a href="#" data-action="past-load">Load Selected & Replay</a>
-            </div>
-        </div>
-        <div class="dropdown">
-            <button class="dropbtn">View ▾</button>
-            <div class="dropdown-content">
-                <a href="#" data-action="view-gps-toggle">Toggle Latest GPS</a>
-            </div>
-        </div>
-    </div>
-    <div id="topbar-controls">
-        <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
-        <input type="date" id="datePicker" />
-        <span id="dateLabel">Today</span>
     </div>
 </div>
 
 <div id="map"></div>
 
-<div id="device-panel">
+<div id="device-panel" style="display:none">
     <h4>Boats</h4>
+    <input id="boatFilter" type="text" placeholder="Filter boats…" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:8px;font-size:13px">
     <div id="device-list">Loading...</div>
 </div>
 
-<div id="builder-panel">
+<div id="builder-panel" style="display:none">
     <h4>Courses <button id="toggleBuilderBtn" style="float:right;border:none;background:none;cursor:pointer">▾</button></h4>
     <div id="builder-content">
         <div style="display:flex;gap:6px;margin-bottom:8px">
@@ -93,10 +73,10 @@
     </div>
 </div>
 
-<div id="race-panel">
+<div id="race-panel" style="display:none">
     <h4>Races <button id="toggleRaceBtn" style="float:right;border:none;background:none;cursor:pointer">▾</button></h4>
     <div id="race-content">
-        <div style="margin-bottom:8px">
+        <div id="past-races-section" style="margin-bottom:8px">
             <label style="font-size:12px;font-weight:bold">Past Races</label>
             <select id="pastRaceSelect" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-top:4px"><option value="">-- Select past race --</option></select>
             <button id="loadPastRaceBtn" style="width:100%;margin-top:4px;background:#3b82f6;color:white">Load & Replay</button>
@@ -127,10 +107,18 @@
 </div>
 
 <div id="playback">
-    <button id="playBtn">▶</button>
-    <input type="range" id="playSlider" min="0" max="100" value="0" style="flex:1">
-    <select id="playSpeed"><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option></select>
-    <span id="playLabel">0/0</span>
+    <div id="playback-header">
+        <button id="playBtn">▶</button>
+        <select id="playSpeed"><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option><option value="20">20x</option></select>
+        <span id="playLabel">00:00 / 23:59</span>
+        <span id="playTime" style="margin-left:auto;font-size:12px;color:#475569"></span>
+        <button id="playbackClose" style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 8px;cursor:pointer">×</button>
+    </div>
+    <div id="timeline">
+        <div id="timeline-tracks" style="position:relative;height:100%"></div>
+        <div id="timeline-cursor"></div>
+        <input type="range" id="playSlider" min="0" max="1000" value="0" style="position:absolute;inset:0;opacity:0;cursor:pointer">
+    </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
