@@ -136,11 +136,36 @@ html, body {
     color: white;
 }
 
-#topbar-controls input[type="date"] {
+#topbar-controls input[type="date"],
+#topbar-controls input[type="datetime-local"] {
     padding: 5px 8px;
     border: 1px solid #d1d5db;
     border-radius: 6px;
-    font-size: 14px;
+    font-size: 13px;
+}
+#topbar-controls select {
+    padding: 5px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 13px;
+    background: white;
+    color: #334155;
+}
+#topbar-controls #presetSelect {
+    min-width: 110px;
+}
+#topbar-controls #startPicker,
+#topbar-controls #endPicker {
+    max-width: 175px;
+}
+#topbar-controls #applyRangeBtn {
+    background: #0f172a;
+    color: white;
+    border: 1px solid #0f172a;
+    font-weight: 600;
+}
+#topbar-controls #applyRangeBtn:hover {
+    background: #1e293b;
 }
 
 #dateLabel {
@@ -454,6 +479,23 @@ html, body {
     pointer-events: none;
     z-index: 2;
 }
+#timeline-selection {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(37,99,235,0.18);
+    border: 1px solid #2563eb;
+    border-radius: 3px;
+    display: none;
+    pointer-events: none;
+    z-index: 1;
+}
+#timeline.dragging {
+    cursor: col-resize;
+}
+#timeline.dragging #timeline-selection {
+    display: block;
+}
 #timeline-time {
     position: absolute;
     top: 0;
@@ -476,6 +518,9 @@ html, body {
 
 #playback input[type="range"] {
     flex: 1;
+}
+#playSlider {
+    pointer-events: none;
 }
 
 #playLabel {

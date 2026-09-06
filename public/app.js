@@ -104,7 +104,10 @@ function saveUI() {
             selectedDeviceIds: [...selectedDeviceIds],
             selectedDeviceId: selectedDeviceId, // compat
             isLive,
-            selectedDate,
+            selectedDate, // compat
+            timePreset,
+            customStart,
+            customEnd,
             boatFilter: document.getElementById("boatFilter")?.value || "",
             panels: {
                 "device-panel": document.getElementById("device-panel")?.style.display,
@@ -128,6 +131,10 @@ function loadUI() {
         if (selectedDeviceIds.size > 1) { const first = [...selectedDeviceIds][0]; selectedDeviceIds = new Set([first]); syncSelected(); }
         if (typeof d.isLive === "boolean") isLive = d.isLive;
         if (d.selectedDate) selectedDate = d.selectedDate;
+        if (d.timePreset) timePreset = d.timePreset;
+        else if (d.selectedDate && d.selectedDate !== todayStr()) timePreset = "custom"; // migrate old date
+        if (d.customStart) customStart = d.customStart;
+        if (d.customEnd) customEnd = d.customEnd;
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => { const el=document.getElementById(id); if(el && disp) el.style.display=disp; });
         // restore boats button active state
@@ -138,43 +145,145 @@ function loadUI() {
     } catch {}
 }
 
-// --- Controls: Live vs date ---
+// --- Controls: Live vs range (rich time selector) ---
 const liveBtn = document.getElementById("liveBtn");
-const datePicker = document.getElementById("datePicker");
+const presetSelect = document.getElementById("presetSelect");
+const startPicker = document.getElementById("startPicker");
+const endPicker = document.getElementById("endPicker");
+const applyRangeBtn = document.getElementById("applyRangeBtn");
+const rangeSep = document.getElementById("rangeSep");
 const dateLabel = document.getElementById("dateLabel");
+// compat: old datePicker removed — keep variable for legacy code
+const datePicker = { value: "" };
 
 function todayStr() {
     return new Date().toISOString().slice(0, 10);
 }
+function pad2(n){ return String(n).padStart(2,"0"); }
+function toLocalDatetimeValue(d){
+    return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
+function endOfDay(d){ const x=new Date(d); x.setHours(23,59,59,999); return x; }
+function startOfWeek(d){
+    const x=new Date(d); const day=x.getDay(); const diff= day===0?6:day-1; // Monday start
+    x.setDate(x.getDate()-diff); x.setHours(0,0,0,0); return x;
+}
+function computeRangeForPreset(preset, cStart, cEnd){
+    const now=new Date();
+    if(preset==="today") return { start: startOfDay(now).getTime(), end: endOfDay(now).getTime() };
+    if(preset==="yesterday"){ const y=new Date(now); y.setDate(y.getDate()-1); return { start: startOfDay(y).getTime(), end: endOfDay(y).getTime() }; }
+    if(preset==="thisWeek") return { start: startOfWeek(now).getTime(), end: endOfDay(now).getTime() };
+    if(preset==="custom" && cStart && cEnd){
+        const s=new Date(cStart), e=new Date(cEnd);
+        if(!isNaN(s.getTime()) && !isNaN(e.getTime())) return { start: s.getTime(), end: e.getTime() };
+    }
+    return { start: startOfDay(now).getTime(), end: endOfDay(now).getTime() };
+}
+function formatRangeLabel(startMs, endMs){
+    const s=new Date(startMs), e=new Date(endMs);
+    const sameDay = s.toDateString()===e.toDateString();
+    const sd = s.toLocaleDateString(); const st=s.toLocaleTimeString().slice(0,5);
+    const ed = e.toLocaleDateString(); const et=e.toLocaleTimeString().slice(0,5);
+    if(sameDay) return `${sd} ${st} → ${et}`;
+    return `${sd} ${st} → ${ed} ${et}`;
+}
 
 let isLive = true;
-let selectedDate = todayStr();
-datePicker.value = selectedDate;
-dateLabel.textContent = "Live — Today";
+let selectedDate = todayStr(); // compat
+let timePreset = "today";
+let customStart = "";
+let customEnd = "";
+// init defaults then override via loadUI
 loadUI();
-datePicker.value = selectedDate;
-dateLabel.textContent = isLive ? "Live — Today" : (selectedDate === todayStr() ? "Today" : selectedDate);
+// ensure defaults if loadUI missing values
+if(!timePreset) timePreset="today";
+if(presetSelect) presetSelect.value = timePreset;
+// if legacy selectedDate was custom, hydrate custom inputs
+if(timePreset==="custom" && selectedDate && !customStart){
+    const d=new Date(selectedDate+"T00:00"); if(!isNaN(d.getTime())){ customStart=toLocalDatetimeValue(startOfDay(d)); customEnd=toLocalDatetimeValue(endOfDay(d)); }
+}
+if(startPicker) startPicker.value = customStart;
+if(endPicker) endPicker.value = customEnd;
+
+function updateTimeControlsVisibility(){
+    const isCustom = timePreset==="custom" && !isLive;
+    if(presetSelect) presetSelect.style.display = isLive ? "none" : "";
+    if(startPicker) startPicker.style.display = isCustom ? "" : "none";
+    if(rangeSep) rangeSep.style.display = isCustom ? "" : "none";
+    if(endPicker) endPicker.style.display = isCustom ? "" : "none";
+    if(applyRangeBtn) applyRangeBtn.style.display = isCustom ? "" : "none";
+    if(presetSelect) presetSelect.disabled = !!isLive;
+}
+function syncDateLabel(count){
+    const suffix = typeof count==="number" ? ` (${count})` : "";
+    if(isLive){ dateLabel.textContent = `Live — Today${suffix}`; return; }
+    const range = computeRangeForPreset(timePreset, customStart, customEnd);
+    if(timePreset==="today") dateLabel.textContent = `Today${suffix}`;
+    else if(timePreset==="yesterday") dateLabel.textContent = `Yesterday${suffix}`;
+    else if(timePreset==="thisWeek") dateLabel.textContent = `This week${suffix}`;
+    else if(timePreset==="custom") dateLabel.textContent = `${formatRangeLabel(range.start, range.end)}${suffix}`;
+    else dateLabel.textContent = `${formatRangeLabel(range.start, range.end)}${suffix}`;
+}
+function getCurrentRange(){
+    if(isLive){
+        const now=new Date(); return { start: startOfDay(now).getTime(), end: endOfDay(now).getTime() };
+    }
+    return computeRangeForPreset(timePreset, customStart, customEnd);
+}
+
+updateTimeControlsVisibility();
+syncDateLabel();
 if (isLive) liveBtn.classList.add("active"); else liveBtn.classList.remove("active");
+if (presetSelect) presetSelect.value = timePreset;
 
 liveBtn.addEventListener("click", () => {
-    isLive = true;
-    selectedDate = todayStr();
-    datePicker.value = selectedDate;
-    dateLabel.textContent = "Live — Today";
-    liveBtn.classList.add("active");
+    isLive = !isLive;
+    if(isLive){
+        liveBtn.classList.add("active");
+        updateTimeControlsVisibility();
+        syncDateLabel();
+        saveUI();
+        refresh();
+    } else {
+        liveBtn.classList.remove("active");
+        updateTimeControlsVisibility();
+        syncDateLabel();
+        saveUI();
+        refresh();
+    }
+});
+
+if(presetSelect) presetSelect.addEventListener("change", () => {
+    timePreset = presetSelect.value;
+    isLive = false;
+    liveBtn.classList.remove("active");
+    // if switching to custom and no values, seed with today range
+    if(timePreset==="custom" && (!customStart || !customEnd)){
+        const r=computeRangeForPreset("today"); customStart=toLocalDatetimeValue(new Date(r.start)); customEnd=toLocalDatetimeValue(new Date(r.end));
+        if(startPicker) startPicker.value=customStart; if(endPicker) endPicker.value=customEnd;
+    }
+    // keep compat selectedDate for custom
+    if(timePreset==="custom"){ const r=computeRangeForPreset(timePreset, customStart, customEnd); selectedDate=new Date(r.start).toISOString().slice(0,10); }
+    updateTimeControlsVisibility();
+    syncDateLabel();
     saveUI();
     refresh();
 });
 
-datePicker.addEventListener("change", () => {
-    if (!datePicker.value) return;
-    selectedDate = datePicker.value;
-    isLive = false;
-    liveBtn.classList.remove("active");
-    dateLabel.textContent = selectedDate === todayStr() ? "Today" : selectedDate;
+function applyCustomRange(){
+    if(startPicker) customStart=startPicker.value;
+    if(endPicker) customEnd=endPicker.value;
+    if(timePreset!=="custom"){ timePreset="custom"; if(presetSelect) presetSelect.value="custom"; }
+    isLive=false; liveBtn.classList.remove("active");
+    updateTimeControlsVisibility();
+    syncDateLabel();
     saveUI();
     refresh();
-});
+}
+if(startPicker) startPicker.addEventListener("change", applyCustomRange);
+if(endPicker) endPicker.addEventListener("change", applyCustomRange);
+if(applyRangeBtn) applyRangeBtn.addEventListener("click", applyCustomRange);
 
 let lastDevices = [];
 // --- Device list ---
@@ -267,15 +376,24 @@ async function refresh() {
     if (selectedDeviceIds.size > 0) {
         try {
             const ids = [...selectedDeviceIds];
+            const range = getCurrentRange();
             const all = await Promise.all(ids.map(async id => {
                 const params = new URLSearchParams();
-                if (selectedDate) params.set("date", selectedDate);
                 params.set("deviceId", id);
+                // use rich range (start/end ISO) — backend filters by timestamp
+                params.set("start", new Date(range.start).toISOString());
+                params.set("end", new Date(range.end).toISOString());
                 const r = await fetch(`/gps?${params.toString()}`);
                 if (!r.ok) return [];
                 return r.json();
             }));
             points = all.flat().sort((a,b) => new Date(a.timestamp||a.receivedAt) - new Date(b.timestamp||b.receivedAt));
+            // client-side guard: only keep points inside selected time range
+            const _range = getCurrentRange();
+            points = points.filter(p => {
+                const t = new Date(p.timestamp || p.receivedAt).getTime();
+                return !isNaN(t) && t >= _range.start && t <= _range.end;
+            });
         } catch (e) {
             console.error("filtered fetch failed", e);
             points = [];
@@ -285,13 +403,10 @@ async function refresh() {
     }
 
     allPoints = points;
-    // Update label with count
+    // Update label with count — rich selector
     const filterSuffix = selectedDeviceIds.size ? ` • ${selectedDeviceIds.size} selected` : "";
-    if (isLive) {
-        dateLabel.textContent = `Live — Today (${points.length})${filterSuffix}`;
-    } else {
-        dateLabel.textContent = `${selectedDate} (${points.length})${filterSuffix}`;
-    }
+    syncDateLabel(points.length);
+    if (filterSuffix) dateLabel.textContent += filterSuffix;
 
     if (points.length === 0) {
         if (polyline) { map.removeLayer(polyline); polyline = null; }
@@ -806,10 +921,8 @@ function getTripsForDevice(deviceId) {
 }
 
 function getDayBounds() {
-    const d = isLive ? todayStr() : (selectedDate || todayStr());
-    const start = new Date(d + "T00:00:00").getTime();
-    const end = new Date(d + "T23:59:59.999").getTime();
-    return { start, end };
+    const r = getCurrentRange();
+    return { start: r.start, end: r.end };
 }
 function updateTimelineTracks() {
     if (!timelineTracksEl) return;
@@ -966,6 +1079,20 @@ playBtn.addEventListener("click", () => {
     if (playbackTimer) stopPlayback();
     else startPlayback();
 });
+const rewindBtn = document.getElementById("rewindBtn");
+if(rewindBtn){
+    rewindBtn.addEventListener("click", () => {
+        stopPlayback();
+        const bounds = getDayBounds();
+        playbackTime = bounds.start;
+        showTime(playbackTime);
+        if (selectedDeviceIds.size === 1) {
+            const id = [...selectedDeviceIds][0];
+            const pos = interpolatePosition(id, playbackTime);
+            if (pos) map.panTo([pos.lat, pos.lon]);
+        }
+    });
+}
 playSlider.addEventListener("input", e => {
     stopPlayback();
     const bounds = getDayBounds();
@@ -982,21 +1109,157 @@ playSpeedSel.addEventListener("change", e => {
     playbackSpeed = parseInt(e.target.value, 10);
     if (playbackTimer) { stopPlayback(); startPlayback(); }
 });
-document.getElementById("timeline")?.addEventListener("click", e => {
-    if (e.target === playSlider) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    const bounds = getDayBounds();
-    const timeMs = bounds.start + ratio * (bounds.end - bounds.start);
-    stopPlayback();
-    showTime(timeMs);
-    if (selectedDeviceIds.size === 1) {
-        const id = [...selectedDeviceIds][0];
-        const pos = interpolatePosition(id, timeMs);
-        if (pos) map.panTo([pos.lat, pos.lon]);
+// Timeline: click to scrub, drag to select start/end range
+const timelineEl = document.getElementById("timeline");
+const timelineSelectionEl = document.getElementById("timeline-selection");
+let timelineDrag = null;
+function getTimelineRatio(clientX){
+    const rect = timelineEl.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+}
+function hideTimelineSelection(){
+    if(timelineSelectionEl){ timelineSelectionEl.style.display="none"; timelineSelectionEl.style.left="0%"; timelineSelectionEl.style.width="0%"; }
+    if(timelineEl) timelineEl.classList.remove("dragging");
+}
+if(timelineEl){
+    timelineEl.addEventListener("mousedown", e => {
+        if(e.button!==0) return;
+        const ratio = getTimelineRatio(e.clientX);
+        timelineDrag = { startX: e.clientX, startRatio: ratio, currentRatio: ratio, isDragging:false, rect: timelineEl.getBoundingClientRect() };
+        e.preventDefault();
+    });
+    timelineEl.addEventListener("touchstart", e => {
+        if(!e.touches[0]) return;
+        const ratio = getTimelineRatio(e.touches[0].clientX);
+        timelineDrag = { startX: e.touches[0].clientX, startRatio: ratio, currentRatio: ratio, isDragging:false, rect: timelineEl.getBoundingClientRect() };
+    }, {passive:false});
+}
+window.addEventListener("mousemove", e => {
+    if(!timelineDrag) return;
+    const rect = timelineDrag.rect || (timelineEl && timelineEl.getBoundingClientRect());
+    const curRatio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const delta = Math.abs(e.clientX - timelineDrag.startX);
+    if(!timelineDrag.isDragging && delta > 4){
+        timelineDrag.isDragging = true;
+        if(timelineEl) timelineEl.classList.add("dragging");
+        if(timelineSelectionEl) timelineSelectionEl.style.display="block";
+    }
+    if(timelineDrag.isDragging){
+        timelineDrag.currentRatio = curRatio;
+        const left = Math.min(timelineDrag.startRatio, curRatio) * 100;
+        const width = Math.abs(curRatio - timelineDrag.startRatio) * 100;
+        if(timelineSelectionEl){ timelineSelectionEl.style.left = left + "%"; timelineSelectionEl.style.width = width + "%"; }
     }
 });
-document.getElementById("playbackClose")?.addEventListener("click", () => { stopPlayback(); document.getElementById("playback").style.display="none"; saveUI(); });
+window.addEventListener("touchmove", e => {
+    if(!timelineDrag || !e.touches[0]) return;
+    const rect = timelineDrag.rect || (timelineEl && timelineEl.getBoundingClientRect());
+    const curRatio = Math.max(0, Math.min(1, (e.touches[0].clientX - rect.left) / rect.width));
+    const delta = Math.abs(e.touches[0].clientX - timelineDrag.startX);
+    if(!timelineDrag.isDragging && delta > 6){
+        timelineDrag.isDragging = true;
+        if(timelineEl) timelineEl.classList.add("dragging");
+        if(timelineSelectionEl) timelineSelectionEl.style.display="block";
+    }
+    if(timelineDrag.isDragging){
+        timelineDrag.currentRatio = curRatio;
+        const left = Math.min(timelineDrag.startRatio, curRatio) * 100;
+        const width = Math.abs(curRatio - timelineDrag.startRatio) * 100;
+        if(timelineSelectionEl){ timelineSelectionEl.style.left = left + "%"; timelineSelectionEl.style.width = width + "%"; }
+        e.preventDefault();
+    }
+}, {passive:false});
+window.addEventListener("mouseup", e => {
+    if(!timelineDrag) return;
+    const wasDragging = timelineDrag.isDragging;
+    const rect = timelineDrag.rect || (timelineEl && timelineEl.getBoundingClientRect());
+    const endRatio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const startRatio = timelineDrag.startRatio;
+    const tmpDragging = wasDragging;
+    timelineDrag = null;
+    if(tmpDragging){
+        const minR = Math.min(startRatio, endRatio), maxR = Math.max(startRatio, endRatio);
+        if(maxR - minR < 0.01){
+            hideTimelineSelection();
+            // treat as click
+            const bounds = getDayBounds();
+            const timeMs = bounds.start + minR * (bounds.end - bounds.start);
+            stopPlayback();
+            showTime(timeMs);
+            if (selectedDeviceIds.size === 1) {
+                const id = [...selectedDeviceIds][0];
+                const pos = interpolatePosition(id, timeMs);
+                if (pos) map.panTo([pos.lat, pos.lon]);
+            }
+            return;
+        }
+        const bounds = getDayBounds();
+        const duration = bounds.end - bounds.start;
+        let selStart = bounds.start + minR * duration;
+        let selEnd = bounds.start + maxR * duration;
+        if(selEnd - selStart < 60000) selEnd = selStart + 60000; // at least 1min
+        // apply as custom range
+        isLive = false;
+        liveBtn.classList.remove("active");
+        timePreset = "custom";
+        if(presetSelect) presetSelect.value = "custom";
+        customStart = toLocalDatetimeValue(new Date(selStart));
+        customEnd = toLocalDatetimeValue(new Date(selEnd));
+        if(startPicker) startPicker.value = customStart;
+        if(endPicker) endPicker.value = customEnd;
+        updateTimeControlsVisibility();
+        syncDateLabel();
+        saveUI();
+        playbackTime = selStart;
+        hideTimelineSelection();
+        refresh().then(() => {
+            updateTimelineTracks();
+            playbackTime = selStart;
+            updatePlaybackSlider();
+            showTime(selStart);
+            if(selectedDeviceIds.size===1){
+                const id=[...selectedDeviceIds][0]; const pos=interpolatePosition(id, selStart); if(pos) map.panTo([pos.lat,pos.lon]);
+            }
+        });
+    } else {
+        // single click -> scrub
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const bounds = getDayBounds();
+        const timeMs = bounds.start + ratio * (bounds.end - bounds.start);
+        stopPlayback();
+        showTime(timeMs);
+        if (selectedDeviceIds.size === 1) {
+            const id = [...selectedDeviceIds][0];
+            const pos = interpolatePosition(id, timeMs);
+            if (pos) map.panTo([pos.lat, pos.lon]);
+        }
+        hideTimelineSelection();
+    }
+});
+window.addEventListener("touchend", e => {
+    if(!timelineDrag) return;
+    const wasDragging = timelineDrag.isDragging;
+    const endRatio = timelineDrag.currentRatio ?? timelineDrag.startRatio;
+    const startRatio = timelineDrag.startRatio;
+    timelineDrag = null;
+    if(wasDragging){
+        const minR = Math.min(startRatio, endRatio), maxR = Math.max(startRatio, endRatio);
+        if(maxR - minR < 0.01){ hideTimelineSelection(); return; }
+        const bounds = getDayBounds();
+        const duration = bounds.end - bounds.start;
+        let selStart = bounds.start + minR * duration;
+        let selEnd = bounds.start + maxR * duration;
+        if(selEnd - selStart < 60000) selEnd = selStart + 60000;
+        isLive = false; liveBtn.classList.remove("active"); timePreset="custom"; if(presetSelect) presetSelect.value="custom";
+        customStart = toLocalDatetimeValue(new Date(selStart)); customEnd = toLocalDatetimeValue(new Date(selEnd));
+        if(startPicker) startPicker.value=customStart; if(endPicker) endPicker.value=customEnd;
+        updateTimeControlsVisibility(); syncDateLabel(); saveUI(); playbackTime=selStart; hideTimelineSelection();
+        refresh().then(()=>{ updateTimelineTracks(); playbackTime=selStart; updatePlaybackSlider(); showTime(selStart); });
+    } else {
+        hideTimelineSelection();
+    }
+});
+document.getElementById("playbackClose")?.addEventListener("click", () => { stopPlayback(); document.getElementById("playback").style.display="none"; saveUI(); hideTimelineSelection(); });
 
 // Hook into refresh to update timeline
 const origRefresh = refresh;

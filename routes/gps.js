@@ -99,13 +99,27 @@ router.post("/gps", async (req, res) => {
 // --------------------------------------------------
 
 router.get("/gps", async (req, res) => {
-    const { date, deviceId } = req.query;
+    const { date, deviceId, start, end } = req.query;
     if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
         return res.status(400).json({ error: "deviceId query param required" });
     }
     const cleanDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
     const cleanDeviceId = deviceId.trim();
-    res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId }));
+    let cleanStart = null, cleanEnd = null;
+    if (start) {
+        const s = new Date(start);
+        if (!isNaN(s.getTime())) cleanStart = s.toISOString();
+    }
+    if (end) {
+        const e = new Date(end);
+        if (!isNaN(e.getTime())) cleanEnd = e.toISOString();
+    }
+    // if range provided, it takes precedence over date
+    if (cleanStart || cleanEnd) {
+        res.json(await getPoints({ deviceId: cleanDeviceId, start: cleanStart, end: cleanEnd }));
+    } else {
+        res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId }));
+    }
 });
 
 // --------------------------------------------------

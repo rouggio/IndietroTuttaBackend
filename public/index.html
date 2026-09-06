@@ -38,8 +38,17 @@
         </div>
         <div id="topbar-controls">
             <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
-            <input type="date" id="datePicker" />
-            <span id="dateLabel">Today</span>
+            <select id="presetSelect" title="Time range preset">
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="thisWeek">This week</option>
+                <option value="custom">Custom…</option>
+            </select>
+            <input type="datetime-local" id="startPicker" title="Start date & time" style="display:none">
+            <span id="rangeSep" style="display:none; color:#6b7280">→</span>
+            <input type="datetime-local" id="endPicker" title="End date & time" style="display:none">
+            <button id="applyRangeBtn" title="Apply custom range" style="display:none; padding:5px 10px; border:1px solid #d1d5db; border-radius:6px; background:#0f172a; color:white; font-size:13px; cursor:pointer">Go</button>
+            <span id="dateLabel">Live — Today</span>
         </div>
     </div>
 </div>
@@ -109,6 +118,7 @@
 
 <div id="playback">
     <div id="playback-header">
+        <button id="rewindBtn" title="Rewind to start of range">⏮</button>
         <button id="playBtn">▶</button>
         <select id="playSpeed"><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option><option value="20">20x</option></select>
         <span id="playLabel">00:00 / 23:59</span>
@@ -117,8 +127,9 @@
     </div>
     <div id="timeline">
         <div id="timeline-tracks" style="position:relative;height:100%"></div>
+        <div id="timeline-selection"></div>
         <div id="timeline-cursor"></div>
-        <input type="range" id="playSlider" min="0" max="1000" value="0" style="position:absolute;inset:0;opacity:0;cursor:pointer">
+        <input type="range" id="playSlider" min="0" max="1000" value="0" style="position:absolute;inset:0;opacity:0.01;pointer-events:none">
     </div>
 </div>
 

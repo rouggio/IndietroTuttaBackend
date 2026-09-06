@@ -50,11 +50,18 @@ async function addPoint(point) {
 
 async function getPoints(filter = {}) {
     const client = getClient();
-    const { date, deviceId } = filter;
+    const { date, deviceId, start, end } = filter;
 
     if (!client) {
         let pts = memPoints;
-        if (date) pts = pts.filter(p => (p.timestamp || p.receivedAt || "").slice(0, 10) === date);
+        if (start) {
+            const s = new Date(start).getTime();
+            if (!isNaN(s)) pts = pts.filter(p => new Date(p.timestamp || p.receivedAt || 0).getTime() >= s);
+        }
+        if (end) {
+            const e = new Date(end).getTime();
+            if (!isNaN(e)) pts = pts.filter(p => new Date(p.timestamp || p.receivedAt || 0).getTime() <= e);
+        } else if (date) pts = pts.filter(p => (p.timestamp || p.receivedAt || "").slice(0, 10) === date);
         if (deviceId) pts = pts.filter(p => p.deviceId === deviceId);
         return pts;
     }
@@ -64,7 +71,16 @@ async function getPoints(filter = {}) {
     let sql = "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, timestamp, receivedAt FROM gps_points WHERE 1=1";
     const args = [];
 
-    if (date) {
+    if (start) {
+        // ISO timestamp range filter — takes precedence over date
+        sql += " AND timestamp >= ?";
+        args.push(new Date(start).toISOString());
+    }
+    if (end) {
+        sql += " AND timestamp <= ?";
+        args.push(new Date(end).toISOString());
+    }
+    if (!start && !end && date) {
         sql += " AND substr(timestamp,1,10) = ?";
         args.push(date);
     }
