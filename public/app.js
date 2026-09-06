@@ -89,6 +89,13 @@ function colorForDevice(id) {
     return c;
 }
 
+function boatTriangleIcon(deviceId, courseDeg) {
+    const color = colorForDevice(deviceId);
+    const deg = (typeof courseDeg === "number" && !isNaN(courseDeg)) ? courseDeg : 0;
+    const html = `<div style="transform:rotate(${deg}deg);width:20px;height:20px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.45))"><svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="display:block"><path d="M12 2.5 L19.5 19.5 L12 15.8 L4.5 19.5 Z" fill="${color}" stroke="white" stroke-width="1.3" stroke-linejoin="round"/></svg></div>`;
+    return L.divIcon({ html, className: "boat-triangle", iconSize: [20, 20], iconAnchor: [10, 10] });
+}
+
 const UI_KEY = "indietrotutta:ui";
 function syncSelected() { selectedDeviceId = selectedDeviceIds.size ? [...selectedDeviceIds][0] : null; }
 function saveUI() {
@@ -115,8 +122,10 @@ function loadUI() {
         const raw = localStorage.getItem(UI_KEY);
         if (!raw) return;
         const d = JSON.parse(raw);
-        if (Array.isArray(d.selectedDeviceIds)) { selectedDeviceIds = new Set(d.selectedDeviceIds); syncSelected(); }
+        if (Array.isArray(d.selectedDeviceIds)) { selectedDeviceIds = new Set(d.selectedDeviceIds.slice(0,1)); syncSelected(); }
         else if (d.selectedDeviceId) { selectedDeviceIds = new Set([d.selectedDeviceId]); syncSelected(); }
+        // enforce single selection (migration from multi-select)
+        if (selectedDeviceIds.size > 1) { const first = [...selectedDeviceIds][0]; selectedDeviceIds = new Set([first]); syncSelected(); }
         if (typeof d.isLive === "boolean") isLive = d.isLive;
         if (d.selectedDate) selectedDate = d.selectedDate;
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
@@ -189,6 +198,12 @@ async function refreshDevices() {
             return;
         }
 
+        function lighten(hex, amt=0.85) {
+            const c = hex.replace('#','');
+            const r = parseInt(c.substring(0,2),16), g = parseInt(c.substring(2,4),16), b = parseInt(c.substring(4,6),16);
+            const nr = Math.round(r + (255-r)*amt), ng = Math.round(g + (255-g)*amt), nb = Math.round(b + (255-b)*amt);
+            return `rgb(${nr},${ng},${nb})`;
+        }
         list.innerHTML = filtered.map(d => {
             const status = d.status || "offline";
             const isActive = selectedDeviceIds.has(d.deviceId);
@@ -196,12 +211,13 @@ async function refreshDevices() {
             const name = d.username ? `${d.username} <span class="device-meta">${shortId}</span>` : (d.deviceId || "-");
             const lastSeen = d.lastSeen ? new Date(d.lastSeen).toLocaleTimeString() : "-";
             const routeColor = colorForDevice(d.deviceId);
+            const lightBg = lighten(routeColor, 0.85);
             const statusColor = status === "live" ? "#16a34a" : status === "idle" ? "#f59e0b" : "#9ca3af";
             return `
                 <div class="device-item ${isActive ? "active" : ""}" data-id="${d.deviceId}" style="cursor:pointer">
-                    <div style="display:flex;align-items:center;gap:6px;overflow:hidden;flex:1">
-                        <span style="width:12px;height:12px;border-radius:3px;background:${routeColor};border:1px solid rgba(0,0,0,.1);flex-shrink:0" title="Route color"></span>
-                        <span class="device-name">${name}</span>
+                    <div style="display:flex;align-items:center;gap:8px;overflow:hidden;flex:1">
+                        <input type="checkbox" ${isActive ? "checked" : ""} data-check="${d.deviceId}" style="accent-color:${routeColor};width:14px;height:14px;flex-shrink:0">
+                        <span class="device-name" style="border:1.5px solid ${routeColor};background:${lightBg};padding:2px 7px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px">${name}</span>
                     </div>
                     <div style="text-align:right">
                         <div class="device-meta" style="color:${statusColor};font-weight:600">${status}</div>
@@ -211,16 +227,32 @@ async function refreshDevices() {
             `;
         }).join("");
 
-        // click to filter by device (multi-select)
-        list.querySelectorAll(".device-item").forEach(el => {
-            el.addEventListener("click", () => {
-                const id = el.getAttribute("data-id");
-                if (selectedDeviceIds.has(id)) selectedDeviceIds.delete(id); else selectedDeviceIds.add(id);
+        // single-select boat: only one boat at a time
+        list.querySelectorAll("input[data-check]").forEach(cb => {
+            cb.addEventListener("click", e => e.stopPropagation());
+            cb.addEventListener("change", () => {
+                const id = cb.getAttribute("data-check");
+                if (cb.checked) {
+                    selectedDeviceIds.clear();
+                    selectedDeviceIds.add(id);
+                } else {
+                    selectedDeviceIds.delete(id);
+                }
                 syncSelected();
                 saveUI();
                 updateTimelineTracks();
                 refresh();
                 refreshDevices();
+            });
+        });
+        list.querySelectorAll(".device-item").forEach(el => {
+            el.addEventListener("click", async e => {
+                if (e.target.closest("input[type=checkbox]")) return;
+                const id = el.getAttribute("data-id");
+                try {
+                    const r = await fetch(`/gps/latest?deviceId=${encodeURIComponent(id)}`);
+                    if (r.ok) { const p = await r.json(); if (p && !p.error) info.update(p); }
+                } catch {}
             });
         });
 
@@ -249,22 +281,7 @@ async function refresh() {
             points = [];
         }
     } else {
-        try {
-            const devRes = await fetch("/boats");
-            const boats = await devRes.json();
-            const all = await Promise.all(boats.map(async b => {
-                const p = new URLSearchParams();
-                if (selectedDate) p.set("date", selectedDate);
-                p.set("deviceId", b.deviceId);
-                const r = await fetch(`/gps?${p.toString()}`);
-                if (!r.ok) return [];
-                return r.json();
-            }));
-            points = all.flat().sort((a,b) => new Date(a.timestamp||a.receivedAt) - new Date(b.timestamp||b.receivedAt));
-        } catch (e) {
-            console.error("fleet fetch failed", e);
-            points = [];
-        }
+        points = [];
     }
 
     allPoints = points;
@@ -341,7 +358,7 @@ async function refresh() {
         points.forEach(p => latestByDevice.set(p.deviceId, p));
         latestByDevice.forEach(p => {
             if (!selectedDeviceIds.has(p.deviceId)) return;
-            const m = L.circleMarker([p.lat, p.lon], { radius: 5, fillColor: colorForDevice(p.deviceId), color: "white", weight: 1, fillOpacity: 1 }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
+            const m = L.marker([p.lat, p.lon], { icon: boatTriangleIcon(p.deviceId, p.course) }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
             m.on("click", () => info.update(p));
             fleetMarkers.push(m);
         });
@@ -351,7 +368,7 @@ async function refresh() {
         const latestByDevice = new Map();
         points.forEach(p => latestByDevice.set(p.deviceId, p));
         latestByDevice.forEach(p => {
-            const m = L.circleMarker([p.lat, p.lon], { radius: 5, fillColor: colorForDevice(p.deviceId), color: "white", weight: 1, fillOpacity: 1 }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
+            const m = L.marker([p.lat, p.lon], { icon: boatTriangleIcon(p.deviceId, p.course) }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
             m.on("click", () => info.update(p));
             fleetMarkers.push(m);
         });
@@ -767,6 +784,27 @@ let playbackTimer = null;
 let playbackSpeed = 1;
 let playbackMarkers = new Map(); // deviceId -> circleMarker
 
+// Gap larger than this splits activity into separate trips (idle stillness)
+const IDLE_GAP_MS = 5 * 60 * 1000; // 5 minutes — gps is ~40s, so >5min = idle/transport
+
+function getTripsForDevice(deviceId) {
+    const pts = allPoints.filter(p=>p.deviceId===deviceId).sort((a,b)=> new Date(a.timestamp)-new Date(b.timestamp));
+    if (!pts.length) return [];
+    const trips = [];
+    let cur = [pts[0]];
+    for (let i=1;i<pts.length;i++) {
+        const gap = new Date(pts[i].timestamp).getTime() - new Date(pts[i-1].timestamp).getTime();
+        if (gap > IDLE_GAP_MS) {
+            trips.push(cur);
+            cur = [pts[i]];
+        } else {
+            cur.push(pts[i]);
+        }
+    }
+    trips.push(cur);
+    return trips;
+}
+
 function getDayBounds() {
     const d = isLive ? todayStr() : (selectedDate || todayStr());
     const start = new Date(d + "T00:00:00").getTime();
@@ -781,44 +819,74 @@ function updateTimelineTracks() {
     const ids = selectedDeviceIds.size ? [...selectedDeviceIds] : [...new Set(allPoints.map(p=>p.deviceId))];
     if (ids.length === 0) return;
     ids.forEach((id, idx) => {
-        const pts = allPoints.filter(p=>p.deviceId===id).sort((a,b)=> new Date(a.timestamp)-new Date(b.timestamp));
-        if (!pts.length) return;
+        const trips = getTripsForDevice(id);
+        if (!trips.length) return;
         const track = document.createElement("div");
         track.className = "timeline-track";
         track.style.top = (4 + idx*14) + "px";
         track.style.background = "#e5e7eb";
-        const tFirst = new Date(pts[0].timestamp).getTime();
-        const tLast = new Date(pts[pts.length-1].timestamp).getTime();
-        const left = ((tFirst - bounds.start)/dayMs)*100;
-        const width = ((tLast - tFirst)/dayMs)*100;
-        const seg = document.createElement("div");
-        seg.className = "timeline-segment";
-        seg.style.left = Math.max(0, left) + "%";
-        seg.style.width = Math.max(0.6, width) + "%";
-        seg.style.background = colorForDevice(id);
-        seg.title = id;
-        track.appendChild(seg);
+        trips.forEach(trip => {
+            if (!trip.length) return;
+            const tFirst = new Date(trip[0].timestamp).getTime();
+            const tLast = new Date(trip[trip.length-1].timestamp).getTime();
+            const left = ((tFirst - bounds.start)/dayMs)*100;
+            const width = ((tLast - tFirst)/dayMs)*100;
+            const seg = document.createElement("div");
+            seg.className = "timeline-segment";
+            seg.style.left = Math.max(0, left) + "%";
+            seg.style.width = Math.max(0.6, width) + "%";
+            seg.style.background = colorForDevice(id);
+            seg.title = `${id} ${new Date(tFirst).toLocaleTimeString()}–${new Date(tLast).toLocaleTimeString()} (${trip.length} pts)`;
+            track.appendChild(seg);
+        });
         timelineTracksEl.appendChild(track);
     });
     // height
     timelineTracksEl.parentElement.style.height = Math.max(24, 8 + ids.length*14) + "px";
 }
 function interpolatePosition(deviceId, timeMs) {
-    const pts = allPoints.filter(p=>p.deviceId===deviceId).sort((a,b)=> new Date(a.timestamp)-new Date(b.timestamp));
-    if (!pts.length) return null;
-    const first = new Date(pts[0].timestamp).getTime();
-    const last = new Date(pts[pts.length-1].timestamp).getTime();
-    if (timeMs <= first) return pts[0];
-    if (timeMs >= last) return pts[pts.length-1];
-    for (let i=0;i<pts.length-1;i++) {
-        const t1 = new Date(pts[i].timestamp).getTime();
-        const t2 = new Date(pts[i+1].timestamp).getTime();
-        if (timeMs >= t1 && timeMs <= t2) {
-            const r = (timeMs - t1)/(t2 - t1 || 1);
-            return { lat: pts[i].lat + (pts[i+1].lat - pts[i].lat)*r, lon: pts[i].lon + (pts[i+1].lon - pts[i].lon)*r, deviceId, username: pts[i].username, timestamp: new Date(timeMs).toISOString() };
+    const trips = getTripsForDevice(deviceId);
+    if (!trips.length) return null;
+    const firstTrip = trips[0], lastTrip = trips[trips.length-1];
+    const first = new Date(firstTrip[0].timestamp).getTime();
+    const last = new Date(lastTrip[lastTrip.length-1].timestamp).getTime();
+    if (timeMs <= first) return firstTrip[0];
+    if (timeMs >= last) return lastTrip[lastTrip.length-1];
+    // Check each trip and idle gap between trips
+    for (let ti=0; ti<trips.length; ti++) {
+        const trip = trips[ti];
+        const tFirst = new Date(trip[0].timestamp).getTime();
+        const tLast = new Date(trip[trip.length-1].timestamp).getTime();
+        if (timeMs >= tFirst && timeMs <= tLast) {
+            // inside an activity period — interpolate within this trip only
+            if (trip.length === 1) return trip[0];
+            for (let i=0;i<trip.length-1;i++) {
+                const t1 = new Date(trip[i].timestamp).getTime();
+                const t2 = new Date(trip[i+1].timestamp).getTime();
+                if (timeMs >= t1 && timeMs <= t2) {
+                    const r = (timeMs - t1)/(t2 - t1 || 1);
+                    let course = trip[i].course;
+                    const c1 = trip[i].course, c2 = trip[i+1].course;
+                    if (typeof c1 === "number" && typeof c2 === "number" && !isNaN(c1) && !isNaN(c2)) {
+                        const delta = ((c2 - c1 + 540) % 360) - 180;
+                        course = (c1 + delta * r + 360) % 360;
+                    } else if (typeof c1 === "number" && !isNaN(c1)) course = c1;
+                    else if (typeof c2 === "number" && !isNaN(c2)) course = c2;
+                    return { lat: trip[i].lat + (trip[i+1].lat - trip[i].lat)*r, lon: trip[i].lon + (trip[i+1].lon - trip[i].lon)*r, course, speed: trip[i].speed, deviceId, username: trip[i].username, timestamp: new Date(timeMs).toISOString() };
+                }
+            }
+            return trip[trip.length-1];
+        }
+        // idle gap between this trip and next — stay still at end of previous trip
+        if (ti < trips.length-1) {
+            const nextFirst = new Date(trips[ti+1][0].timestamp).getTime();
+            if (timeMs > tLast && timeMs < nextFirst) {
+                return trip[trip.length-1];
+            }
         }
     }
-    return pts[0];
+    // fallback — idle gap fallback to nearest trip end
+    return lastTrip[lastTrip.length-1];
 }
 function getPlaybackSteps() { return 1000; }
 function updatePlaybackSlider() {
@@ -842,7 +910,7 @@ function showTime(timeMs) {
     ids.forEach(id => {
         const pos = interpolatePosition(id, timeMs);
         if (!pos) return;
-        const m = L.circleMarker([pos.lat, pos.lon], { radius: 5, fillColor: colorForDevice(id), color: "white", weight: 1.5, fillOpacity: 1 }).addTo(map).bindPopup(`${pos.username||id}<br>${new Date(timeMs).toLocaleTimeString()}`);
+        const m = L.marker([pos.lat, pos.lon], { icon: boatTriangleIcon(pos.deviceId || id, pos.course) }).addTo(map).bindPopup(`${pos.username||id}<br>${new Date(timeMs).toLocaleTimeString()}`);
         playbackMarkers.set(id, m);
     });
     if (ids.length === 1 && playbackMarkers.size === 1) {
@@ -850,6 +918,7 @@ function showTime(timeMs) {
         marker = only;
         playbackMarkers.clear();
     }
+    // Details pane: only real datapoints, not interpolated — do not auto-show interpolated position
 }
 
 function showPlaybackPoint(idx) {
@@ -903,6 +972,11 @@ playSlider.addEventListener("input", e => {
     const ratio = parseInt(e.target.value, 10) / 1000;
     const timeMs = bounds.start + ratio * (bounds.end - bounds.start);
     showTime(timeMs);
+    if (selectedDeviceIds.size === 1) {
+        const id = [...selectedDeviceIds][0];
+        const pos = interpolatePosition(id, timeMs);
+        if (pos) map.panTo([pos.lat, pos.lon]);
+    }
 });
 playSpeedSel.addEventListener("change", e => {
     playbackSpeed = parseInt(e.target.value, 10);
@@ -916,6 +990,11 @@ document.getElementById("timeline")?.addEventListener("click", e => {
     const timeMs = bounds.start + ratio * (bounds.end - bounds.start);
     stopPlayback();
     showTime(timeMs);
+    if (selectedDeviceIds.size === 1) {
+        const id = [...selectedDeviceIds][0];
+        const pos = interpolatePosition(id, timeMs);
+        if (pos) map.panTo([pos.lat, pos.lon]);
+    }
 });
 document.getElementById("playbackClose")?.addEventListener("click", () => { stopPlayback(); document.getElementById("playback").style.display="none"; saveUI(); });
 
@@ -953,6 +1032,14 @@ if (boatsBtn && devicePanel) {
     boatsBtn.addEventListener("click", () => { toggleEl("device-panel"); syncBoatsBtn(); saveUI(); });
     // keep in sync if panel toggled elsewhere
     new MutationObserver(syncBoatsBtn).observe(devicePanel, { attributes:true, attributeFilter:["style"] });
+}
+const timelineBtn = document.getElementById("timelineToggleBtn");
+const playbackEl = document.getElementById("playback");
+if (timelineBtn && playbackEl) {
+    const syncTimelineBtn = () => timelineBtn.classList.toggle("active", playbackEl.style.display !== "none" && playbackEl.style.display !== "");
+    timelineBtn.addEventListener("click", () => { toggleEl("playback"); syncTimelineBtn(); updateTimelineTracks(); });
+    new MutationObserver(syncTimelineBtn).observe(playbackEl, { attributes:true, attributeFilter:["style"] });
+    syncTimelineBtn();
 }
 document.getElementById("boatFilter")?.addEventListener("input", () => { saveUI(); refreshDevices(); });
 document.querySelectorAll("#topbar-menu [data-action]").forEach(a => {

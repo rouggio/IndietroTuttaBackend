@@ -83,7 +83,8 @@ html, body {
     color: white;
 }
 
-#topbar-menu #boatsToggleBtn.active {
+#topbar-menu #boatsToggleBtn.active,
+#topbar-menu #timelineToggleBtn.active {
     background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 50%, #1e40af 100%);
     color: white;
     box-shadow: 0 1px 6px rgba(37,99,235,.4);
@@ -343,6 +344,11 @@ html, body {
 .fleet-marker.selected {
     background: #eab308;
     border-color: #a16207;
+}
+
+.boat-triangle {
+    background: transparent;
+    border: none;
 }
 
 /* Race panel */
