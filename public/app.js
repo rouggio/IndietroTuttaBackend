@@ -207,7 +207,7 @@ map.on("click", e => {
 });
 // Hover anywhere on the map (wide radius — thin route lines are hard to hit)
 map.on("mousemove", e => {
-    const n = findNearestPoint(e.latlng, 400);
+    const n = findNearestPoint(e.latlng, 100);
     if (n) showHoverPoint(n);
     else hideHover();
 });
