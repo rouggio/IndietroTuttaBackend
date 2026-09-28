@@ -69,7 +69,7 @@ async function initDb() {
 
         console.log("[DB] Turso tables ready");
 
-        // Enforce MAX_POINTS via trigger or app-level trim - keep app trim for now
+        // No row cap: gps_points keeps every point.
         return c;
     })();
 

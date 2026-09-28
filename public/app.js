@@ -67,7 +67,7 @@ liveBtn.addEventListener("click", () => {
     datePicker.value = selectedDate;
     dateLabel.textContent = "Live — Today";
     liveBtn.classList.add("active");
-    refresh();
+    refresh(true);
 });
 
 datePicker.addEventListener("change", () => {
@@ -76,7 +76,14 @@ datePicker.addEventListener("change", () => {
     isLive = false;
     liveBtn.classList.remove("active");
     dateLabel.textContent = selectedDate === todayStr() ? "Today" : selectedDate;
-    refresh();
+    refresh(true);
+});
+
+// Manual recenter — the only way to move the viewport to the
+// track besides filter changes / first load. Interval refreshes
+// never touch the viewport, so free panning/zooming is preserved.
+document.getElementById("recenterBtn").addEventListener("click", () => {
+    refresh(true);
 });
 
 // --- Device list ---
@@ -118,7 +125,7 @@ async function refreshDevices() {
                 if (e.target.closest(".delete-boat-btn")) return;
                 const id = el.getAttribute("data-id");
                 selectedDeviceId = selectedDeviceId === id ? null : id;
-                refresh();
+                refresh(true);
                 refreshDevices();
             });
         });
@@ -139,7 +146,7 @@ async function refreshDevices() {
     }
 }
 
-async function refresh() {
+async function refresh(recenter = false) {
 
     let points = [];
     if (selectedDeviceId) {
@@ -220,17 +227,18 @@ async function refresh() {
             ? `Latest position<br><b>${latest.username}</b>`
             : "Latest position");
 
-    // Fit bounds only for historical view or first load
-    if (!isLive || !polyline._map) {
+    // Viewport: only move on explicit request (filter change,
+    // recenter button) or first load. Live interval ticks update
+    // markers/polyline in place and never pan/fit, so the user
+    // can freely explore without being yanked back.
+    if (recenter || !polyline._map) {
         map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
-    } else {
-        map.panTo(last);
     }
 
     info.update(latest);
 }
 
-refresh();
+refresh(true);
 refreshDevices();
 
 setInterval(() => {
