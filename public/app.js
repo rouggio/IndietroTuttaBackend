@@ -1532,6 +1532,11 @@ if (timelineBtn && playbackEl) {
     syncTimelineBtn();
 }
 document.getElementById("boatFilter")?.addEventListener("input", () => { saveUI(); refreshDevices(); });
+// Courses/Races are not ready: show their menus only on local dev, hide in production
+if (!["localhost", "127.0.0.1"].includes(location.hostname)) {
+    document.getElementById("coursesMenu")?.remove();
+    document.getElementById("racesMenu")?.remove();
+}
 document.querySelectorAll("#topbar-menu [data-action]").forEach(a => {
     a.addEventListener("click", (e) => {
         e.preventDefault();
