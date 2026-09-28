@@ -37,9 +37,8 @@ info.update = function (p) {
             <tr><td>Lon</td><td>${p.lon.toFixed(6)}</td></tr>
             <tr><td>Speed</td><td>${p.speed ?? "-"} knots</td></tr>
             <tr><td>Course</td><td>${p.course ?? "-"}°</td></tr>
-            <tr><td>Altitude</td><td>${p.altitude ?? "-"} m</td></tr>
             <tr><td>Sats</td><td>${p.sats ?? "-"}</td></tr>
-            <tr><td>Time</td><td>${p.timestamp}</td></tr>
+            <tr><td>Time</td><td>${new Date(p.timestamp || p.receivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</td></tr>
         </table>
     `;
     this._div.style.display = "block";
@@ -57,11 +56,52 @@ function findNearestPoint(latlng, maxMeters = 80) {
     });
     return best;
 }
+// Route click → timeline jumps to that point's moment (cursor, markers, details follow)
+function jumpTimelineTo(p) {
+    const t = new Date(p.timestamp || p.receivedAt).getTime();
+    if (isNaN(t)) return;
+    const bounds = getDayBounds();
+    if (t < bounds.start || t > bounds.end) return;
+    showTime(t);
+}
+// Hover: a dot on the route + a dot on the timeline for the hovered point
+let hoverMarker = null;
+const timelineHoverEl = document.getElementById("timeline-hover");
+function showHoverPoint(p) {
+    if (hoverMarker) map.removeLayer(hoverMarker);
+    hoverMarker = L.circleMarker([p.lat, p.lon], {
+        color: "#ffffff", weight: 2, fillColor: colorForDevice(p.deviceId), fillOpacity: 1, radius: 6
+    }).addTo(map);
+    if (timelineHoverEl) {
+        const t = new Date(p.timestamp || p.receivedAt).getTime();
+        const bounds = getDayBounds();
+        const dayMs = bounds.end - bounds.start || 1;
+        if (!isNaN(t) && t >= bounds.start && t <= bounds.end) {
+            timelineHoverEl.style.display = "block";
+            timelineHoverEl.style.left = ((t - bounds.start) / dayMs * 100) + "%";
+            timelineHoverEl.style.background = colorForDevice(p.deviceId);
+            timelineHoverEl.style.top = "50%";
+        } else {
+            timelineHoverEl.style.display = "none";
+        }
+    }
+}
+function hideHover() {
+    if (hoverMarker) { map.removeLayer(hoverMarker); hoverMarker = null; }
+    if (timelineHoverEl) timelineHoverEl.style.display = "none";
+}
 map.on("click", e => {
     const nearest = findNearestPoint(e.latlng);
-    if (nearest) info.update(nearest);
+    if (nearest) { info.update(nearest); jumpTimelineTo(nearest); }
     else info.update(null);
 });
+// Hover anywhere on the map (wide radius — thin route lines are hard to hit)
+map.on("mousemove", e => {
+    const n = findNearestPoint(e.latlng, 400);
+    if (n) showHoverPoint(n);
+    else hideHover();
+});
+map.on("mouseout", hideHover);
 // prevent map click when clicking Details pane
 info._div?.addEventListener?.("click", e => e.stopPropagation());
 
@@ -76,8 +116,7 @@ const palette = ["#e41a1c","#377eb8","#4daf4a","#984ea3","#ff7f00","#a65628","#f
 const colorMap = new Map();
 function colorForDevice(id) {
     if (!id) return palette[0];
-    if (colorMap.has(id)) return colorMap.get(id);
-    // assign next distinct color in order, fallback to hash if palette exhausted
+    if (colorMap.has(id)) return colorMap.get(id);    // assign next distinct color in order, fallback to hash if palette exhausted
     if (colorMap.size < palette.length) {
         const c = palette[colorMap.size];
         colorMap.set(id, c);
@@ -87,6 +126,12 @@ function colorForDevice(id) {
     const c = palette[h % palette.length];
     colorMap.set(id, c);
     return c;
+}
+function lightenColor(hex, amt = 0.85) {
+    const c = hex.replace("#", "");
+    const r = parseInt(c.substring(0, 2), 16), g = parseInt(c.substring(2, 4), 16), b = parseInt(c.substring(4, 6), 16);
+    const nr = Math.round(r + (255 - r) * amt), ng = Math.round(g + (255 - g) * amt), nb = Math.round(b + (255 - b) * amt);
+    return `rgb(${nr},${ng},${nb})`;
 }
 
 function boatTriangleIcon(deviceId, courseDeg) {
@@ -421,6 +466,7 @@ async function refresh(recenter = false) {
         fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
         flaggedMarkers.forEach(m => m.remove());
         flaggedMarkers = [];
+        hideHover();
         info.update(null);
         return;
     }
@@ -429,6 +475,7 @@ async function refresh(recenter = false) {
     if (polyline) { map.removeLayer(polyline); polyline = null; }
     polylines.forEach(l => map.removeLayer(l)); polylines = [];
     fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
+    hideHover();
 
     // multi-select: one polyline per boat, each with its route color
     const byDevice = new Map();
@@ -439,7 +486,7 @@ async function refresh(recenter = false) {
     });
     byDevice.forEach((latlngs, id) => {
         const line = L.polyline(latlngs, { color: colorForDevice(id), weight: 2, opacity: 0.6 }).addTo(map);
-        line.on("click", e => { const n = findNearestPoint(e.latlng); if (n) { info.update(n); L.DomEvent.stop(e); } });
+        line.on("click", e => { const n = findNearestPoint(e.latlng); if (n) { info.update(n); jumpTimelineTo(n); L.DomEvent.stop(e); } });
         if (selectedDeviceIds.size === 1 && id === [...selectedDeviceIds][0]) {
             polyline = line;
         } else {
@@ -942,7 +989,9 @@ function updateTimelineTracks() {
         if (!trips.length) return;
         const track = document.createElement("div");
         track.className = "timeline-track";
-        track.style.top = (4 + idx*14) + "px";
+        track.style.top = "0";
+        track.style.bottom = "0";
+        track.style.height = "auto";
         track.style.background = "#e5e7eb";
         trips.forEach(trip => {
             if (!trip.length) return;
@@ -954,14 +1003,51 @@ function updateTimelineTracks() {
             seg.className = "timeline-segment";
             seg.style.left = Math.max(0, left) + "%";
             seg.style.width = Math.max(0.6, width) + "%";
-            seg.style.background = colorForDevice(id);
+            seg.style.background = lightenColor(colorForDevice(id), 0.85);
             seg.title = `${id} ${new Date(tFirst).toLocaleTimeString()}–${new Date(tLast).toLocaleTimeString()} (${trip.length} pts)`;
             track.appendChild(seg);
         });
         timelineTracksEl.appendChild(track);
     });
-    // height
-    timelineTracksEl.parentElement.style.height = Math.max(24, 8 + ids.length*14) + "px";
+    // height — about 3/2 of the classic compact band
+    timelineTracksEl.parentElement.style.height = Math.max(36, Math.round((8 + ids.length*14) * 1.5)) + "px";
+    // speed graph overlay: one polyline per boat, global min/max touch the band margins
+    const oldSvg = document.getElementById("timeline-speed");
+    if (oldSvg) oldSvg.remove();
+    const spdPts = [];
+    ids.forEach(id => allPoints.filter(p => p.deviceId === id && typeof p.speed === "number" && !isNaN(p.speed)).forEach(p => spdPts.push(p)));
+    if (spdPts.length > 1) {
+        let mn = Infinity, mx = -Infinity;
+        spdPts.forEach(p => { if (p.speed < mn) mn = p.speed; if (p.speed > mx) mx = p.speed; });
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.id = "timeline-speed";
+        svg.setAttribute("viewBox", "0 0 1000 100");
+        svg.setAttribute("preserveAspectRatio", "none");
+        svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1";
+        ids.forEach(id => {
+            // one polyline per trip — speed lives only where data is present
+            getTripsForDevice(id).forEach(trip => {
+                const pts = trip.filter(p => typeof p.speed === "number" && !isNaN(p.speed))
+                    .sort((a, b) => new Date(a.timestamp || a.receivedAt) - new Date(b.timestamp || b.receivedAt));
+                if (pts.length < 2) return;
+                const d = pts.map(p => {
+                    const t = new Date(p.timestamp || p.receivedAt).getTime();
+                    const x = Math.max(0, Math.min(1000, (t - bounds.start) / dayMs * 1000)).toFixed(1);
+                    const y = (98 - (p.speed - mn) / ((mx - mn) || 1) * 96).toFixed(1);
+                    return `${x},${y}`;
+                }).join(" ");
+                const pl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+                pl.setAttribute("points", d);
+                pl.setAttribute("fill", "none");
+                pl.setAttribute("stroke", colorForDevice(id));
+                pl.setAttribute("stroke-width", "2");
+                pl.setAttribute("vector-effect", "non-scaling-stroke");
+                pl.setAttribute("opacity", "0.9");
+                svg.appendChild(pl);
+            });
+        });
+        timelineTracksEl.parentElement.prepend(svg);
+    }
 }
 function interpolatePosition(deviceId, timeMs) {
     const trips = getTripsForDevice(deviceId);

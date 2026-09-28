@@ -450,7 +450,7 @@ html, body {
 }
 #timeline {
     position: relative;
-    height: 44px;
+    height: 66px;
     background: #f8fafc;
     border: 1px solid #e5e7eb;
     border-radius: 6px;
@@ -478,6 +478,20 @@ html, body {
     background: #0f172a;
     pointer-events: none;
     z-index: 2;
+}
+#timeline-hover {
+    position: absolute;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #dc2626;
+    border: 2px solid white;
+    box-shadow: 0 1px 4px rgba(0,0,0,.4);
+    transform: translate(-50%, -50%);
+    display: none;
+    pointer-events: none;
+    z-index: 3;
 }
 #timeline-selection {
     position: absolute;
