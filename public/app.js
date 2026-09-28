@@ -1037,7 +1037,18 @@ function showTime(timeMs) {
         marker = only;
         playbackMarkers.clear();
     }
-    // Details pane: only real datapoints, not interpolated — do not auto-show interpolated position
+    // Details pane follows playback: nearest REAL point at/before timeMs
+    // (never an interpolated position). Single boat only — with several
+    // boats the panel is left alone to avoid jumping between them.
+    if (ids.length === 1) {
+        let cur = null;
+        for (const p of allPoints) {
+            if (p.deviceId !== ids[0]) continue;
+            if (new Date(p.timestamp || p.receivedAt).getTime() <= timeMs) cur = p;
+            else break;
+        }
+        if (cur) info.update(cur);
+    }
 }
 
 function showPlaybackPoint(idx) {
