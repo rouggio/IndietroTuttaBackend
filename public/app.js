@@ -1078,11 +1078,14 @@ function getDayBounds() {
 }
 function updateTimelineTracks() {
     if (!timelineTracksEl) return;
+    // always clear first — stale stripes must not survive selection/data changes
     timelineTracksEl.innerHTML = "";
+    const oldSvg = document.getElementById("timeline-speed");
+    if (oldSvg) oldSvg.remove();
     const bounds = getDayBounds();
     const dayMs = bounds.end - bounds.start || 1;
     const ids = selectedDeviceIds.size ? [...selectedDeviceIds] : [...new Set(allPoints.map(p=>p.deviceId))];
-    if (ids.length === 0) return;
+    if (ids.length === 0) { timelineTracksEl.parentElement.style.height = ""; return; }
     // one stacked stripe per boat
     const stripeH = 32, stripeGap = 6, stripePad = 4;
     const stripeTop = idx => stripePad + idx * (stripeH + stripeGap);
@@ -1131,8 +1134,6 @@ function updateTimelineTracks() {
     timelineTracksEl.parentElement.style.height = totalH + "px";
     // speed graph overlay: one polyline per trip, normalized to its own
     // stripe so each boat's min/max touch its stripe margins
-    const oldSvg = document.getElementById("timeline-speed");
-    if (oldSvg) oldSvg.remove();
     const spdPts = [];
     ids.forEach(id => allPoints.filter(p => p.deviceId === id && typeof p.speed === "number" && !isNaN(p.speed)).forEach(p => spdPts.push(p)));
     if (spdPts.length > 1) {
