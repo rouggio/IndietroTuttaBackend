@@ -452,7 +452,7 @@ html, body {
 }
 #timeline {
     position: relative;
-    height: 66px;
+    height: 80px;
     background: #f8fafc;
     border: 1px solid #e5e7eb;
     border-radius: 6px;

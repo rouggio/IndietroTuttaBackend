@@ -48,7 +48,7 @@ function renderBoatPanel(panel) {
     div.innerHTML = `
         <h4>${boatDisplayName(panel.id, p)} <span style="float:right;cursor:pointer" onclick="closeBoatPanel('${panel.id}')">×</span></h4>
         <table>
-            <tr><td>Speed</td><td>${p.speed ?? "-"} knots</td></tr>
+            <tr><td>Speed</td><td>${typeof p.speed === "number" ? p.speed.toFixed(1) : "-"} knots</td></tr>
             <tr><td>Course</td><td>${p.course ?? "-"}°</td></tr>
             <tr><td>Time</td><td>${fmtTime(p.timestamp || p.receivedAt)}</td></tr>
             ${panel.expanded ? `
@@ -188,7 +188,9 @@ function showHoverPoint(p) {
             timelineHoverEl.style.display = "block";
             timelineHoverEl.style.left = ((t - bounds.start) / dayMs * 100) + "%";
             timelineHoverEl.style.background = colorForDevice(p.deviceId);
-            timelineHoverEl.style.top = "50%";
+            // center on this boat's stripe (same order/geometry as updateTimelineTracks)
+            const order = selectedDeviceIds.size ? [...selectedDeviceIds] : [...new Set(allPoints.map(q => q.deviceId))];
+            timelineHoverEl.style.top = (4 + Math.max(0, order.indexOf(p.deviceId)) * (32 + 6) + 16) + "px";
         } else {
             timelineHoverEl.style.display = "none";
         }
@@ -277,10 +279,8 @@ function loadUI() {
         const raw = localStorage.getItem(UI_KEY);
         if (!raw) return;
         const d = JSON.parse(raw);
-        if (Array.isArray(d.selectedDeviceIds)) { selectedDeviceIds = new Set(d.selectedDeviceIds.slice(0,1)); syncSelected(); }
+        if (Array.isArray(d.selectedDeviceIds)) { selectedDeviceIds = new Set(d.selectedDeviceIds); syncSelected(); }
         else if (d.selectedDeviceId) { selectedDeviceIds = new Set([d.selectedDeviceId]); syncSelected(); }
-        // enforce single selection (migration from multi-select)
-        if (selectedDeviceIds.size > 1) { const first = [...selectedDeviceIds][0]; selectedDeviceIds = new Set([first]); syncSelected(); }
         if (typeof d.isLive === "boolean") isLive = d.isLive;
         if (d.selectedDate) selectedDate = d.selectedDate;
         if (d.timePreset) timePreset = d.timePreset;
@@ -474,8 +474,7 @@ async function refreshDevices() {
         list.innerHTML = filtered.map(d => {
             const status = d.status || "offline";
             const isActive = selectedDeviceIds.has(d.deviceId);
-            const shortId = d.deviceId ? d.deviceId.slice(-5) : "";
-            const name = d.username ? `${d.username} <span class="device-meta">${shortId}</span>` : (d.deviceId || "-");
+            const name = d.username || d.deviceId || "-";
             const lastSeen = d.lastSeen ? new Date(d.lastSeen).toLocaleTimeString() : "-";
             const routeColor = colorForDevice(d.deviceId);
             const lightBg = lighten(routeColor, 0.85);
@@ -494,13 +493,12 @@ async function refreshDevices() {
             `;
         }).join("");
 
-        // single-select boat: only one boat at a time
+        // multi-select boats: each checkbox toggles independently
         list.querySelectorAll("input[data-check]").forEach(cb => {
             cb.addEventListener("click", e => e.stopPropagation());
             cb.addEventListener("change", () => {
                 const id = cb.getAttribute("data-check");
                 if (cb.checked) {
-                    selectedDeviceIds.clear();
                     selectedDeviceIds.add(id);
                 } else {
                     selectedDeviceIds.delete(id);
@@ -1085,14 +1083,18 @@ function updateTimelineTracks() {
     const dayMs = bounds.end - bounds.start || 1;
     const ids = selectedDeviceIds.size ? [...selectedDeviceIds] : [...new Set(allPoints.map(p=>p.deviceId))];
     if (ids.length === 0) return;
+    // one stacked stripe per boat
+    const stripeH = 32, stripeGap = 6, stripePad = 4;
+    const stripeTop = idx => stripePad + idx * (stripeH + stripeGap);
+    const totalH = Math.max(40, stripePad * 2 + ids.length * stripeH + Math.max(0, ids.length - 1) * stripeGap);
     ids.forEach((id, idx) => {
         const trips = getTripsForDevice(id);
         if (!trips.length) return;
         const track = document.createElement("div");
         track.className = "timeline-track";
-        track.style.top = "0";
-        track.style.bottom = "0";
-        track.style.height = "auto";
+        track.style.top = stripeTop(idx) + "px";
+        track.style.bottom = "auto";
+        track.style.height = stripeH + "px";
         track.style.background = "#e5e7eb";
         trips.forEach(trip => {
             if (!trip.length) return;
@@ -1125,31 +1127,33 @@ function updateTimelineTracks() {
         });
         timelineTracksEl.appendChild(track);
     });
-    // height — about 3/2 of the classic compact band
-    timelineTracksEl.parentElement.style.height = Math.max(36, Math.round((8 + ids.length*14) * 1.5)) + "px";
-    // speed graph overlay: one polyline per boat, global min/max touch the band margins
+    // height — one stripe per boat
+    timelineTracksEl.parentElement.style.height = totalH + "px";
+    // speed graph overlay: one polyline per trip, normalized to its own
+    // stripe so each boat's min/max touch its stripe margins
     const oldSvg = document.getElementById("timeline-speed");
     if (oldSvg) oldSvg.remove();
     const spdPts = [];
     ids.forEach(id => allPoints.filter(p => p.deviceId === id && typeof p.speed === "number" && !isNaN(p.speed)).forEach(p => spdPts.push(p)));
     if (spdPts.length > 1) {
-        let mn = Infinity, mx = -Infinity;
-        spdPts.forEach(p => { if (p.speed < mn) mn = p.speed; if (p.speed > mx) mx = p.speed; });
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.id = "timeline-speed";
-        svg.setAttribute("viewBox", "0 0 1000 100");
+        svg.setAttribute("viewBox", `0 0 1000 ${totalH}`);
         svg.setAttribute("preserveAspectRatio", "none");
         svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1";
-        ids.forEach(id => {
+        ids.forEach((id, idx) => {
+            const top = stripeTop(idx);
             // one polyline per trip — speed lives only where data is present
             getTripsForDevice(id).forEach(trip => {
                 const pts = trip.filter(p => typeof p.speed === "number" && !isNaN(p.speed))
                     .sort((a, b) => new Date(a.timestamp || a.receivedAt) - new Date(b.timestamp || b.receivedAt));
                 if (pts.length < 2) return;
+                let mn = Infinity, mx = -Infinity;
+                pts.forEach(p => { if (p.speed < mn) mn = p.speed; if (p.speed > mx) mx = p.speed; });
                 const d = pts.map(p => {
                     const t = new Date(p.timestamp || p.receivedAt).getTime();
                     const x = Math.max(0, Math.min(1000, (t - bounds.start) / dayMs * 1000)).toFixed(1);
-                    const y = (98 - (p.speed - mn) / ((mx - mn) || 1) * 96).toFixed(1);
+                    const y = (top + stripeH - 3 - (p.speed - mn) / ((mx - mn) || 1) * (stripeH - 6)).toFixed(1);
                     return `${x},${y}`;
                 }).join(" ");
                 const pl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
@@ -1241,6 +1245,15 @@ function showTime(timeMs) {
     }
     // Open boat panels follow their boat (nearest real point, never interpolated)
     updateOpenPanels();
+    // Keep all boats on screen: shift only when one leaves the viewport
+    const latlngs = [];
+    playbackMarkers.forEach(m => latlngs.push(m.getLatLng()));
+    if (!latlngs.length && marker) latlngs.push(marker.getLatLng());
+    if (latlngs.length && !latlngs.every(ll => map.getBounds().contains(ll))) {
+        const bounds = L.latLngBounds(latlngs);
+        if (bounds.getNorthEast().equals(bounds.getSouthWest())) map.panTo(latlngs[0]);
+        else map.fitBounds(bounds.pad(0.25));
+    }
 }
 
 function showPlaybackPoint(idx) {
