@@ -1073,9 +1073,30 @@ function startPlayback() {
     }, 800 / playbackSpeed);
 }
 
+// Next recorded timestamp at/after fromMs for the boats in play.
+// Wraps to the first recorded timestamp when the cursor is past all data.
+function nextDataTime(fromMs) {
+    const ids = selectedDeviceIds.size ? [...selectedDeviceIds] : [...new Set(allPoints.map(p => p.deviceId))];
+    let best = null, first = null;
+    for (const p of allPoints) {
+        if (ids.length && !ids.includes(p.deviceId)) continue;
+        const t = new Date(p.timestamp || p.receivedAt).getTime();
+        if (isNaN(t)) continue;
+        if (first === null || t < first) first = t;
+        if (t >= fromMs && (best === null || t < best)) best = t;
+    }
+    return best !== null ? best : first;
+}
+
 function startPlayback() {
     if (playbackTimer) return;
     if (playbackTime === null) playbackTime = getDayBounds().start;
+    // Cursor in a gray area (no data) → jump to the next point with data
+    const snap = nextDataTime(playbackTime);
+    if (snap !== null && snap !== playbackTime) {
+        playbackTime = snap;
+        showTime(playbackTime);
+    }
     playBtn.textContent = "⏸";
     let last = Date.now();
     playbackTimer = setInterval(() => {
