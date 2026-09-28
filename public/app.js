@@ -12,39 +12,142 @@ let selectedDeviceIds = new Set();
 // compat: keep selectedDeviceId getter for old code paths that expect single
 let selectedDeviceId = null;
 
-const info = L.control({ position: "topright" });
-
-info.onAdd = function () {
-    this._div = L.DomUtil.create("div", "gps-info");
-    this.update();
-    return this._div;
-};
-
-let detailsPoint = null;
+// --- Per-boat details panels (title = boat name, toggled from the boats list) ---
+const boatPanels = new Map(); // deviceId -> { id, control, point, expanded, open }
+let panelsToRestore = new Set(); // open panels persisted across reloads
 let allPoints = [];
-info.update = function (p) {
-    if (!p) {
-        this._div.style.display = "none";
-        detailsPoint = null;
-        return;
+function boatDisplayName(id, fallbackPoint) {
+    const d = lastDevices.find(x => x.deviceId === id);
+    const name = (d && d.username) || (fallbackPoint && fallbackPoint.username) || null;
+    return name || (id ? id.slice(-5) : "-");
+}
+function fmtTime(ts) {
+    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+}
+function getBoatPanel(id) {
+    let panel = boatPanels.get(id);
+    if (!panel) {
+        const control = L.control({ position: "topright" });
+        control.onAdd = function () {
+            this._div = L.DomUtil.create("div", "gps-info boat-panel");
+            this._div.style.display = "none";
+            return this._div;
+        };
+        control.addTo(map);
+        panel = { id, control, point: null, expanded: false, open: false };
+        boatPanels.set(id, panel);
+        makePanelDraggable(control._div);
+        control._div.addEventListener("click", e => e.stopPropagation());
     }
-    detailsPoint = p;
-    this._div.innerHTML = `
-        <h4>Details <span style="float:right;cursor:pointer" onclick="info.update(null)">×</span></h4>
+    return panel;
+}
+function renderBoatPanel(panel) {
+    const div = panel.control._div;
+    const p = panel.point;
+    if (!panel.open || !p) { div.style.display = "none"; return; }
+    div.innerHTML = `
+        <h4>${boatDisplayName(panel.id, p)} <span style="float:right;cursor:pointer" onclick="closeBoatPanel('${panel.id}')">×</span></h4>
         <table>
-            <tr><td>Boat</td><td>${p.username ? `<b>${p.username}</b>` : "-"}</td></tr>
-            <tr><td>Lat</td><td>${p.lat.toFixed(6)}</td></tr>
-            <tr><td>Lon</td><td>${p.lon.toFixed(6)}</td></tr>
             <tr><td>Speed</td><td>${p.speed ?? "-"} knots</td></tr>
             <tr><td>Course</td><td>${p.course ?? "-"}°</td></tr>
+            <tr><td>Time</td><td>${fmtTime(p.timestamp || p.receivedAt)}</td></tr>
+            ${panel.expanded ? `
+            <tr><td>Lat</td><td>${p.lat.toFixed(6)}</td></tr>
+            <tr><td>Lon</td><td>${p.lon.toFixed(6)}</td></tr>
             <tr><td>Sats</td><td>${p.sats ?? "-"}</td></tr>
-            <tr><td>Time</td><td>${new Date(p.timestamp || p.receivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</td></tr>
+            <tr><td>Altitude</td><td>${p.altitude ?? "-"} m</td></tr>` : ""}
         </table>
+        <a href="#" style="font-size:12px;color:#2563eb" onclick="toggleBoatMore(event,'${panel.id}');return false">${panel.expanded ? "less..." : "more..."}</a>
     `;
-    this._div.style.display = "block";
+    div.style.display = "block";
+}
+window.toggleBoatMore = function (e, id) {
+    if (e) e.stopPropagation();
+    const panel = getBoatPanel(id);
+    panel.expanded = !panel.expanded;
+    renderBoatPanel(panel);
 };
+window.closeBoatPanel = function (id) {
+    const panel = boatPanels.get(id);
+    if (panel) { panel.open = false; renderBoatPanel(panel); }
+};
+function openBoatPanel(id, point) {
+    if (!id) return;
+    const panel = getBoatPanel(id);
+    panel.open = true;
+    if (point) panel.point = point;
+    else if (!panel.point) panel.point = currentPointForBoat(id);
+    renderBoatPanel(panel);
+}
+function toggleBoatPanel(id) {
+    const panel = getBoatPanel(id);
+    if (panel.open) { panel.open = false; renderBoatPanel(panel); }
+    else openBoatPanel(id);
+}
+// Boat's current point: follow playback cursor when playing/history, else latest
+function currentPointForBoat(id) {
+    const pts = allPoints.filter(p => p.deviceId === id);
+    if (!pts.length) return null;
+    if (playbackTimer || !isLive) {
+        let cur = null;
+        for (const p of pts) {
+            if (new Date(p.timestamp || p.receivedAt).getTime() <= playbackTime) cur = p;
+            else break;
+        }
+        return cur || pts[0];
+    }
+    return pts[pts.length - 1];
+}
+function updateOpenPanels() {
+    boatPanels.forEach(panel => {
+        if (!panel.open) return;
+        const cur = currentPointForBoat(panel.id);
+        if (cur) panel.point = cur;
+        renderBoatPanel(panel);
+    });
+}
+function closeAllBoatPanels() {
+    boatPanels.forEach(panel => { panel.open = false; renderBoatPanel(panel); });
+}
 
-info.addTo(map);
+// Boat panels: draggable by header (close button excluded)
+function makePanelDraggable(el) {
+    if (!el) return;
+    let drag = null;
+    const onHeader = e => {
+        const h = e.target && e.target.closest && e.target.closest("h4");
+        const c = e.target && e.target.closest && e.target.closest("h4 span");
+        return !!(h && !c);
+    };
+    el.addEventListener("touchstart", e => { if (onHeader(e)) e.stopPropagation(); }, { passive: true });
+    el.addEventListener("pointerdown", e => {
+        if (!onHeader(e)) return;
+        const r = el.getBoundingClientRect();
+        drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+        el.style.position = "fixed";
+        el.style.left = r.left + "px";
+        el.style.top = r.top + "px";
+        el.style.margin = "0";
+        el.style.zIndex = "2000";
+        if (map.dragging) map.dragging.disable();
+        try { el.setPointerCapture(e.pointerId); } catch {}
+        e.stopPropagation();
+        e.preventDefault();
+    });
+    el.addEventListener("pointermove", e => {
+        if (!drag) return;
+        el.style.left = (e.clientX - drag.dx) + "px";
+        el.style.top = (e.clientY - drag.dy) + "px";
+        e.stopPropagation();
+    });
+    const end = () => {
+        if (!drag) return;
+        drag = null;
+        if (map.dragging) map.dragging.enable();
+    };
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+}
 
 // Click on or near a route point → show Details, else close
 function findNearestPoint(latlng, maxMeters = 80) {
@@ -55,6 +158,11 @@ function findNearestPoint(latlng, maxMeters = 80) {
         if (d < bestDist && d < maxMeters) { bestDist = d; best = p; }
     });
     return best;
+}
+// Center only when the point is outside the current viewport
+function panToIfOutside(pos) {
+    if (!pos) return;
+    if (!map.getBounds().contains([pos.lat, pos.lon])) map.panTo([pos.lat, pos.lon]);
 }
 // Route click → timeline jumps to that point's moment (cursor, markers, details follow)
 function jumpTimelineTo(p) {
@@ -92,8 +200,8 @@ function hideHover() {
 }
 map.on("click", e => {
     const nearest = findNearestPoint(e.latlng);
-    if (nearest) { info.update(nearest); jumpTimelineTo(nearest); }
-    else info.update(null);
+    if (nearest) { openBoatPanel(nearest.deviceId, nearest); jumpTimelineTo(nearest); }
+    else closeAllBoatPanels();
 });
 // Hover anywhere on the map (wide radius — thin route lines are hard to hit)
 map.on("mousemove", e => {
@@ -102,8 +210,6 @@ map.on("mousemove", e => {
     else hideHover();
 });
 map.on("mouseout", hideHover);
-// prevent map click when clicking Details pane
-info._div?.addEventListener?.("click", e => e.stopPropagation());
 
 
 let marker = null;
@@ -160,7 +266,8 @@ function saveUI() {
                 "race-panel": document.getElementById("race-panel")?.style.display,
                 "playback": document.getElementById("playback")?.style.display,
             },
-            viewGpsVisible: info && info._div ? info._div.style.display !== "none" : true
+            viewGpsVisible: undefined, // legacy compat (now per-boat panels)
+            openPanels: [...boatPanels.values()].filter(p => p.open).map(p => p.id),
         };
         localStorage.setItem(UI_KEY, JSON.stringify(data));
     } catch {}
@@ -185,8 +292,8 @@ function loadUI() {
         // restore boats button active state
         const dp=document.getElementById("device-panel"), bb=document.getElementById("boatsToggleBtn");
         if(dp && bb) bb.classList.toggle("active", dp.style.display!=="none" && dp.style.display!=="");
-        // viewGpsVisible will be applied after info added to map
-        if (d.viewGpsVisible === false && info && info._div) info._div.style.display="none";
+        // open boat panels persisted from previous session (applied after first data load)
+        if (Array.isArray(d.openPanels)) panelsToRestore = new Set(d.openPanels);
     } catch {}
 }
 
@@ -405,13 +512,9 @@ async function refreshDevices() {
             });
         });
         list.querySelectorAll(".device-item").forEach(el => {
-            el.addEventListener("click", async e => {
+            el.addEventListener("click", e => {
                 if (e.target.closest("input[type=checkbox]")) return;
-                const id = el.getAttribute("data-id");
-                try {
-                    const r = await fetch(`/gps/latest?deviceId=${encodeURIComponent(id)}`);
-                    if (r.ok) { const p = await r.json(); if (p && !p.error) info.update(p); }
-                } catch {}
+                toggleBoatPanel(el.getAttribute("data-id"));
             });
         });
 
@@ -467,7 +570,6 @@ async function refresh(recenter = false) {
         flaggedMarkers.forEach(m => m.remove());
         flaggedMarkers = [];
         hideHover();
-        info.update(null);
         return;
     }
 
@@ -486,7 +588,7 @@ async function refresh(recenter = false) {
     });
     byDevice.forEach((latlngs, id) => {
         const line = L.polyline(latlngs, { color: colorForDevice(id), weight: 2, opacity: 0.6 }).addTo(map);
-        line.on("click", e => { const n = findNearestPoint(e.latlng); if (n) { info.update(n); jumpTimelineTo(n); L.DomEvent.stop(e); } });
+        line.on("click", e => { const n = findNearestPoint(e.latlng); if (n) { openBoatPanel(n.deviceId, n); jumpTimelineTo(n); L.DomEvent.stop(e); } });
         if (selectedDeviceIds.size === 1 && id === [...selectedDeviceIds][0]) {
             polyline = line;
         } else {
@@ -527,7 +629,7 @@ async function refresh(recenter = false) {
         latestByDevice.forEach(p => {
             if (!selectedDeviceIds.has(p.deviceId)) return;
             const m = L.marker([p.lat, p.lon], { icon: boatTriangleIcon(p.deviceId, p.course) }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
-            m.on("click", () => info.update(p));
+            m.on("click", () => openBoatPanel(p.deviceId, p));
             fleetMarkers.push(m);
         });
         // keep single marker ref for single selection compat
@@ -537,7 +639,7 @@ async function refresh(recenter = false) {
         points.forEach(p => latestByDevice.set(p.deviceId, p));
         latestByDevice.forEach(p => {
             const m = L.marker([p.lat, p.lon], { icon: boatTriangleIcon(p.deviceId, p.course) }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
-            m.on("click", () => info.update(p));
+            m.on("click", () => openBoatPanel(p.deviceId, p));
             fleetMarkers.push(m);
         });
     }
@@ -561,13 +663,12 @@ async function refresh(recenter = false) {
         }
     }
 
-    // Details pane: keep hidden until click near a point (or keep previous if still valid)
-    if (detailsPoint) {
-        const still = allPoints.find(p => p.id === detailsPoint.id || (p.lat===detailsPoint.lat && p.lon===detailsPoint.lon && p.deviceId===detailsPoint.deviceId));
-        if (still) info.update(still); else info.update(null);
-    } else {
-        info.update(null);
+    // Open boat panels follow their boat (playback cursor or latest)
+    if (panelsToRestore.size && points.length) {
+        panelsToRestore.forEach(id => openBoatPanel(id));
+        panelsToRestore.clear();
     }
+    updateOpenPanels();
 }
 
 refresh(true);
@@ -1005,6 +1106,21 @@ function updateTimelineTracks() {
             seg.style.width = Math.max(0.6, width) + "%";
             seg.style.background = lightenColor(colorForDevice(id), 0.85);
             seg.title = `${id} ${new Date(tFirst).toLocaleTimeString()}–${new Date(tLast).toLocaleTimeString()} (${trip.length} pts)`;
+            seg.dataset.deviceId = id;
+            seg.addEventListener("mousemove", e => {
+                const rect = timelineEl.getBoundingClientRect();
+                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const b = getDayBounds();
+                const timeMs = b.start + ratio * (b.end - b.start);
+                let best = null, bestDt = Infinity;
+                for (const p of allPoints) {
+                    if (p.deviceId !== id) continue;
+                    const dt = Math.abs(new Date(p.timestamp || p.receivedAt).getTime() - timeMs);
+                    if (dt < bestDt) { bestDt = dt; best = p; }
+                }
+                if (best) showHoverPoint(best);
+            });
+            seg.addEventListener("mouseout", hideHover);
             track.appendChild(seg);
         });
         timelineTracksEl.appendChild(track);
@@ -1123,18 +1239,8 @@ function showTime(timeMs) {
         marker = only;
         playbackMarkers.clear();
     }
-    // Details pane follows playback: nearest REAL point at/before timeMs
-    // (never an interpolated position). Single boat only — with several
-    // boats the panel is left alone to avoid jumping between them.
-    if (ids.length === 1) {
-        let cur = null;
-        for (const p of allPoints) {
-            if (p.deviceId !== ids[0]) continue;
-            if (new Date(p.timestamp || p.receivedAt).getTime() <= timeMs) cur = p;
-            else break;
-        }
-        if (cur) info.update(cur);
-    }
+    // Open boat panels follow their boat (nearest real point, never interpolated)
+    updateOpenPanels();
 }
 
 function showPlaybackPoint(idx) {
@@ -1218,7 +1324,6 @@ if(rewindBtn){
     });
 }
 playSlider.addEventListener("input", e => {
-    stopPlayback();
     const bounds = getDayBounds();
     const ratio = parseInt(e.target.value, 10) / 1000;
     const timeMs = bounds.start + ratio * (bounds.end - bounds.start);
@@ -1226,7 +1331,7 @@ playSlider.addEventListener("input", e => {
     if (selectedDeviceIds.size === 1) {
         const id = [...selectedDeviceIds][0];
         const pos = interpolatePosition(id, timeMs);
-        if (pos) map.panTo([pos.lat, pos.lon]);
+        panToIfOutside(pos);
     }
 });
 playSpeedSel.addEventListener("change", e => {
@@ -1305,15 +1410,14 @@ window.addEventListener("mouseup", e => {
         const minR = Math.min(startRatio, endRatio), maxR = Math.max(startRatio, endRatio);
         if(maxR - minR < 0.01){
             hideTimelineSelection();
-            // treat as click
+            // treat as click — move cursor, keep playing if already playing
             const bounds = getDayBounds();
             const timeMs = bounds.start + minR * (bounds.end - bounds.start);
-            stopPlayback();
             showTime(timeMs);
             if (selectedDeviceIds.size === 1) {
                 const id = [...selectedDeviceIds][0];
                 const pos = interpolatePosition(id, timeMs);
-                if (pos) map.panTo([pos.lat, pos.lon]);
+                panToIfOutside(pos);
             }
             return;
         }
@@ -1346,16 +1450,15 @@ window.addEventListener("mouseup", e => {
             }
         });
     } else {
-        // single click -> scrub
+        // single click -> scrub (keep playing if already playing)
         const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
         const bounds = getDayBounds();
         const timeMs = bounds.start + ratio * (bounds.end - bounds.start);
-        stopPlayback();
         showTime(timeMs);
         if (selectedDeviceIds.size === 1) {
             const id = [...selectedDeviceIds][0];
             const pos = interpolatePosition(id, timeMs);
-            if (pos) map.panTo([pos.lat, pos.lon]);
+            panToIfOutside(pos);
         }
         hideTimelineSelection();
     }
