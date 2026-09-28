@@ -44,7 +44,12 @@ function getBoatPanel(id) {
 function renderBoatPanel(panel) {
     const div = panel.control._div;
     const p = panel.point;
-    if (!panel.open || !p) { div.style.display = "none"; return; }
+    if (!panel.open || !p) { div.style.display = "none"; panel.renderedKey = null; return; }
+    const name = boatDisplayName(panel.id, p);
+    // skip rebuild when nothing changed — keeps links clickable during playback
+    const key = `${name}|${p.id ?? p.timestamp}|${panel.expanded}`;
+    if (panel.renderedKey === key && div.style.display !== "none") return;
+    panel.renderedKey = key;
     div.innerHTML = `
         <h4>${boatDisplayName(panel.id, p)} <span style="float:right;cursor:pointer" onclick="closeBoatPanel('${panel.id}')">×</span></h4>
         <table>
@@ -390,6 +395,9 @@ if (isLive) liveBtn.classList.add("active"); else liveBtn.classList.remove("acti
 if (presetSelect) presetSelect.value = timePreset;
 
 liveBtn.addEventListener("click", () => {
+    // any Live click hides the timeline (toggle deactivates via observer)
+    stopPlayback();
+    document.getElementById("playback").style.display = "none";
     isLive = !isLive;
     if(isLive){
         liveBtn.classList.add("active");
