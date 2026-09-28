@@ -244,13 +244,13 @@ liveBtn.addEventListener("click", () => {
         updateTimeControlsVisibility();
         syncDateLabel();
         saveUI();
-        refresh();
+        refresh(true);
     } else {
         liveBtn.classList.remove("active");
         updateTimeControlsVisibility();
         syncDateLabel();
         saveUI();
-        refresh();
+        refresh(true);
     }
 });
 
@@ -268,7 +268,7 @@ if(presetSelect) presetSelect.addEventListener("change", () => {
     updateTimeControlsVisibility();
     syncDateLabel();
     saveUI();
-    refresh();
+    refresh(true);
 });
 
 function applyCustomRange(){
@@ -279,11 +279,17 @@ function applyCustomRange(){
     updateTimeControlsVisibility();
     syncDateLabel();
     saveUI();
-    refresh();
+    refresh(true);
 }
 if(startPicker) startPicker.addEventListener("change", applyCustomRange);
 if(endPicker) endPicker.addEventListener("change", applyCustomRange);
 if(applyRangeBtn) applyRangeBtn.addEventListener("click", applyCustomRange);
+
+// Manual recenter — explicit viewport jump to the track. Interval
+// refreshes never touch the viewport, so free panning is preserved.
+document.getElementById("recenterBtn")?.addEventListener("click", () => {
+    refresh(true);
+});
 
 let lastDevices = [];
 // --- Device list ---
@@ -350,8 +356,7 @@ async function refreshDevices() {
                 syncSelected();
                 saveUI();
                 updateTimelineTracks();
-                refresh();
-                refreshDevices();
+                refresh(true);
             });
         });
         list.querySelectorAll(".device-item").forEach(el => {
@@ -370,7 +375,8 @@ async function refreshDevices() {
     }
 }
 
-async function refresh() {
+let firstFit = true; // viewport moves only on explicit recenter or first load
+async function refresh(recenter = false) {
 
     let points = [];
     if (selectedDeviceIds.size > 0) {
@@ -489,22 +495,22 @@ async function refresh() {
         });
     }
 
-    // Fit bounds only for historical view or first load
+    // Viewport: move only on explicit request (recenter=true) or first
+    // load. Live interval ticks update tracks in place and never pan/fit,
+    // so free panning/zooming is preserved.
     if (selectedDeviceIds.size > 0) {
         const allLatLngs = points.filter(p=> selectedDeviceIds.has(p.deviceId)).map(p => [p.lat, p.lon]);
         const bounds = L.latLngBounds(allLatLngs.length ? allLatLngs : points.map(p => [p.lat, p.lon]));
-        if (!isLive || (!polyline || !polyline._map) && (polylines.length === 0 || !polylines[0]._map)) {
+        if (recenter || firstFit) {
             map.fitBounds(bounds, { padding: [20, 20] });
-        } else {
-            map.panTo([latest.lat, latest.lon]);
+            firstFit = false;
         }
     } else {
         const allLatLngs = points.map(p => [p.lat, p.lon]);
         const bounds = L.latLngBounds(allLatLngs);
-        if (!isLive || polylines.length === 0 || !polylines[0]._map) {
+        if (recenter || firstFit) {
             map.fitBounds(bounds, { padding: [20, 20] });
-        } else {
-            map.panTo([latest.lat, latest.lon]);
+            firstFit = false;
         }
     }
 
@@ -517,7 +523,7 @@ async function refresh() {
     }
 }
 
-refresh();
+refresh(true);
 refreshDevices();
 
 setInterval(() => {
@@ -1261,11 +1267,11 @@ window.addEventListener("touchend", e => {
 });
 document.getElementById("playbackClose")?.addEventListener("click", () => { stopPlayback(); document.getElementById("playback").style.display="none"; saveUI(); hideTimelineSelection(); });
 
-// Hook into refresh to update timeline
+// Hook into refresh to update timeline (forwards the recenter flag)
 const origRefresh = refresh;
-refresh = async function() {
-    if (playbackTimer) return origRefresh();
-    await origRefresh();
+refresh = async function(recenter) {
+    if (playbackTimer) return origRefresh(recenter);
+    await origRefresh(recenter);
     updateTimelineTracks();
     if (playbackTime === null) playbackTime = getDayBounds().start;
     updatePlaybackSlider();

@@ -1,4 +1,3 @@
-const { GPS } = require("../config");
 const { getClient, initDb } = require("./db");
 
 // In-memory fallback
@@ -8,7 +7,6 @@ async function addPoint(point) {
     const client = getClient();
     if (!client) {
         memPoints.push(point);
-        while (memPoints.length > GPS.MAX_POINTS) memPoints.shift();
         return point;
     }
 
@@ -34,17 +32,7 @@ async function addPoint(point) {
         ],
     });
 
-    // Trim to MAX_POINTS (keep newest)
-    const countRes = await client.execute("SELECT COUNT(*) as cnt FROM gps_points");
-    const cnt = countRes.rows[0].cnt;
-    if (cnt > GPS.MAX_POINTS) {
-        const toDelete = cnt - GPS.MAX_POINTS;
-        await client.execute({
-            sql: `DELETE FROM gps_points WHERE id IN (SELECT id FROM gps_points ORDER BY id ASC LIMIT ?)`,
-            args: [toDelete],
-        });
-    }
-
+    // No cap: keep every point.
     return point;
 }
 
