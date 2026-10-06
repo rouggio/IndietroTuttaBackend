@@ -1,0 +1,21 @@
+meta {
+  name: Delete flagged point by uid
+  type: http
+  seq: 8
+}
+
+delete {
+  url: {{baseUrl}}/gps/flagged
+  body: json
+  auth: none
+}
+
+headers {
+  DeviceId: 08:D1:F9:C8:4D:24
+}
+
+body:json {
+  {
+    "uid": "wp-12345678-1"
+  }
+}

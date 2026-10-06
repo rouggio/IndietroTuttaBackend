@@ -3,37 +3,48 @@ const { getClient, initDb } = require("./db");
 // In-memory fallback
 const memPoints = [];
 
+const UID_PATTERN = /^[A-Za-z0-9_-]{1,40}$/;
+
+function sanitizeUid(value) {
+    if (typeof value !== "string") return null;
+    const cleaned = value.trim();
+    return UID_PATTERN.test(cleaned) ? cleaned : null;
+}
+
 async function addPoint(point) {
     const client = getClient();
+    const cleanUid = sanitizeUid(point.uid);
+    const stored = { ...point, uid: cleanUid };
     if (!client) {
-        memPoints.push(point);
-        return point;
+        memPoints.push(stored);
+        return stored;
     }
 
     await initDb();
 
-    const flaggedInt = point.flagged ? 1 : 0;
+    const flaggedInt = stored.flagged ? 1 : 0;
 
     await client.execute({
-        sql: `INSERT INTO gps_points (deviceId, username, lat, lon, speed, course, altitude, sats, flagged, timestamp, receivedAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sql: `INSERT INTO gps_points (deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, timestamp, receivedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
-            point.deviceId || null,
-            point.username || null,
-            point.lat,
-            point.lon,
-            point.speed,
-            point.course,
-            point.altitude,
-            point.sats,
+            stored.deviceId || null,
+            stored.username || null,
+            stored.lat,
+            stored.lon,
+            stored.speed,
+            stored.course,
+            stored.altitude,
+            stored.sats,
             flaggedInt,
-            point.timestamp || new Date().toISOString(),
-            point.receivedAt || new Date().toISOString(),
+            cleanUid,
+            stored.timestamp || new Date().toISOString(),
+            stored.receivedAt || new Date().toISOString(),
         ],
     });
 
     // No cap: keep every point.
-    return point;
+    return stored;
 }
 
 async function getPoints(filter = {}) {
@@ -56,7 +67,7 @@ async function getPoints(filter = {}) {
 
     await initDb();
 
-    let sql = "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, timestamp, receivedAt FROM gps_points WHERE 1=1";
+    let sql = "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, timestamp, receivedAt FROM gps_points WHERE 1=1";
     const args = [];
 
     if (start) {
@@ -101,12 +112,12 @@ async function getLatestPoint(deviceId = null) {
 
     await initDb();
     if (deviceId) {
-        const res = await client.execute({ sql: "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, timestamp, receivedAt FROM gps_points WHERE deviceId = ? ORDER BY id DESC LIMIT 1", args: [deviceId] });
+        const res = await client.execute({ sql: "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, timestamp, receivedAt FROM gps_points WHERE deviceId = ? ORDER BY id DESC LIMIT 1", args: [deviceId] });
         if (res.rows.length === 0) return null;
         const r = res.rows[0];
         return { ...r, flagged: !!r.flagged };
     } else {
-        const res = await client.execute("SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, timestamp, receivedAt FROM gps_points ORDER BY id DESC LIMIT 1");
+        const res = await client.execute("SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, timestamp, receivedAt FROM gps_points ORDER BY id DESC LIMIT 1");
         if (res.rows.length === 0) return null;
         const r = res.rows[0];
         return { ...r, flagged: !!r.flagged };
@@ -122,4 +133,28 @@ async function getPointCount() {
     return res.rows[0].cnt;
 }
 
-module.exports = { addPoint, getPoints, getLatestPoint, getPointCount };
+// Delete the flagged point for deviceId with the exact uid (device waypoint delete).
+// Returns deleted row id or null when nothing matches.
+async function deleteFlaggedByUid(deviceId, uid) {
+    if (!deviceId || typeof uid !== "string" || !uid) return null;
+
+    const client = getClient();
+    if (!client) {
+        const idx = memPoints.findIndex(p => p.deviceId === deviceId && p.uid === uid);
+        if (idx < 0) return null;
+        const [gone] = memPoints.splice(idx, 1);
+        return gone.id ?? true;
+    }
+
+    await initDb();
+    const res = await client.execute({
+        sql: "SELECT id FROM gps_points WHERE deviceId = ? AND uid = ? LIMIT 1",
+        args: [deviceId, uid],
+    });
+    if (res.rows.length === 0) return null;
+    await client.execute({ sql: "DELETE FROM gps_points WHERE id = ?", args: [res.rows[0].id] });
+    return res.rows[0].id;
+}
+
+module.exports = { addPoint, getPoints, getLatestPoint, getPointCount, deleteFlaggedByUid };
+

@@ -68,10 +68,17 @@ async function initDb() {
                 altitude REAL,
                 sats INTEGER,
                 flagged INTEGER NOT NULL DEFAULT 0,
+                uid TEXT,
                 timestamp TEXT,
                 receivedAt TEXT NOT NULL
             )
         `);
+        // Migration for DBs created before the uid column existed
+        try {
+            await c.execute(`ALTER TABLE gps_points ADD COLUMN uid TEXT`);
+        } catch (e) {
+            if (!/duplicate column/i.test(e.message || "")) throw e;
+        }
 
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_device ON gps_points(deviceId)`);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_flagged ON gps_points(flagged)`);

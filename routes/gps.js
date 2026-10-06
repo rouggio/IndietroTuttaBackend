@@ -3,7 +3,8 @@ const express = require("express");
 const {
     addPoint,
     getPoints,
-    getLatestPoint
+    getLatestPoint,
+    deleteFlaggedByUid
 } = require("../store/gpsStore");
 
 const {
@@ -32,6 +33,7 @@ router.post("/gps", async (req, res) => {
         sats = null,
         flagged = false,
         username = null,
+        uid = null,
         fw = null,
         firmware: bodyFirmware = null,
         timestamp = new Date().toISOString()
@@ -78,6 +80,7 @@ router.post("/gps", async (req, res) => {
         altitude,
         sats,
         flagged,
+        uid,
         timestamp,
         receivedAt: new Date().toISOString(),
         deviceId,
@@ -95,6 +98,24 @@ router.post("/gps", async (req, res) => {
         status: "ok",
         stored: count
     });
+});
+
+// --------------------------------------------------
+// DELETE /gps/flagged — delete flagged point by exact uid (device waypoint delete)
+// --------------------------------------------------
+
+router.delete("/gps/flagged", async (req, res) => {
+    const deviceId = req.header("DeviceId");
+    if (!deviceId) return res.status(400).json({ error: "DeviceId header required" });
+
+    const { uid } = req.body || {};
+    if (typeof uid !== "string" || !uid.trim()) {
+        return res.status(400).json({ error: "uid must be a non-empty string" });
+    }
+
+    const deletedId = await deleteFlaggedByUid(deviceId, uid.trim());
+    if (deletedId == null) return res.status(404).json({ error: "No matching flagged point" });
+    res.json({ status: "deleted", id: deletedId });
 });
 
 // --------------------------------------------------
