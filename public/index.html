@@ -17,23 +17,6 @@
     </div>
     <div style="display:flex;align-items:center;gap:12px;margin-left:auto">
         <div id="topbar-menu">
-            <div class="dropdown" id="coursesMenu">
-                <button class="dropbtn">Courses ▾</button>
-                <div class="dropdown-content">
-                    <a href="#" data-action="courses-new">New Course</a>
-                    <a href="#" data-action="courses-list">Show Courses Panel</a>
-                    <a href="#" data-action="courses-hide">Hide Panel</a>
-                </div>
-            </div>
-            <div class="dropdown" id="racesMenu">
-                <button class="dropbtn">Races ▾</button>
-                <div class="dropdown-content">
-                    <a href="#" data-action="races-new">New Race</a>
-                    <a href="#" data-action="races-list">Show Races Panel</a>
-                    <a href="#" data-action="races-past">Past Races</a>
-                    <a href="#" data-action="races-hide">Hide Panel</a>
-                </div>
-            </div>
             <button id="boatsToggleBtn" class="dropbtn">Boats</button>
             <button id="timelineToggleBtn" class="dropbtn">Timeline</button>
         </div>
@@ -62,61 +45,6 @@
     <h4>Boats</h4>
     <input id="boatFilter" type="text" placeholder="Filter boats…" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:8px;font-size:13px">
     <div id="device-list">Loading...</div>
-</div>
-
-<div id="builder-panel" style="display:none">
-    <h4>Courses <button id="toggleBuilderBtn" style="float:right;border:none;background:none;cursor:pointer">▾</button></h4>
-    <div id="builder-content">
-        <div style="display:flex;gap:6px;margin-bottom:8px">
-            <select id="templateSelect" style="flex:1"><option>Loading templates...</option></select>
-            <button id="createCourseBtn">New</button>
-        </div>
-        <div id="course-list"></div>
-        <div id="course-editor" style="display:none;margin-top:10px;border-top:1px solid #e5e7eb;padding-top:10px">
-            <input id="courseName" placeholder="Course name" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px">
-            <textarea id="courseDesc" placeholder="Description" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px" rows="2"></textarea>
-            <div id="mark-list" style="max-height:150px;overflow-y:auto"></div>
-            <div style="display:flex;gap:6px;margin-top:8px">
-                <button id="saveCourseBtn" style="background:#16a34a;color:white">Save</button>
-                <button id="cancelCourseBtn">Cancel</button>
-                <button id="deleteCourseBtn" style="background:#dc2626;color:white;margin-left:auto">Delete</button>
-            </div>
-            <small style="color:#6b7280">Click map to add mark • Drag marks to move</small>
-        </div>
-    </div>
-</div>
-
-<div id="race-panel" style="display:none">
-    <h4>Races <button id="toggleRaceBtn" style="float:right;border:none;background:none;cursor:pointer">▾</button></h4>
-    <div id="race-content">
-        <div id="past-races-section" style="margin-bottom:8px">
-            <label style="font-size:12px;font-weight:bold">Past Races</label>
-            <select id="pastRaceSelect" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-top:4px"><option value="">-- Select past race --</option></select>
-            <button id="loadPastRaceBtn" style="width:100%;margin-top:4px;background:#3b82f6;color:white">Load & Replay</button>
-        </div>
-        <div style="border-top:1px solid #e5e7eb;margin:8px 0"></div>
-        <div id="race-list"></div>
-        <button id="newRaceBtn" style="width:100%;margin-top:6px">+ New Race</button>
-        <div id="race-editor" style="display:none;margin-top:10px;border-top:1px solid #e5e7eb;padding-top:10px">
-            <input id="raceName" placeholder="Race name" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px">
-            <select id="raceCourseSelect" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px"><option value="">-- Course --</option></select>
-            <input id="raceStartTime" type="datetime-local" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px">
-            <select id="raceStatus" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:6px">
-                <option value="scheduled">scheduled</option>
-                <option value="live">live</option>
-                <option value="finished">finished</option>
-                <option value="protest">protest</option>
-                <option value="final">final</option>
-            </select>
-            <div style="margin-bottom:6px"><strong>Participants</strong> <small>(boats)</small></div>
-            <div id="raceParticipants" style="max-height:100px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:6px"></div>
-            <div style="display:flex;gap:6px;margin-top:8px">
-                <button id="saveRaceBtn" style="background:#16a34a;color:white">Save</button>
-                <button id="cancelRaceBtn">Cancel</button>
-                <button id="deleteRaceBtn" style="background:#dc2626;color:white;margin-left:auto">Delete</button>
-            </div>
-        </div>
-    </div>
 </div>
 
 <div id="playback">

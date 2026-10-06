@@ -1,0 +1,22 @@
+meta {
+  name: Rename boat
+  type: http
+  seq: 7
+}
+
+put {
+  url: {{baseUrl}}/boats/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 08:D1:F9:C8:4D:24
+}
+
+body:json {
+  {
+    "username": "Ciccio",
+    "boat": "First 27.7"
+  }
+}

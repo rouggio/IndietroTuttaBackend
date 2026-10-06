@@ -8,9 +8,6 @@ const {
     upsertDevice
 } = require("../store/deviceStore");
 
-const { getActiveRaceForDevice } = require("../store/raceStore");
-const { getCourse } = require("../store/courseStore");
-
 const router = express.Router();
 
 // --------------------------------------------------
@@ -31,23 +28,11 @@ router.get("/health", async (req, res) => {
 
     const count = await getPointCount();
 
-    // Piggyback active race + course for this device (wireframe push)
-    let race = null;
-    let course = null;
-    if (deviceId) {
-        race = await getActiveRaceForDevice(deviceId);
-        if (race && race.courseId) {
-            course = await getCourse(race.courseId);
-        }
-    }
-
     res.json({
         status: "ok",
         storedPoints: count,
         deviceId: deviceId || null,
         heartbeat: !!deviceId,
-        race: race || null,
-        course: course || null,
         serverTime: new Date().toISOString(),
     });
 });
@@ -59,13 +44,7 @@ router.post("/health", async (req, res) => {
     const firmware = req.header("Firmware-Version") || req.body?.firmware || req.body?.fw;
     if (deviceId) await upsertDevice(deviceId, { username, firmware });
     const count = await getPointCount();
-    let race = null;
-    let course = null;
-    if (deviceId) {
-        race = await getActiveRaceForDevice(deviceId);
-        if (race && race.courseId) course = await getCourse(race.courseId);
-    }
-    res.json({ status: "ok", storedPoints: count, deviceId: deviceId || null, heartbeat: !!deviceId, race: race || null, course: course || null, serverTime: new Date().toISOString() });
+    res.json({ status: "ok", storedPoints: count, deviceId: deviceId || null, heartbeat: !!deviceId, serverTime: new Date().toISOString() });
 });
 
 module.exports = router;

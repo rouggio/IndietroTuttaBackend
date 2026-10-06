@@ -43,14 +43,17 @@ async function initDb() {
                 username TEXT,
                 firstSeen TEXT NOT NULL,
                 lastSeen TEXT NOT NULL,
-                firmware TEXT
+                firmware TEXT,
+                boat TEXT
             )
         `);
-        // Migration for DBs created before the firmware column existed
-        try {
-            await c.execute(`ALTER TABLE devices ADD COLUMN firmware TEXT`);
-        } catch (e) {
-            if (!/duplicate column/i.test(e.message || "")) throw e;
+        // Migrations for DBs created before these columns existed
+        for (const col of ["firmware", "boat"]) {
+            try {
+                await c.execute(`ALTER TABLE devices ADD COLUMN ${col} TEXT`);
+            } catch (e) {
+                if (!/duplicate column/i.test(e.message || "")) throw e;
+            }
         }
 
         await c.execute(`
@@ -73,32 +76,6 @@ async function initDb() {
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_device ON gps_points(deviceId)`);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_flagged ON gps_points(flagged)`);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_timestamp ON gps_points(timestamp)`);
-
-        await c.execute(`
-            CREATE TABLE IF NOT EXISTS courses (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                marks TEXT NOT NULL,
-                version INTEGER NOT NULL DEFAULT 1,
-                createdAt TEXT NOT NULL,
-                updatedAt TEXT NOT NULL
-            )
-        `);
-
-        await c.execute(`
-            CREATE TABLE IF NOT EXISTS races (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                courseId TEXT,
-                startTime TEXT,
-                status TEXT NOT NULL DEFAULT 'scheduled',
-                participants TEXT,
-                createdAt TEXT NOT NULL,
-                updatedAt TEXT NOT NULL,
-                FOREIGN KEY(courseId) REFERENCES courses(id)
-            )
-        `);
 
         console.log("[DB] Turso tables ready");
 
