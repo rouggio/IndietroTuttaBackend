@@ -21,6 +21,7 @@ const router = express.Router();
 router.post("/gps", async (req, res) => {
 
     const deviceId = req.header("DeviceId");
+    const firmware = req.header("Firmware-Version");
 
     const {
         lat,
@@ -31,6 +32,8 @@ router.post("/gps", async (req, res) => {
         sats = null,
         flagged = false,
         username = null,
+        fw = null,
+        firmware: bodyFirmware = null,
         timestamp = new Date().toISOString()
     } = req.body;
 
@@ -61,7 +64,7 @@ router.post("/gps", async (req, res) => {
     // Register/update the device identity (keyed by MAC)
     // --------------------------------------------------
 
-    const device = await upsertDevice(deviceId, { username });
+    const device = await upsertDevice(deviceId, { username, firmware: firmware || bodyFirmware || fw });
 
     // --------------------------------------------------
     // Store point

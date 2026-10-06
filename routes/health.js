@@ -23,9 +23,10 @@ const router = express.Router();
 router.get("/health", async (req, res) => {
     const deviceId = req.header("DeviceId");
     const username = req.header("Username");
+    const firmware = req.header("Firmware-Version");
 
     if (deviceId) {
-        await upsertDevice(deviceId, { username });
+        await upsertDevice(deviceId, { username, firmware });
     }
 
     const count = await getPointCount();
@@ -55,7 +56,8 @@ router.get("/health", async (req, res) => {
 router.post("/health", async (req, res) => {
     const deviceId = req.header("DeviceId") || req.body?.deviceId;
     const username = req.header("Username") || req.body?.username;
-    if (deviceId) await upsertDevice(deviceId, { username });
+    const firmware = req.header("Firmware-Version") || req.body?.firmware || req.body?.fw;
+    if (deviceId) await upsertDevice(deviceId, { username, firmware });
     const count = await getPointCount();
     let race = null;
     let course = null;

@@ -495,7 +495,7 @@ async function refreshDevices() {
                     </div>
                     <div style="text-align:right">
                         <div class="device-meta" style="color:${statusColor};font-weight:600">${status}</div>
-                        <div class="device-meta">${lastSeen}</div>
+                        <div class="device-meta">${lastSeen}${d.firmware ? ` • v${d.firmware}` : ""}</div>
                     </div>
                 </div>
             `;

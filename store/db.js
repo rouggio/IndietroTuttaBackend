@@ -42,9 +42,16 @@ async function initDb() {
                 deviceId TEXT PRIMARY KEY,
                 username TEXT,
                 firstSeen TEXT NOT NULL,
-                lastSeen TEXT NOT NULL
+                lastSeen TEXT NOT NULL,
+                firmware TEXT
             )
         `);
+        // Migration for DBs created before the firmware column existed
+        try {
+            await c.execute(`ALTER TABLE devices ADD COLUMN firmware TEXT`);
+        } catch (e) {
+            if (!/duplicate column/i.test(e.message || "")) throw e;
+        }
 
         await c.execute(`
             CREATE TABLE IF NOT EXISTS gps_points (

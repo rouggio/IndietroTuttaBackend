@@ -1,6 +1,7 @@
 const { getClient, initDb } = require("./db");
 
 const USERNAME_PATTERN = /^[A-Za-z0-9 ._-]{1,32}$/;
+const FIRMWARE_PATTERN = /^[A-Za-z0-9._-]{1,16}$/;
 
 // In-memory fallback when DB not configured
 const memDevices = new Map();
@@ -11,16 +12,24 @@ function sanitizeUsername(value) {
     return USERNAME_PATTERN.test(cleaned) ? cleaned : null;
 }
 
-async function upsertDevice(deviceId, { username = null } = {}) {
+function sanitizeFirmware(value) {
+    if (typeof value !== "string") return null;
+    const cleaned = value.trim();
+    return FIRMWARE_PATTERN.test(cleaned) ? cleaned : null;
+}
+
+async function upsertDevice(deviceId, { username = null, firmware = null } = {}) {
     if (!deviceId) return null;
 
     const clean = sanitizeUsername(username);
+    const cleanFw = sanitizeFirmware(firmware);
     const now = new Date().toISOString();
     const client = getClient();
 
     if (!client) {
-        const device = memDevices.get(deviceId) || { deviceId, username: null, firstSeen: now };
+        const device = memDevices.get(deviceId) || { deviceId, username: null, firmware: null, firstSeen: now };
         if (clean) device.username = clean;
+        if (cleanFw) device.firmware = cleanFw;
         device.lastSeen = now;
         memDevices.set(deviceId, device);
         return device;
@@ -30,7 +39,7 @@ async function upsertDevice(deviceId, { username = null } = {}) {
 
     // Try to fetch existing to preserve firstSeen
     const existing = await client.execute({
-        sql: "SELECT deviceId, username, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
+        sql: "SELECT deviceId, username, firmware, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
         args: [deviceId],
     });
 
@@ -39,19 +48,20 @@ async function upsertDevice(deviceId, { username = null } = {}) {
         const lastSeen = now;
         const finalUsername = clean;
         await client.execute({
-            sql: "INSERT INTO devices (deviceId, username, firstSeen, lastSeen) VALUES (?, ?, ?, ?)",
-            args: [deviceId, finalUsername, firstSeen, lastSeen],
+            sql: "INSERT INTO devices (deviceId, username, firmware, firstSeen, lastSeen) VALUES (?, ?, ?, ?, ?)",
+            args: [deviceId, finalUsername, cleanFw, firstSeen, lastSeen],
         });
-        return { deviceId, username: finalUsername, firstSeen, lastSeen };
+        return { deviceId, username: finalUsername, firmware: cleanFw, firstSeen, lastSeen };
     } else {
         const row = existing.rows[0];
         const firstSeen = row.firstSeen;
         const newUsername = clean || row.username;
+        const newFirmware = cleanFw || row.firmware || null;
         await client.execute({
-            sql: "UPDATE devices SET username = ?, lastSeen = ? WHERE deviceId = ?",
-            args: [newUsername, now, deviceId],
+            sql: "UPDATE devices SET username = ?, firmware = ?, lastSeen = ? WHERE deviceId = ?",
+            args: [newUsername, newFirmware, now, deviceId],
         });
-        return { deviceId, username: newUsername, firstSeen, lastSeen: now };
+        return { deviceId, username: newUsername, firmware: newFirmware, firstSeen, lastSeen: now };
     }
 }
 
@@ -61,7 +71,7 @@ async function getDevice(deviceId) {
 
     await initDb();
     const res = await client.execute({
-        sql: "SELECT deviceId, username, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
+        sql: "SELECT deviceId, username, firmware, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
         args: [deviceId],
     });
     return res.rows[0] || null;
@@ -82,7 +92,7 @@ async function getDevices() {
     }
 
     await initDb();
-    const res = await client.execute("SELECT deviceId, username, firstSeen, lastSeen FROM devices ORDER BY lastSeen DESC");
+    const res = await client.execute("SELECT deviceId, username, firmware, firstSeen, lastSeen FROM devices ORDER BY lastSeen DESC");
     return res.rows.map(r => ({ ...r, status: computeStatus(r.lastSeen) }));
 }
 
@@ -97,4 +107,4 @@ async function deleteDevice(deviceId) {
     return res.rowsAffected > 0;
 }
 
-module.exports = { sanitizeUsername, upsertDevice, getDevice, getDevices, deleteDevice };
+module.exports = { sanitizeUsername, sanitizeFirmware, upsertDevice, getDevice, getDevices, deleteDevice };
