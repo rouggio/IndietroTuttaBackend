@@ -124,6 +124,31 @@ async function getLatestPoint(deviceId = null) {
     }
 }
 
+// Days (UTC YYYY-MM-DD) that have at least one point for a device,
+// with point counts — powers the per-boat calendar.
+async function getActiveDays(deviceId) {
+    const client = getClient();
+    if (!client) {
+        const counts = new Map();
+        for (const p of memPoints) {
+            if (deviceId && p.deviceId !== deviceId) continue;
+            const day = (p.timestamp || p.receivedAt || "").slice(0, 10);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+            counts.set(day, (counts.get(day) || 0) + 1);
+        }
+        return [...counts.entries()]
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([day, count]) => ({ day, count }));
+    }
+
+    await initDb();
+    const res = await client.execute({
+        sql: "SELECT substr(timestamp,1,10) AS day, COUNT(*) AS count FROM gps_points WHERE deviceId = ? GROUP BY day ORDER BY day ASC",
+        args: [deviceId],
+    });
+    return res.rows.map(r => ({ day: r.day, count: Number(r.count) }));
+}
+
 async function getPointCount() {
     const client = getClient();
     if (!client) return memPoints.length;
@@ -156,5 +181,5 @@ async function deleteFlaggedByUid(deviceId, uid) {
     return res.rows[0].id;
 }
 
-module.exports = { addPoint, getPoints, getLatestPoint, getPointCount, deleteFlaggedByUid };
+module.exports = { addPoint, getPoints, getLatestPoint, getPointCount, getActiveDays, deleteFlaggedByUid };
 

@@ -4,6 +4,7 @@ const {
     addPoint,
     getPoints,
     getLatestPoint,
+    getActiveDays,
     deleteFlaggedByUid
 } = require("../store/gpsStore");
 
@@ -144,6 +145,18 @@ router.get("/gps", async (req, res) => {
     } else {
         res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId }));
     }
+});
+
+// --------------------------------------------------
+// GET /gps/days — days with track data for a device (per-boat calendar)
+// --------------------------------------------------
+
+router.get("/gps/days", async (req, res) => {
+    const { deviceId } = req.query;
+    if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
+        return res.status(400).json({ error: "deviceId query param required" });
+    }
+    res.json(await getActiveDays(deviceId.trim()));
 });
 
 // --------------------------------------------------

@@ -147,6 +147,118 @@ window.saveBoatInfo = async function (id) {
         errEl.textContent = "Network error.";
     }
 };
+// --- Per-boat sailing-days calendar (days with track data → click filters main view) ---
+let boatCalState = null; // { deviceId, counts: Map<day,count>, viewY, viewM }
+window.openBoatCalendar = async function (id) {
+    if (!id) return;
+    const color = colorForDevice(id);
+    const name = boatDisplayName(id);
+    const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    let overlay = document.getElementById("boat-cal-overlay");
+    if (overlay) overlay.remove();
+    overlay = document.createElement("div");
+    overlay.id = "boat-cal-overlay";
+    overlay.innerHTML = `
+        <div class="boat-cal-card">
+            <h4>📅 ${esc(name)} <span style="float:right;cursor:pointer" onclick="closeBoatCalendar()">×</span></h4>
+            <div id="boat-cal-body"><div class="device-meta">Loading days…</div></div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", e => { if (e.target === overlay) closeBoatCalendar(); });
+    let days = [];
+    try {
+        const res = await fetch(`/gps/days?deviceId=${encodeURIComponent(id)}`);
+        if (res.ok) days = await res.json();
+    } catch (e) {
+        const body = document.getElementById("boat-cal-body");
+        if (body) body.innerHTML = '<div class="boat-info-err">Network error.</div>';
+        return;
+    }
+    const counts = new Map((Array.isArray(days) ? days : []).map(d => [d.day, d.count]));
+    const now = new Date();
+    let viewY = now.getFullYear(), viewM = now.getMonth();
+    // jump to the latest active month when the current month has no data
+    const hasInMonth = (y, m) => [...counts.keys()].some(k => {
+        const [ky, km] = k.split("-").map(Number);
+        return ky === y && km === m + 1;
+    });
+    if (counts.size && !hasInMonth(viewY, viewM)) {
+        const last = [...counts.keys()].sort().pop().split("-").map(Number);
+        viewY = last[0]; viewM = last[1] - 1;
+    }
+    boatCalState = { deviceId: id, color, counts, viewY, viewM };
+    renderBoatCalendar();
+};
+window.closeBoatCalendar = function () {
+    document.getElementById("boat-cal-overlay")?.remove();
+    boatCalState = null;
+};
+window.boatCalNav = function (delta) {
+    if (!boatCalState) return;
+    const d = new Date(boatCalState.viewY, boatCalState.viewM + delta, 1);
+    boatCalState.viewY = d.getFullYear();
+    boatCalState.viewM = d.getMonth();
+    renderBoatCalendar();
+};
+function renderBoatCalendar() {
+    const st = boatCalState;
+    const body = document.getElementById("boat-cal-body");
+    if (!st || !body) return;
+    const monthName = new Date(st.viewY, st.viewM, 1).toLocaleDateString([], { month: "long", year: "numeric" });
+    const daysInMonth = new Date(st.viewY, st.viewM + 1, 0).getDate();
+    const lead = (new Date(st.viewY, st.viewM, 1).getDay() + 6) % 7; // Monday start
+    const todayKey = `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}-${pad2(new Date().getDate())}`;
+    let cells = "";
+    for (let i = 0; i < lead; i++) cells += `<span class="boat-cal-empty"></span>`;
+    for (let d = 1; d <= daysInMonth; d++) {
+        const key = `${st.viewY}-${pad2(st.viewM + 1)}-${pad2(d)}`;
+        const count = st.counts.get(key);
+        const isToday = key === todayKey ? " boat-cal-today" : "";
+        if (count) {
+            cells += `<span class="boat-cal-day boat-cal-active${isToday}" title="${count} points — click to view" onclick="boatCalPick('${key}')" style="background:${lightenColor(st.color, 0.85)};border-color:${st.color}">${d}</span>`;
+        } else {
+            cells += `<span class="boat-cal-day${isToday}">${d}</span>`;
+        }
+    }
+    body.innerHTML = `
+        <div class="boat-cal-nav">
+            <button onclick="boatCalNav(-1)" title="Previous month">◀</button>
+            <b>${monthName}</b>
+            <button onclick="boatCalNav(1)" title="Next month">▶</button>
+        </div>
+        <div class="boat-cal-grid">
+            ${["M", "T", "W", "T", "F", "S", "S"].map(w => `<span class="boat-cal-wd">${w}</span>`).join("")}
+            ${cells}
+        </div>
+        <div class="device-meta" style="margin-top:8px">Days in <span style="font-weight:700;color:${st.color}">■</span> boat color have track data — click one to filter.</div>
+    `;
+}
+// Picking a day sets the main screen start/end filters to that full UTC day
+window.boatCalPick = function (dayStr) {
+    const st = boatCalState;
+    if (!st) return;
+    const id = st.deviceId;
+    closeBoatCalendar();
+    // make sure the boat is selected so its track shows
+    selectedDeviceIds.add(id);
+    syncSelected();
+    stopPlayback();
+    isLive = false;
+    liveBtn.classList.remove("active");
+    timePreset = "custom";
+    if (presetSelect) presetSelect.value = "custom";
+    // cover the full UTC day (backend groups days in UTC) — round-trip via local picker values
+    customStart = toLocalDatetimeValue(new Date(dayStr + "T00:00:00.000Z"));
+    customEnd = toLocalDatetimeValue(new Date(dayStr + "T23:59:59.999Z"));
+    if (startPicker) startPicker.value = customStart;
+    if (endPicker) endPicker.value = customEnd;
+    updateTimeControlsVisibility();
+    syncDateLabel();
+    saveUI();
+    playbackTime = new Date(customStart).getTime();
+    refresh(true);
+};
 function openBoatPanel(id, point) {
     if (!id) return;
     const panel = getBoatPanel(id);
@@ -563,7 +675,7 @@ async function refreshDevices() {
                         <span class="device-name" style="border:1.5px solid ${routeColor};background:${lightBg};padding:2px 7px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px">${name}</span>
                     </div>
                     <div style="text-align:right">
-                        <div class="device-meta" style="color:${statusColor};font-weight:600">${status}</div>
+                        <div class="device-meta" style="color:${statusColor};font-weight:600">${status} <span class="boat-cal-btn" data-cal="${d.deviceId}" title="Sailing days calendar">📅</span></div>
                         <div class="device-meta">${lastSeen}${d.firmware ? ` • v${d.firmware}` : ""}</div>
                     </div>
                 </div>
@@ -589,7 +701,14 @@ async function refreshDevices() {
         list.querySelectorAll(".device-item").forEach(el => {
             el.addEventListener("click", e => {
                 if (e.target.closest("input[type=checkbox]")) return;
+                if (e.target.closest("[data-cal]")) return;
                 toggleBoatPanel(el.getAttribute("data-id"));
+            });
+        });
+        list.querySelectorAll("[data-cal]").forEach(btn => {
+            btn.addEventListener("click", e => {
+                e.stopPropagation();
+                openBoatCalendar(btn.getAttribute("data-cal"));
             });
         });
 

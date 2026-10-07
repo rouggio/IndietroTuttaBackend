@@ -19,7 +19,7 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
 ## Routes (every new route needs `bruno/*.bru`)
 
 - `GET|POST /health` — heartbeat: `upsertDevice` from `DeviceId`/`Username`/`Firmware-Version` headers (POST also body incl. `fw`), returns `{status, storedPoints, deviceId, heartbeat, serverTime}`.
-- `gps.js`: `POST /gps` (validate lat/lon numbers, store + upsert device), `GET /gps?date=&deviceId=` or `?start=&end=`, `GET /gps/latest?deviceId=`, `GET /gps/count`.
+- `gps.js`: `POST /gps` (validate lat/lon numbers, store + upsert device; accepts waypoint `uid`), `DELETE /gps/flagged` (exact `{uid}` + `DeviceId` header → deletes that flagged point), `GET /gps?date=&deviceId=` or `?start=&end=`, `GET /gps/latest?deviceId=`, `GET /gps/count`, `GET /gps/days?deviceId=` (days with data + counts for per-boat calendar).
 - `devices.js` (+ `/boats` alias): `GET /devices`, `GET /boats`, `PUT /devices/:id` / `PUT /boats/:id` rename `{username, boat}` (no heartbeat side effects), `DELETE /devices/:id` (+ `/boats/:id`).
 
 ## Frontend (`public/`)
@@ -27,7 +27,7 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
 - `index.html` + `app.js` + `style.css`, Leaflet 1.9.4 CDN. Topbar: Boats/Timeline toggles, Live button + preset (today/yesterday/thisWeek/custom) + datetime pickers + recenter.
 - Map: polyline tracks + flagged markers, per-boat colored stripes, no-auto-pan (recenter on demand), hover 100m dots, click-to-jump.
 - Boat panels (Leaflet controls, draggable): Speed/Course/Time + Boat make-model, header icons ⌖ (center map, keeps zoom) + ⓘ (info modal) + ×. Info modal: read-only Device/Status/Firmware/Last/First seen + editable Boat name + Make/model → `PUT /boats/:id`, list + panels refresh.
-- Boats list: filter, status dots + firmware (`v1.0.x` after lastSeen when reported).
+- Boats list: filter, status dots + firmware (`v1.0.x` after lastSeen when reported), 📅 per-row sailing-days calendar (active days in boat color → click sets custom day range).
 - Playback: play/rewind/speed 1–20x, timeline with per-boat tracks + speed overlay, cursor follows nearest real point, live hides timeline.
 - `public/ota/latest.txt + firmware.bin` — written by device `make dist`, served static. `favicon.svg` boat icon.
 

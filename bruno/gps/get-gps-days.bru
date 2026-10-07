@@ -1,0 +1,11 @@
+meta {
+  name: Get GPS active days
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/gps/days?deviceId={{deviceId}}
+  body: none
+  auth: none
+}
