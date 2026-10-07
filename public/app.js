@@ -2413,7 +2413,7 @@ function sessDraftInst() {
 function renderSessPreview() {
     clearSessPreview();
     const t = SESSDRAFT.template;
-    if (!t || !SESSDRFT.origin) return;
+    if (!t || !SESSDRAFT.origin) return;
     const o = sessDraftInst();
     sessPreview = L.layerGroup().addTo(map);
     const marks = resolveMarksJS(t.marks, o);
@@ -2460,7 +2460,7 @@ async function pickSessTemplate(id) {
         const c = await res.json();
         if (!c || !c.marks) return;
         SESSDRAFT.template = c;
-        if (!SESSDRFT.origin) {
+        if (!SESSDRAFT.origin) {
             const m = map.getCenter();
             SESSDRAFT.origin = { lat: Math.round(m.lat * 1e5) / 1e5, lon: Math.round(m.lng * 1e5) / 1e5 };
         }
@@ -2474,8 +2474,8 @@ function syncSessForm() {
     const sc = document.getElementById("sess-scale");
     if (sc) sc.value = SESSDRAFT.scale;
     const o = document.getElementById("sess-origin");
-    if (o) o.textContent = "Origin: " + (SESSDRFT.origin
-        ? `${SESSDRFT.origin.lat.toFixed(5)}, ${SESSDRFT.origin.lon.toFixed(5)}` : "—");
+    if (o) o.textContent = "Origin: " + (SESSDRAFT.origin
+        ? `${SESSDRAFT.origin.lat.toFixed(5)}, ${SESSDRAFT.origin.lon.toFixed(5)}` : "—");
 }
 async function loadSessions(selectId) {
     const el = document.getElementById("course-tab-sessions");
@@ -2523,8 +2523,8 @@ async function loadSessions(selectId) {
             <div id="sess-detail"></div>`;
         document.getElementById("sess-course").addEventListener("change", e => pickSessTemplate(e.target.value));
         const sessSel = document.getElementById("sess-course");
-        if (SESSDRFT.template && courses.some(c => String(c.id) === String(SESSDRFT.template.id))) {
-            sessSel.value = SESSDRFT.template.id;
+        if (SESSDRAFT.template && courses.some(c => String(c.id) === String(SESSDRAFT.template.id))) {
+            sessSel.value = SESSDRAFT.template.id;
         }
         pickSessTemplate(sessSel.value);
         document.getElementById("sess-wind").addEventListener("change", e => {
@@ -2566,7 +2566,7 @@ async function loadSessions(selectId) {
             const startVal = document.getElementById("sess-start").value;
             const t = SESSDRAFT.template;
             if (!t) { errEl.textContent = "Pick a template first."; return; }
-            if (!SESSDRFT.origin) { errEl.textContent = "Place the origin first (Center here)."; return; }
+            if (!SESSDRAFT.origin) { errEl.textContent = "Place the origin first (Center here)."; return; }
             if (!date) { errEl.textContent = "Pick a session date."; return; }
             try {
                 const res = await fetch("/sessions", {
