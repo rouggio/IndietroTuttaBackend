@@ -1,0 +1,21 @@
+meta {
+  name: Health with session push
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+headers {
+  DeviceId: {{deviceId}}
+}
+
+docs {
+  Returns the standard heartbeat plus `session` (null when unassigned):
+  id, mode, status, startTime, startOffsetSec, courseVersion, windDir,
+  marks[{lat,lon,r,side,type,gate?}], startLine, finishLine.
+}

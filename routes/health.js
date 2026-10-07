@@ -8,6 +8,10 @@ const {
     upsertDevice
 } = require("../store/deviceStore");
 
+const {
+    getActiveSessionForDevice
+} = require("../store/sessionStore");
+
 const router = express.Router();
 
 // --------------------------------------------------
@@ -28,12 +32,22 @@ router.get("/health", async (req, res) => {
 
     const count = await getPointCount();
 
+    // Race push: assigned session (geometry + start) rides the heartbeat.
+    // Null when the device has no scheduled/live session.
+    let session = null;
+    try {
+        session = await getActiveSessionForDevice(deviceId);
+    } catch (e) {
+        session = null;
+    }
+
     res.json({
         status: "ok",
         storedPoints: count,
         deviceId: deviceId || null,
         heartbeat: !!deviceId,
         serverTime: new Date().toISOString(),
+        session,
     });
 });
 
