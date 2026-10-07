@@ -729,6 +729,8 @@ async function refreshDevices() {
                 openBoatCalendar(btn.getAttribute("data-cal"));
             });
         });
+        // list height changed after async load — re-cascade floating panels
+        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("device-panel"));
 
     } catch (e) {
         console.error("devices refresh failed", e);
@@ -1501,6 +1503,7 @@ async function loadCourseTemplates() {
                 if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })) });
             });
         });
+        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("course-panel"));
     } catch (e) {
         el.innerHTML = '<div class="boat-info-err">Failed to load templates.</div>';
     }
@@ -1979,6 +1982,7 @@ async function loadSessions(selectId) {
             });
         });
         if (selectedSessionId) renderSessionDetail();
+        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("course-panel"));
     } catch (e) {
         el.innerHTML = '<div class="boat-info-err">Failed to load sessions.</div>';
     }
@@ -2082,6 +2086,7 @@ async function renderSessionDetail() {
             selectedSessionId = null;
             loadSessions();
         });
+        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("course-panel"));
     } catch {
         el.innerHTML = '<div class="boat-info-err">Failed to load session.</div>';
     }
