@@ -1520,6 +1520,7 @@ const CB = {
 let coursePreview = null; // L.layerGroup for resolved preview
 let adoptPins = null;     // L.layerGroup for waypoint pins
 let adoptFlags = [];      // flagged points loaded for adoption
+let pileTops = {};        // latlon key -> pile rotation offset (stacked display only)
 const BUILDER_DRAFT_KEY = "indietrotutta:builder";
 
 function builderInst() {
@@ -1540,6 +1541,7 @@ function openBuilder(init = {}) {
     CB.scale = init.scale || 1;
     CB.placing = null;
     CB.open = true;
+    pileTops = {};
     // templates arrive without placement: default the origin to the map
     // center so the preview renders immediately (user refines it after)
     if (!CB.origin && CB.marks.length) {
@@ -1680,18 +1682,28 @@ function updateBuilderPreview() {
     // tooltip names the whole pile (topmost number is the visible label)
     const keyOf = m => m.lat.toFixed(6) + "," + m.lon.toFixed(6);
     const groups = {};
-    resolved.forEach((m, i) => { (groups[keyOf(m)] = groups[keyOf(m)] || []).push(i + 1); });
+    resolved.forEach((m, i) => { (groups[keyOf(m)] = groups[keyOf(m)] || []).push(i); });
     resolved.forEach((m, i) => {
         L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(coursePreview);
         const pile = groups[keyOf(m)];
+        const topIdx = pile[(pileTops[keyOf(m)] || 0) % pile.length];
+        const isTop = i === topIdx;
         const marker = L.marker([m.lat, m.lon], {
             draggable: true,
+            zIndexOffset: isTop ? 1000 : 0,
             icon: L.divIcon({
-                html: `<div class="builder-mark-label" style="background:${MARK_COLORS[m.type] || "#f59e0b"}">${i + 1}</div>`,
+                html: `<div class="builder-mark-label" style="background:${MARK_COLORS[m.type] || "#f59e0b"};position:relative">${i + 1}` +
+                    (isTop && pile.length > 1 ? `<span class="pile-count">×${pile.length}</span>` : "") + `</div>`,
                 className: "", iconSize: [22, 22], iconAnchor: [11, 11],
             }),
         }).addTo(coursePreview);
-        marker.bindTooltip(`#${i + 1} ${m.type} ${m.side}` + (pile.length > 1 ? ` · stacked: ${pile.join(", ")}` : ""));
+        // click a pile cycles which mark is on top (course order untouched)
+        marker.on("click", () => {
+            if (pile.length < 2) return;
+            pileTops[keyOf(m)] = ((pileTops[keyOf(m)] || 0) + 1) % pile.length;
+            updateBuilderPreview();
+        });
+        marker.bindTooltip(`#${i + 1} ${m.type} ${m.side}` + (pile.length > 1 ? ` · stacked: ${pile.map(x => x + 1).join(", ")} (click cycles)` : ""));
         marker.on("dragend", () => {
             const ll = marker.getLatLng();
             const off = offsetsFromLatLon(ll.lat, ll.lng, builderInst());
