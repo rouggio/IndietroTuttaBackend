@@ -1617,7 +1617,6 @@ function openBuilder(init = {}) {
     }
     document.getElementById("builder-panel").style.display = "block";
     document.getElementById("builder-name").value = CB.name;
-    document.getElementById("builder-wind").value = CB.windDir;
     document.getElementById("builder-wind-val").textContent = CB.windDir;
     document.getElementById("builder-scale").value = CB.scale;
     document.getElementById("builder-msg").textContent = "";
@@ -1650,9 +1649,6 @@ document.getElementById("builder-scale")?.addEventListener("change", e => {
     CB.scale = Math.min(5, Math.max(0.1, Number(e.target.value) || 1));
     e.target.value = CB.scale;
     updateBuilderPreview(); saveBuilderDraft();
-});
-document.getElementById("builder-wind")?.addEventListener("input", e => {
-    setBuilderWind(Number(e.target.value));
 });
 function syncBuilderArmButtons() {
     document.getElementById("builderAddMarks")?.classList.toggle("arming", CB.placing === "marks");
@@ -1978,8 +1974,6 @@ function windDialDown(e) {
 }
 function setBuilderWind(deg) {
     CB.windDir = ((Math.round(deg) % 360) + 360) % 360;
-    const sl = document.getElementById("builder-wind");
-    if (sl) sl.value = CB.windDir;
     const wv = document.getElementById("builder-wind-val");
     if (wv) wv.textContent = CB.windDir;
     updateWindDial();
