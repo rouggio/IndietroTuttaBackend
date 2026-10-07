@@ -1474,10 +1474,11 @@ async function loadCourseTemplates() {
             <div class="template-card" data-tpl="${escHtml(t.key)}">
                 <b>${escHtml(t.name)}</b>
                 <span class="device-meta">${escHtml(t.desc)} · ${t.marks.length} marks</span>
+            </div>`).join("") + `
             <div class="template-card" data-blank-tpl>
                 <b>Blank</b>
                 <span class="device-meta">Start from scratch</span>
-            </div>`).join("") + `</div>` + (myTpls.length ? `
+            </div></div>` + (myTpls.length ? `
             <div class="device-meta" style="margin:8px 0 4px 0"><b>My templates</b></div>
             <div class="template-grid">` + myTpls.map(c => `
             <div class="template-card" data-course-tpl="${c.id}">
