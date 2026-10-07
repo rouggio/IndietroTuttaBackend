@@ -1476,7 +1476,7 @@ if (templatesBtn && templatePanel) {
         templatesBtn.classList.toggle("active", open);
         syncRacesBtn();
     };
-    templatesBtn.addEventListener("click", () => { toggleEl("template-panel"); avoidPanelOverlap(templatePanel); syncTemplatesBtn(); saveUI(); loadCourseTemplates(); if (racesDropdown) racesDropdown.classList.remove("active"); });
+    templatesBtn.addEventListener("click", () => { toggleEl("template-panel"); avoidPanelOverlap(templatePanel); syncTemplatesBtn(); saveUI(); loadCourseTemplates(); if (racesDropdown) racesDropdown.classList.remove("active"); if (!panelVisible(templatePanel)) closeBuilder(); });
     new MutationObserver(syncTemplatesBtn).observe(templatePanel, { attributes: true, attributeFilter: ["style"] });
     syncTemplatesBtn();
 }
@@ -1666,6 +1666,7 @@ function openBuilder(init = {}) {
 function closeBuilder() {
     CB.open = false;
     CB.placing = null;
+    if (courseMove) { courseMove = null; if (map.dragging) map.dragging.enable(); }
     updateWindDial();
     document.getElementById("builder-panel").style.display = "none";
     if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
