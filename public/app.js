@@ -2564,7 +2564,7 @@ async function loadSessions(selectId) {
             <div class="builder-row"><select id="sess-template">${courseTemplatesCache.map(t => `<option value="t:${escHtml(t.key)}">${escHtml(t.name)}</option>`).join("")}${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)}</option>`).join("")}</select></div>
             <div class="builder-row">
                 <span id="sess-origin" class="device-meta" style="flex:2">Origin: —</span>
-                <button id="sess-center" title="Place origin at map center">Center here</button>
+                <button id="sess-move" title="Drag the course on the map">Move</button>
             </div>
             <div class="builder-row">
                 <label class="device-meta" style="flex:1">Wind <input id="sess-wind" type="number" min="0" max="359" step="1" style="max-width:64px" title="Wind from (deg)"></label>
