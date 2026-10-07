@@ -191,6 +191,7 @@ function rowToCourse(r) {
     return {
         id: r.id,
         name: r.name,
+        desc: r.desc || null,
         owner: r.owner || null,
         marks: JSON.parse(r.marks),
         startLine: parseOpt(r.startLine),
@@ -205,9 +206,12 @@ function rowToCourse(r) {
 const memCourses = new Map();
 let memNextId = 1;
 
-async function createCourse({ name, owner = null, marks, startLine = null, finishLine = null, is_template = false }) {
+async function createCourse({ name, desc = null, owner = null, marks, startLine = null, finishLine = null, is_template = false }) {
     if (typeof name !== "string" || !name.trim() || name.trim().length > 64) {
         throw Object.assign(new Error("name must be 1..64 chars"), { status: 400 });
+    }
+    if (desc !== null && desc !== undefined && (typeof desc !== "string" || desc.length > 140)) {
+        throw Object.assign(new Error("desc must be ≤140 chars"), { status: 400 });
     }
     const err = validateMarks(marks, startLine, finishLine) || validateLines(startLine, finishLine);
     if (err) throw Object.assign(new Error(err), { status: 400 });
@@ -216,6 +220,7 @@ async function createCourse({ name, owner = null, marks, startLine = null, finis
     const client = getClient();
     const clean = {
         name: name.trim(),
+        desc: typeof desc === "string" && desc.trim() ? desc.trim().slice(0, 140) : null,
         owner: typeof owner === "string" && owner ? owner.slice(0, 64) : null,
         marks,
         startLine: startLine || null,
@@ -231,8 +236,8 @@ async function createCourse({ name, owner = null, marks, startLine = null, finis
     await initDb();
     const now = new Date().toISOString();
     const res = await client.execute({
-        sql: "INSERT INTO courses (name, owner, marks, startLine, finishLine, version, is_template, createdAt) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
-        args: [clean.name, clean.owner, JSON.stringify(clean.marks),
+        sql: "INSERT INTO courses (name, desc, owner, marks, startLine, finishLine, version, is_template, createdAt) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        args: [clean.name, clean.desc, clean.owner, JSON.stringify(clean.marks),
             clean.startLine ? JSON.stringify(clean.startLine) : null,
             clean.finishLine ? JSON.stringify(clean.finishLine) : null,
             clean.is_template ? 1 : 0, now],
@@ -262,11 +267,12 @@ async function getCourse(id) {
     return res.rows.length ? rowToCourse(res.rows[0]) : null;
 }
 
-async function updateCourse(id, { name, marks, startLine, finishLine }) {
+async function updateCourse(id, { name, desc, marks, startLine, finishLine }) {
     const cur = await getCourse(id);
     if (!cur) return null;
     const next = {
         name: name !== undefined ? name : cur.name,
+        desc: desc !== undefined ? desc : cur.desc,
         marks: marks !== undefined ? marks : cur.marks,
         startLine: startLine !== undefined ? startLine : cur.startLine,
         finishLine: finishLine !== undefined
@@ -276,19 +282,22 @@ async function updateCourse(id, { name, marks, startLine, finishLine }) {
     if (typeof next.name !== "string" || !next.name.trim() || next.name.trim().length > 64) {
         throw Object.assign(new Error("name must be 1..64 chars"), { status: 400 });
     }
+    if (next.desc !== null && next.desc !== undefined && (typeof next.desc !== "string" || next.desc.length > 140)) {
+        throw Object.assign(new Error("desc must be ≤140 chars"), { status: 400 });
+    }
     const err = validateMarks(next.marks, next.startLine, next.finishLine) || validateLines(next.startLine, next.finishLine);
     if (err) throw Object.assign(new Error(err), { status: 400 });
 
     const client = getClient();
     if (!client) {
-        const updated = { ...cur, name: next.name.trim(), marks: next.marks, startLine: next.startLine || null, finishLine: next.finishLine === undefined ? null : next.finishLine, version: cur.version + 1 };
+        const updated = { ...cur, name: next.name.trim(), desc: typeof next.desc === "string" && next.desc.trim() ? next.desc.trim().slice(0, 140) : null, marks: next.marks, startLine: next.startLine || null, finishLine: next.finishLine === undefined ? null : next.finishLine, version: cur.version + 1 };
         memCourses.set(cur.id, updated);
         return updated;
     }
     await initDb();
     await client.execute({
-        sql: "UPDATE courses SET name = ?, marks = ?, startLine = ?, finishLine = ?, version = version + 1 WHERE id = ?",
-        args: [next.name.trim(), JSON.stringify(next.marks),
+        sql: "UPDATE courses SET name = ?, desc = ?, marks = ?, startLine = ?, finishLine = ?, version = version + 1 WHERE id = ?",
+        args: [next.name.trim(), (typeof next.desc === "string" && next.desc.trim() ? next.desc.trim().slice(0, 140) : null), JSON.stringify(next.marks),
             next.startLine ? JSON.stringify(next.startLine) : null,
             next.finishLine ? JSON.stringify(next.finishLine) : null, cur.id],
     });

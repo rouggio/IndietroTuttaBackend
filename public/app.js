@@ -1520,13 +1520,13 @@ async function loadCourseTemplates() {
                 return `
             <div class="template-card" data-course-tpl="${c.id}">
                 <b>${escHtml(c.name)}</b>
-                <span class="device-meta">${c.marks.length} marks · ${lineLen}${gates ? ` · ${gates} gate${gates > 1 ? "s" : ""}` : ""} · v${c.version}</span>
+                <span class="device-meta">${c.desc ? escHtml(c.desc) : `${c.marks.length} marks · ${lineLen}${gates ? ` · ${gates} gate${gates > 1 ? "s" : ""}` : ""}`} · v${c.version}</span>
                 <button data-del-tpl="${c.id}" title="Delete template" style="float:right;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;font-size:11px">×</button>
             </div>`; }).join("") + `</div>` : "");
         el.querySelectorAll("[data-tpl]").forEach(card => {
             card.addEventListener("click", () => {
                 const t = courseTemplatesCache.find(x => x.key === card.getAttribute("data-tpl"));
-                if (t) openBuilder({ name: t.name + " (copy)", marks: t.marks.map(m => ({ ...m })), startLine: t.startLine ? { ...t.startLine } : null, finishLine: t.finishLine ? { ...t.finishLine } : null });
+                if (t) openBuilder({ name: t.name + " (copy)", desc: t.desc, marks: t.marks.map(m => ({ ...m })), startLine: t.startLine ? { ...t.startLine } : null, finishLine: t.finishLine ? { ...t.finishLine } : null });
             });
         });
         el.querySelectorAll("[data-blank-tpl]").forEach(card => {
@@ -1537,7 +1537,7 @@ async function loadCourseTemplates() {
                 if (e.target.closest("[data-del-tpl]")) return;
                 const res = await fetch(`/courses/${card.getAttribute("data-course-tpl")}`);
                 const c = await res.json();
-                if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })), startLine: c.startLine, finishLine: c.finishLine });
+                if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, desc: c.desc, marks: c.marks.map(m => ({ ...m })), startLine: c.startLine, finishLine: c.finishLine });
             });
         });
         el.querySelectorAll("[data-del-tpl]").forEach(btn => {
@@ -1556,7 +1556,7 @@ async function loadCourseTemplates() {
 
 // --- Builder state + preview layers ---
 const CB = {
-    open: false, courseId: null, name: "", marks: [],
+    open: false, courseId: null, name: "", desc: "", marks: [],
     origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'move' | 'lineA' | 'lineB' | null
     startLine: null, finishLine: null, // wind-frame {ax,ay,bx,by}; finish may be "start"
     lineA: null, lineTarget: "start", // pending first endpoint (absolute) + which line
@@ -1630,6 +1630,7 @@ const MARK_COLORS = { start: "#16a34a", finish: "#dc2626", gate: "#984ea3", mark
 function openBuilder(init = {}) {
     CB.courseId = init.courseId ?? null;
     CB.name = init.name || "";
+    CB.desc = init.desc || "";
     CB.marks = (init.marks || []).map(m => ({ ...m }));
     CB.origin = init.origin || null;
     CB.windDir = init.windDir ?? 315;
@@ -1649,6 +1650,7 @@ function openBuilder(init = {}) {
     }
     document.getElementById("builder-panel").style.display = "block";
     document.getElementById("builder-name").value = CB.name;
+    document.getElementById("builder-desc").value = CB.desc;
     document.getElementById("builder-wind-val").textContent = CB.windDir;
     document.getElementById("builder-scale").value = CB.scale;
     document.getElementById("builder-msg").textContent = "";
@@ -1676,6 +1678,7 @@ function closeBuilder() {
 }
 document.getElementById("builderClose")?.addEventListener("click", closeBuilder);
 document.getElementById("builder-name")?.addEventListener("input", e => { CB.name = e.target.value; saveBuilderDraft(); });
+document.getElementById("builder-desc")?.addEventListener("input", e => { CB.desc = e.target.value; saveBuilderDraft(); });
 document.getElementById("builder-scale")?.addEventListener("change", e => {
     CB.scale = Math.min(5, Math.max(0.1, Number(e.target.value) || 1));
     e.target.value = CB.scale;
@@ -2334,6 +2337,7 @@ document.getElementById("builderWindSuggest")?.addEventListener("click", async (
 async function builderSaveTemplate() {
     const msg = document.getElementById("builder-msg");
     const name = document.getElementById("builder-name").value.trim() || "Untitled template";
+    const desc = document.getElementById("builder-desc").value.trim() || null;
     // UI shorthand "start" → server form {sameAs:"start"}
     const finishOut = CB.finishLine === "start" ? { sameAs: "start" } : CB.finishLine;
     try {
@@ -2341,19 +2345,21 @@ async function builderSaveTemplate() {
         if (CB.courseId) {
             res = await fetch(`/courses/${CB.courseId}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut }),
+                body: JSON.stringify({ name, desc, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut }),
             });
         } else {
             res = await fetch("/courses", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut, is_template: true }),
+                body: JSON.stringify({ name, desc, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut, is_template: true }),
             });
         }
         const j = await res.json();
         if (!res.ok) { msg.textContent = j.error || "Save failed."; return null; }
         CB.courseId = j.id;
         CB.name = j.name;
+        CB.desc = j.desc || "";
         document.getElementById("builder-name").value = j.name;
+        document.getElementById("builder-desc").value = CB.desc;
         msg.textContent = "";
         return j;
     } catch {
@@ -2366,6 +2372,7 @@ function saveBuilderDraft() {
     try {
         localStorage.setItem(BUILDER_DRAFT_KEY, JSON.stringify({
             courseId: CB.courseId, name: document.getElementById("builder-name")?.value || "",
+            desc: document.getElementById("builder-desc")?.value || "",
             marks: CB.marks, origin: CB.origin, windDir: CB.windDir, scale: CB.scale,
             startLine: CB.startLine, finishLine: CB.finishLine,
         }));

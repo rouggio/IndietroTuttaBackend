@@ -42,7 +42,7 @@ router.get("/courses", async (req, res) => {
 
 router.post("/courses", async (req, res) => {
     try {
-        const { name, owner, marks, template, is_template, startLine, finishLine } = req.body || {};
+        let { name, desc, owner, marks, template, is_template, startLine, finishLine } = req.body || {};
         let finalMarks = marks, finalStart = startLine, finalFinish = finishLine;
         if (template) {
             const t = getTemplate(template);
@@ -50,8 +50,9 @@ router.post("/courses", async (req, res) => {
             finalMarks = finalMarks || t.marks;
             if (finalStart === undefined) finalStart = t.startLine || null;
             if (finalFinish === undefined) finalFinish = t.finishLine === undefined ? null : t.finishLine;
+            if (desc === undefined) desc = t.desc || null;
         }
-        const course = await createCourse({ name, owner, marks: finalMarks, startLine: finalStart, finishLine: finalFinish, is_template });
+        const course = await createCourse({ name, desc, owner, marks: finalMarks, startLine: finalStart, finishLine: finalFinish, is_template });
         res.status(201).json(course);
     } catch (e) {
         sendErr(res, e);
@@ -78,8 +79,8 @@ router.get("/courses/:id", async (req, res) => {
 
 router.put("/courses/:id", async (req, res) => {
     try {
-        const { name, marks, startLine, finishLine } = req.body || {};
-        const course = await updateCourse(req.params.id, { name, marks, startLine, finishLine });
+        const { name, desc, marks, startLine, finishLine } = req.body || {};
+        const course = await updateCourse(req.params.id, { name, desc, marks, startLine, finishLine });
         if (!course) return res.status(404).json({ error: "course not found" });
         res.json(course);
     } catch (e) {

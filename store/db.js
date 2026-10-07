@@ -138,6 +138,12 @@ async function initDb() {
                 }
             }
         }
+        // Template description (editable in builder, shown in template list).
+        try {
+            await c.execute(`ALTER TABLE courses ADD COLUMN desc TEXT`);
+        } catch (e) {
+            if (!/duplicate column/i.test(e.message || "")) throw e;
+        }
 
         console.log("[DB] Turso tables ready");
 
