@@ -456,4 +456,39 @@ module.exports = {
     addBoat,
     removeBoat,
     repeatSession,
+    getActiveSessionForDevice,
 };
+
+// Newest session (scheduled/live) a device is assigned to, trimmed for the
+// firmware: resolved geometry + own pursuit offset. Null when unassigned.
+async function getActiveSessionForDevice(deviceId) {
+    if (!deviceId) return null;
+    const client = getClient();
+    if (!client) return null; // in-memory mode: no race push
+    await initDb();
+    const res = await client.execute({
+        sql: `SELECT s.* FROM sessions s JOIN session_boats b ON b.sessionId = s.id
+              WHERE b.deviceId = ? AND s.status IN ('scheduled','live')
+              ORDER BY s.id DESC LIMIT 1`,
+        args: [deviceId],
+    });
+    if (!res.rows.length) return null;
+    const boats = await getBoats(res.rows[0].id);
+    const full = rowToSession(res.rows[0], boats);
+    const mine = boats.find(b => b.deviceId === deviceId);
+    return {
+        id: full.id,
+        mode: full.mode,
+        status: full.status,
+        startTime: full.startTime,
+        startOffsetSec: (mine && mine.startOffsetSec) || 0,
+        courseVersion: full.courseVersion,
+        windDir: Math.round(full.windDir),
+        marks: full.marks.map(m => ({
+            lat: m.lat, lon: m.lon, r: m.r, side: m.side, type: m.type,
+            ...(m.gate ? { gate: m.gate } : {}),
+        })),
+        startLine: full.startLine,
+        finishLine: full.finishLine,
+    };
+}
