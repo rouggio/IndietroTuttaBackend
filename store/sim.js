@@ -70,9 +70,11 @@ function scriptWaypoints(session) {
             seenGate.add(m.gate);
             const pair = (gates[m.gate] || []);
             if (pair.length === 2) {
+                // Cross the gate line off-center (30% from the first buoy):
+                // a real rounding near one buoy, not a center drive-through.
                 ordered.push({
-                    lat: (pair[0].lat + pair[1].lat) / 2,
-                    lon: (pair[0].lon + pair[1].lon) / 2,
+                    lat: pair[0].lat + (pair[1].lat - pair[0].lat) * 0.3,
+                    lon: pair[0].lon + (pair[1].lon - pair[0].lon) * 0.3,
                     kind: "gate",
                 });
             } else {
@@ -179,6 +181,7 @@ async function createRun({ sessionId, deviceId, speedKn, startInSec }) {
         createdMs: nowMs, startMs: nowMs, gunMs: nowMs + gunSec * 1000,
         speedKn: Math.max(1, Math.min(15, Number(speedKn) || 5)),
         samples, gunSec, durationSec,
+        echoes: [], // device-reported receipts {t,lat,lon,speed,course,at}
     };
     runs.set(id, run);
     return runMeta(run, nowMs);
@@ -186,6 +189,17 @@ async function createRun({ sessionId, deviceId, speedKn, startInSec }) {
 
 function runMeta(run, nowMs = Date.now()) {
     const elapsed = Math.max(0, Math.floor((nowMs - run.startMs) / 1000));
+    const echoes = run.echoes || [];
+    const lastEcho = echoes.length ? echoes[echoes.length - 1] : null;
+    let lastDevM = null;
+    if (lastEcho && run.samples.length) {
+        let best = run.samples[0], bd = Infinity;
+        for (const s of run.samples) {
+            const d = Math.abs(s.t - lastEcho.t);
+            if (d < bd) { bd = d; best = s; }
+        }
+        lastDevM = Math.round(distM(best, lastEcho));
+    }
     return {
         id: run.id, deviceId: run.deviceId, sessionId: run.sessionId,
         createdMs: run.createdMs, startMs: run.startMs, gunMs: run.gunMs,
@@ -193,6 +207,9 @@ function runMeta(run, nowMs = Date.now()) {
         gunSec: run.gunSec, durationSec: run.durationSec,
         elapsedSec: elapsed,
         done: elapsed >= run.durationSec,
+        echoCount: echoes.length,
+        lastEchoT: lastEcho ? lastEcho.t : null,
+        lastDevM,
     };
 }
 
@@ -216,6 +233,23 @@ function listRuns(sessionId) {
 
 function deleteRun(id) {
     return runs.delete(id);
+}
+
+// Device-reported receipt of a scripted fix (pipeline proof, never a track).
+// Kept last-300 per run; deviation measured against the script at echo time.
+function echoSample(runId, e) {
+    const run = runs.get(runId);
+    if (!run) return null;
+    const echo = {
+        t: Math.round(Number(e.t) || 0),
+        lat: Number(e.lat), lon: Number(e.lon),
+        speed: Number(e.speed) || 0, course: Number(e.course) || 0,
+        at: Date.now(),
+    };
+    if (!isFinite(echo.lat) || !isFinite(echo.lon)) return null;
+    run.echoes.push(echo);
+    if (run.echoes.length > 300) run.echoes.splice(0, run.echoes.length - 300);
+    return runMeta(run);
 }
 
 // Wall-clock stateless delivery: sample = elapsed seconds since start.
@@ -243,6 +277,6 @@ function activeRunForDevice(deviceId, nowMs = Date.now()) {
 }
 
 module.exports = {
-    createRun, getRun, listRuns, deleteRun, nextSample, activeRunForDevice, runMeta,
+    createRun, getRun, listRuns, deleteRun, echoSample, nextSample, activeRunForDevice, runMeta,
     compileScript, // exported for unit checks
 };

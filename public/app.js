@@ -2813,7 +2813,8 @@ async function renderSessionDetail() {
                 box.innerHTML = runs.length ? runs.map(r => {
                     const el = Math.max(0, Math.floor((nowMs - r.startMs) / 1000));
                     const state = el >= r.durationSec ? "done" : `${el}s / ${r.durationSec}s`;
-                    return `<div>${escHtml(r.deviceId.slice(-5))} · ${r.speedKn}kn · gun T+${r.gunSec}s · ${state} <a href="#" data-stoprun="${escHtml(r.id)}" style="color:#dc2626">stop</a></div>`;
+                    const echo = r.echoCount ? ` · echo ${r.echoCount}${r.lastDevM != null ? ` Δ${r.lastDevM}m` : ""}` : "";
+                    return `<div>${escHtml(r.deviceId.slice(-5))} · ${r.speedKn}kn · gun T+${r.gunSec}s · ${state}${echo} <a href="#" data-stoprun="${escHtml(r.id)}" style="color:#dc2626">stop</a></div>`;
                 }).join("") : "no sim runs";
                 box.querySelectorAll("[data-stoprun]").forEach(a => a.addEventListener("click", async e => {
                     e.preventDefault();

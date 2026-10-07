@@ -4,6 +4,7 @@ const {
     createRun,
     listRuns,
     deleteRun,
+    echoSample,
     nextSample,
     activeRunForDevice,
     getRun,
@@ -74,6 +75,23 @@ router.get("/sim/next", async (req, res) => {
 router.get("/sim/runs", async (req, res) => {
     try {
         res.json(listRuns(req.query.sessionId));
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
+// POST /sim/echo — device-reported receipt of a scripted fix.
+// {runId, t, lat, lon, speed?, course?} → stored per-run (no tracks).
+// --------------------------------------------------
+
+router.post("/sim/echo", async (req, res) => {
+    try {
+        const { runId, t, lat, lon, speed, course } = req.body || {};
+        if (!runId) return res.status(400).json({ error: "runId required" });
+        const meta = echoSample(runId, { t, lat, lon, speed, course });
+        if (!meta) return res.status(404).json({ error: "run not found or bad fix" });
+        res.json(meta);
     } catch (e) {
         sendErr(res, e);
     }
