@@ -42,14 +42,14 @@ router.get("/courses", async (req, res) => {
 
 router.post("/courses", async (req, res) => {
     try {
-        const { name, owner, marks, template, is_template } = req.body || {};
+        const { name, owner, marks, template, is_template, startLine, finishLine } = req.body || {};
         let finalMarks = marks;
         if (template) {
             const t = getTemplate(template);
             if (!t) return res.status(400).json({ error: "unknown template" });
             finalMarks = finalMarks || t.marks;
         }
-        const course = await createCourse({ name, owner, marks: finalMarks, is_template });
+        const course = await createCourse({ name, owner, marks: finalMarks, startLine, finishLine, is_template });
         res.status(201).json(course);
     } catch (e) {
         sendErr(res, e);
@@ -76,8 +76,8 @@ router.get("/courses/:id", async (req, res) => {
 
 router.put("/courses/:id", async (req, res) => {
     try {
-        const { name, marks } = req.body || {};
-        const course = await updateCourse(req.params.id, { name, marks });
+        const { name, marks, startLine, finishLine } = req.body || {};
+        const course = await updateCourse(req.params.id, { name, marks, startLine, finishLine });
         if (!course) return res.status(404).json({ error: "course not found" });
         res.json(course);
     } catch (e) {

@@ -1538,7 +1538,7 @@ async function loadCourseTemplates() {
             card.addEventListener("click", async () => {
                 const res = await fetch(`/courses/${card.getAttribute("data-course-tpl")}`);
                 const c = await res.json();
-                if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })) });
+                if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })), startLine: c.startLine, finishLine: c.finishLine });
             });
         });
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("template-panel"));
@@ -1550,8 +1550,26 @@ async function loadCourseTemplates() {
 // --- Builder state + preview layers ---
 const CB = {
     open: false, courseId: null, name: "", marks: [],
-    origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'origin' | null
+    origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'origin' | 'lineA' | 'lineB' | null
+    startLine: null, finishLine: null, // wind-frame {ax,ay,bx,by}; finish may be "start"
+    lineA: null, lineTarget: "start", // pending first endpoint (absolute) + which line
 };
+// JS mirror of the backend segment resolve.
+function resolveSegJS(seg, o) {
+    const t = (o.windDir * Math.PI) / 180;
+    const cosLat = Math.cos((o.originLat * Math.PI) / 180);
+    const scale = o.scale || 1;
+    const pt = (x, y) => {
+        const E = x * scale * Math.cos(t) + y * scale * Math.sin(t);
+        const N = -x * scale * Math.sin(t) + y * scale * Math.cos(t);
+        return { lat: o.originLat + N / 111320, lon: o.originLon + E / (111320 * cosLat) };
+    };
+    const a = pt(seg.ax, seg.ay), b = pt(seg.bx, seg.by);
+    return { ...seg, latA: a.lat, lonA: a.lon, latB: b.lat, lonB: b.lon };
+}
+function segLenM(a, b) {
+    return map.distance([a.lat, a.lon], [b.lat, b.lon]);
+}
 let coursePreview = null; // L.layerGroup for resolved preview
 let adoptPins = null;     // L.layerGroup for waypoint pins
 let adoptFlags = [];      // flagged points loaded for adoption
@@ -1575,6 +1593,9 @@ function openBuilder(init = {}) {
     CB.windDir = init.windDir ?? 315;
     CB.scale = init.scale || 1;
     CB.placing = null;
+    CB.startLine = init.startLine || null;
+    CB.finishLine = init.finishLine === undefined ? null : init.finishLine;
+    CB.lineA = null;
     CB.open = true;
     pileTops = {};
     // templates arrive without placement: default the origin to the map
@@ -1594,6 +1615,7 @@ function openBuilder(init = {}) {
     document.getElementById("builder-origin-label").textContent = CB.origin
         ? `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`
         : "Origin: not set (click Set origin)";
+    updateLineInfo();
     renderBuilderMarks();
     updateBuilderPreview();
     saveBuilderDraft();
@@ -1625,6 +1647,7 @@ document.getElementById("builder-wind")?.addEventListener("input", e => {
 function syncBuilderArmButtons() {
     document.getElementById("builderAddMarks")?.classList.toggle("arming", CB.placing === "marks");
     document.getElementById("builderSetOrigin")?.classList.toggle("arming", CB.placing === "origin");
+    updateLineInfo();
 }
 document.getElementById("builderAddMarks")?.addEventListener("click", () => {
     CB.placing = CB.placing === "marks" ? null : "marks";
@@ -1634,9 +1657,71 @@ document.getElementById("builderSetOrigin")?.addEventListener("click", () => {
     CB.placing = CB.placing === "origin" ? null : "origin";
     syncBuilderArmButtons();
 });
+function updateLineInfo() {
+    const el = document.getElementById("builder-line-info");
+    if (!el) return;
+    const parts = [];
+    if (CB.startLine) {
+        const r = CB.origin ? resolveSegJS(CB.startLine, builderInst()) : null;
+        parts.push(`Start line${r ? ` ${Math.round(map.distance([r.latA, r.lonA], [r.latB, r.lonB]))}m` : ""}`);
+    }
+    if (CB.finishLine === "start") parts.push("Finish = start line");
+    else if (CB.finishLine) parts.push("Finish line set");
+    el.textContent = parts.length ? parts.join(" · ") : "No start line — start/finish fall back to radius circles.";
+    document.getElementById("builderLineStart")?.classList.toggle("arming", CB.placing === "lineA" && CB.lineTarget === "start" || CB.placing === "lineB" && CB.lineTarget === "start");
+    document.getElementById("builderLineFinish")?.classList.toggle("arming", CB.placing === "lineA" && CB.lineTarget === "finish" || CB.placing === "lineB" && CB.lineTarget === "finish");
+}
+document.getElementById("builderLineStart")?.addEventListener("click", () => {
+    CB.lineTarget = "start"; CB.lineA = null;
+    CB.placing = CB.placing === "lineA" ? null : "lineA";
+    syncBuilderArmButtons(); updateLineInfo();
+});
+document.getElementById("builderLineFinish")?.addEventListener("click", () => {
+    CB.lineTarget = "finish"; CB.lineA = null;
+    CB.placing = CB.placing === "lineA" ? null : "lineA";
+    syncBuilderArmButtons(); updateLineInfo();
+});
+document.getElementById("builderLineSame")?.addEventListener("click", () => {
+    const msg = document.getElementById("builder-msg");
+    if (!CB.startLine) { msg.textContent = "Set the start line first."; return; }
+    CB.finishLine = "start";
+    msg.textContent = "";
+    updateLineInfo(); updateBuilderPreview(); saveBuilderDraft();
+});
+document.getElementById("builderLineClear")?.addEventListener("click", () => {
+    CB.startLine = null; CB.finishLine = null; CB.lineA = null; CB.placing = null;
+    syncBuilderArmButtons(); updateLineInfo(); updateBuilderPreview(); saveBuilderDraft();
+});
 // Consumed by the map click handler (registered earlier): true = handled.
 function builderMapClick(e) {
     if (!CB.open || !CB.placing) return false;
+    if (CB.placing === "lineA" || CB.placing === "lineB") {
+        const msg = document.getElementById("builder-msg");
+        if (!CB.origin) { msg.textContent = "Set the origin first."; CB.placing = null; syncBuilderArmButtons(); return true; }
+        if (CB.placing === "lineA") {
+            CB.lineA = { lat: e.latlng.lat, lon: e.latlng.lng };
+            CB.placing = "lineB";
+            msg.textContent = "";
+            updateBuilderPreview();
+        } else {
+            const a = offsetsFromLatLon(CB.lineA.lat, CB.lineA.lon, builderInst());
+            const b = offsetsFromLatLon(e.latlng.lat, e.latlng.lng, builderInst());
+            const seg = {
+                ax: Math.round(a.x * 10) / 10, ay: Math.round(a.y * 10) / 10,
+                bx: Math.round(b.x * 10) / 10, by: Math.round(b.y * 10) / 10,
+            };
+            const len = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay);
+            if (len < 5) { msg.textContent = "Line too short (min 5m) — click two farther points."; return true; }
+            if (CB.lineTarget === "start") CB.startLine = seg;
+            else CB.finishLine = seg;
+            CB.lineA = null;
+            CB.placing = null;
+            msg.textContent = "";
+            updateLineInfo(); updateBuilderPreview(); saveBuilderDraft();
+        }
+        syncBuilderArmButtons();
+        return true;
+    }
     if (CB.placing === "origin") {
         CB.origin = { lat: e.latlng.lat, lon: e.latlng.lng };
         document.getElementById("builder-origin-label").textContent =
@@ -1709,7 +1794,7 @@ function renderBuilderMarks() {
 function updateBuilderPreview() {
     if (!CB.open) return;
     if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
-    if (!CB.origin || !CB.marks.length) return;
+    if (!CB.origin || (!CB.marks.length && !CB.startLine && !CB.finishLine && !CB.lineA)) return;
     coursePreview = L.layerGroup().addTo(map);
     const resolved = builderResolved();
     const latlngs = resolved.map(m => [m.lat, m.lon]);
@@ -1760,6 +1845,26 @@ function updateBuilderPreview() {
             updateBuilderPreview(); saveBuilderDraft();
         });
     });
+    // start/finish line segments (green/red); shared finish drawn dashed over start
+    if (CB.startLine) {
+        const r = resolveSegJS(CB.startLine, builderInst());
+        L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], { color: "#16a34a", weight: 5 }).addTo(coursePreview)
+            .bindTooltip("start line", { permanent: false });
+    }
+    if (CB.finishLine === "start" && CB.startLine) {
+        const r = resolveSegJS(CB.startLine, builderInst());
+        L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], { color: "#dc2626", weight: 2, dashArray: "6 4" }).addTo(coursePreview)
+            .bindTooltip("finish = start line", { permanent: false });
+    } else if (CB.finishLine && typeof CB.finishLine === "object") {
+        const r = resolveSegJS(CB.finishLine, builderInst());
+        L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], { color: "#dc2626", weight: 5 }).addTo(coursePreview)
+            .bindTooltip("finish line", { permanent: false });
+    }
+    // pending first endpoint while defining a line
+    if (CB.lineA) {
+        L.circleMarker([CB.lineA.lat, CB.lineA.lon], { radius: 6, color: "#0f172a", fillOpacity: 1 }).addTo(coursePreview)
+            .bindTooltip(`line ${CB.lineTarget}: click second end`);
+    }
     // wind arrow at origin (points where the wind comes FROM), with arrowhead
     const t = (CB.windDir * Math.PI) / 180;
     const ax = Math.sin(t), ay = Math.cos(t); // unit vector toward wind source (E,N)
@@ -1865,12 +1970,12 @@ async function builderSaveTemplate() {
         if (CB.courseId) {
             res = await fetch(`/courses/${CB.courseId}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, marks: CB.marks }),
+                body: JSON.stringify({ name, marks: CB.marks, startLine: CB.startLine, finishLine: CB.finishLine }),
             });
         } else {
             res = await fetch("/courses", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, marks: CB.marks, is_template: true }),
+                body: JSON.stringify({ name, marks: CB.marks, startLine: CB.startLine, finishLine: CB.finishLine, is_template: true }),
             });
         }
         const j = await res.json();
@@ -1932,6 +2037,7 @@ function saveBuilderDraft() {
         localStorage.setItem(BUILDER_DRAFT_KEY, JSON.stringify({
             courseId: CB.courseId, name: document.getElementById("builder-name")?.value || "",
             marks: CB.marks, origin: CB.origin, windDir: CB.windDir, scale: CB.scale,
+            startLine: CB.startLine, finishLine: CB.finishLine,
         }));
     } catch {}
 }
@@ -2031,10 +2137,19 @@ async function loadSessions(selectId) {
     }
 }
 
+function sessLinesText(s) {
+    const len = seg => (seg && seg.latA !== undefined)
+        ? Math.round(map.distance([seg.latA, seg.lonA], [seg.latB, seg.lonB])) + "m" : "";
+    const parts = [];
+    if (s.startLine) parts.push(`start ${len(s.startLine)}`);
+    if (s.finishLine && s.finishLine.sameAs === "start") parts.push("finish = start");
+    else if (s.finishLine) parts.push(`finish ${len(s.finishLine)}`);
+    return parts.length ? parts.join(" · ") : "radius circles";
+}
+
 async function renderSessionDetail() {
     const el = document.getElementById("sess-detail");
-    if (!el) return;
-    try {
+    if (!el) return;    try {
         const res = await fetch(`/sessions/${selectedSessionId}`);
         if (!res.ok) { el.innerHTML = ""; return; }
         const s = await res.json();
@@ -2046,6 +2161,7 @@ async function renderSessionDetail() {
                     <tr><td>Mode</td><td><span class="mode-badge ${s.mode}">${s.mode}</span></td></tr>
                     <tr><td>Status</td><td><span class="status-badge ${s.status}">${s.status}</span></td></tr>
                     <tr><td>Course</td><td>v${s.courseVersion} · ${s.marks.length} marks · wind ${Math.round(s.windDir)}° · scale ${s.scale}</td></tr>
+                    <tr><td>Lines</td><td>${sessLinesText(s)}</td></tr>
                     <tr><td>Start</td><td>${s.startTime ? escHtml(new Date(s.startTime).toLocaleString()) : "—"}</td></tr>
                     <tr><td>Boats</td><td>${s.boats.length ? s.boats.map(b => `${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))}${b.startOffsetSec ? ` (+${b.startOffsetSec}s)` : ""} <a href="#" data-unboat="${escHtml(b.deviceId)}" style="color:#dc2626">×</a>`).join(", ") : "—"}</td></tr>
                 </table>

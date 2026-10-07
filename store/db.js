@@ -127,6 +127,17 @@ async function initDb() {
             )
         `);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(date)`);
+        // Step 2+: optional start/finish line segments (wind-frame on courses,
+        // resolved absolute on sessions). finishLine may be {"sameAs":"start"}.
+        for (const table of ["courses", "sessions"]) {
+            for (const col of ["startLine", "finishLine"]) {
+                try {
+                    await c.execute(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`);
+                } catch (e) {
+                    if (!/duplicate column/i.test(e.message || "")) throw e;
+                }
+            }
+        }
 
         console.log("[DB] Turso tables ready");
 

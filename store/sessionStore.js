@@ -25,6 +25,56 @@ function resolveMarks(offsetMarks, { originLat, originLon, windDir, scale = 1 })
     });
 }
 
+function resolveSegment(seg, { originLat, originLon, windDir, scale = 1 }) {
+    const t = (windDir * Math.PI) / 180;
+    const cosLat = Math.cos((originLat * Math.PI) / 180);
+    const pt = (x, y) => {
+        const E = (x * scale) * Math.cos(t) + (y * scale) * Math.sin(t);
+        const N = -(x * scale) * Math.sin(t) + (y * scale) * Math.cos(t);
+        return { lat: originLat + N / EARTH_M, lon: originLon + E / (EARTH_M * cosLat) };
+    };
+    const a = pt(seg.ax, seg.ay), b = pt(seg.bx, seg.by);
+    return { ...seg, latA: a.lat, lonA: a.lon, latB: b.lat, lonB: b.lon };
+}
+
+// Lines snapshot (wind-frame) + resolved absolute. finishLine may be
+// {sameAs:"start"} — resolved finish then mirrors the resolved start.
+function snapshotLines(course) {
+    return {
+        startLine: course.startLine || null,
+        finishLine: course.finishLine === undefined ? null : course.finishLine,
+    };
+}
+
+function resolveLines(lines, inst) {
+    const start = lines.startLine ? resolveSegment(lines.startLine, inst) : null;
+    let finish = null;
+    if (lines.finishLine && lines.finishLine.sameAs === "start") finish = { sameAs: "start" };
+    else if (lines.finishLine) finish = resolveSegment(lines.finishLine, inst);
+    return { startLine: start, finishLine: finish };
+}
+
+// Inverse of resolveSegment: resolved absolute → wind-frame offsets.
+// Exact (resolve rounds nothing), used to re-resolve lines after a
+// placement change without refetching the template.
+function windFrameSegment(res, inst) {
+    const t = (inst.windDir * Math.PI) / 180;
+    const cosLat = Math.cos((inst.originLat * Math.PI) / 180);
+    const s = inst.scale || 1;
+    const pt = (lat, lon) => {
+        const E = (lon - inst.originLon) * EARTH_M * cosLat;
+        const N = (lat - inst.originLat) * EARTH_M;
+        return { x: (E * Math.cos(t) - N * Math.sin(t)) / s, y: (E * Math.sin(t) + N * Math.cos(t)) / s };
+    };
+    const a = pt(res.latA, res.lonA), b = pt(res.latB, res.lonB);
+    return { ax: a.x, ay: a.y, bx: b.x, by: b.y };
+}
+
+// Resolved finish for consumers (device/web): sameAs expands to start.
+function effectiveFinishLine(session) {
+    if (session && session.finishLine && session.finishLine.sameAs === "start") return session.startLine;
+    return session ? session.finishLine : null;
+}
 const MODES = ["practice", "race"];
 const STATUSES = ["scheduled", "live", "finished", "abandoned"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -72,6 +122,8 @@ function rowToSession(r, boats = []) {
         courseVersion: r.courseVersion,
         templateSnapshot: JSON.parse(r.templateSnapshot),
         marks: JSON.parse(r.marks),
+        startLine: r.startLine ? JSON.parse(r.startLine) : null,
+        finishLine: r.finishLine ? JSON.parse(r.finishLine) : null,
         boats,
         createdAt: r.createdAt,
     };
@@ -113,6 +165,8 @@ async function createSession(b) {
     };
     const snapshot = course.marks;
     const marks = resolveMarks(snapshot, inst);
+    const linesSnap = snapshotLines(course);
+    const lines = resolveLines(linesSnap, inst);
     const now = new Date().toISOString();
     const base = {
         courseId: course.id,
@@ -125,6 +179,8 @@ async function createSession(b) {
         courseVersion: 1,
         templateSnapshot: snapshot,
         marks,
+        startLine: lines.startLine,
+        finishLine: lines.finishLine,
         createdAt: now,
     };
 
@@ -139,14 +195,22 @@ async function createSession(b) {
     await initDb();
     const res = await client.execute({
         sql: `INSERT INTO sessions (courseId, name, date, mode, originLat, originLon, windDir, scale,
-              startTime, status, courseVersion, templateSnapshot, marks, createdAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+              startTime, status, courseVersion, templateSnapshot, marks, startLine, finishLine, createdAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
         args: [base.courseId, base.name, base.date, base.mode, base.originLat, base.originLon,
             base.windDir, base.scale, base.startTime, base.status,
-            JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks), now],
+            JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks),
+            base.startLine ? JSON.stringify(base.startLine) : null,
+            base.finishLine ? JSON.stringify(base.finishLine) : null, now],
     });
     const id = Number(res.lastInsertRowid);
-    return rowToSession({ id, ...base, templateSnapshot: JSON.stringify(base.templateSnapshot), marks: JSON.stringify(base.marks) }, []);
+    return rowToSession({
+        id, ...base,
+        templateSnapshot: JSON.stringify(base.templateSnapshot),
+        marks: JSON.stringify(base.marks),
+        startLine: base.startLine ? JSON.stringify(base.startLine) : null,
+        finishLine: base.finishLine ? JSON.stringify(base.finishLine) : null,
+    }, []);
 }
 
 async function listSessions({ date } = {}) {
@@ -200,11 +264,24 @@ async function updateSession(id, b) {
     const marks = geomChanged
         ? resolveMarks(cur.templateSnapshot, next)
         : cur.marks;
+    // lines re-resolve from their wind-frame form: invert the current
+    // resolved segments with the OLD placement, then resolve with the new.
+    // sameAs finish needs no geometry — it follows the start by definition.
+    let startLine = cur.startLine, finishLine = cur.finishLine;
+    if (geomChanged) {
+        const wfStart = cur.startLine ? windFrameSegment(cur.startLine, cur) : null;
+        const wfFinish = cur.finishLine && !cur.finishLine.sameAs
+            ? windFrameSegment(cur.finishLine, cur)
+            : (cur.finishLine || null);
+        const re = resolveLines({ startLine: wfStart, finishLine: wfFinish }, next);
+        startLine = re.startLine;
+        finishLine = re.finishLine;
+    }
 
     const client = getClient();
     if (!client) {
         const updated = {
-            ...cur, ...next, marks,
+            ...cur, ...next, marks, startLine, finishLine,
             courseVersion: geomChanged ? cur.courseVersion + 1 : cur.courseVersion,
         };
         memSessions.set(cur.id, updated);
@@ -213,9 +290,13 @@ async function updateSession(id, b) {
     await initDb();
     await client.execute({
         sql: `UPDATE sessions SET name = ?, status = ?, startTime = ?, originLat = ?, originLon = ?,
-              windDir = ?, scale = ?, marks = ?, courseVersion = courseVersion + ? WHERE id = ?`,
+              windDir = ?, scale = ?, marks = ?, startLine = ?, finishLine = ?,
+              courseVersion = courseVersion + ? WHERE id = ?`,
         args: [next.name, next.status, next.startTime, next.originLat, next.originLon,
-            next.windDir, next.scale, JSON.stringify(marks), geomChanged ? 1 : 0, cur.id],
+            next.windDir, next.scale, JSON.stringify(marks),
+            startLine ? JSON.stringify(startLine) : null,
+            finishLine ? JSON.stringify(finishLine) : null,
+            geomChanged ? 1 : 0, cur.id],
     });
     return getSession(cur.id);
 }
@@ -294,6 +375,8 @@ async function repeatSession(id, { date, mode, name } = {}) {
         courseVersion: 1,
         templateSnapshot: cur.templateSnapshot,
         marks: cur.marks,
+        startLine: cur.startLine,
+        finishLine: cur.finishLine,
         createdAt: now,
     };
     // default repeat name carries the new date unless overridden
@@ -310,11 +393,13 @@ async function repeatSession(id, { date, mode, name } = {}) {
     await initDb();
     const res = await client.execute({
         sql: `INSERT INTO sessions (courseId, name, date, mode, originLat, originLon, windDir, scale,
-              startTime, status, courseVersion, templateSnapshot, marks, createdAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+              startTime, status, courseVersion, templateSnapshot, marks, startLine, finishLine, createdAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
         args: [base.courseId, base.name, base.date, base.mode, base.originLat, base.originLon,
             base.windDir, base.scale, base.startTime, base.status,
-            JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks), now],
+            JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks),
+            base.startLine ? JSON.stringify(base.startLine) : null,
+            base.finishLine ? JSON.stringify(base.finishLine) : null, now],
     });
     const newId = Number(res.lastInsertRowid);
     for (const b of cur.boats) {
@@ -328,6 +413,9 @@ async function repeatSession(id, { date, mode, name } = {}) {
 
 module.exports = {
     resolveMarks,
+    resolveSegment,
+    windFrameSegment,
+    effectiveFinishLine,
     createSession,
     listSessions,
     getSession,
