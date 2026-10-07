@@ -1899,7 +1899,7 @@ function renderBuilderMarks() {
                 <select data-f="type" title="Mark type">
                     ${["start", "mark", "gate", "finish"].map(t => `<option ${m.type === t ? "selected" : ""}>${t}</option>`).join("")}
                 </select>
-                <select data-f="side" title="Required side (n/a for start/finish points and gate buoys)" ${["start", "finish", "gate"].includes(m.type) ? "disabled" : ""}>
+                <select data-f="side" title="Required side" ${m.type !== "mark" ? 'style="display:none"' : ""}>
                     ${["P", "S", "G"].map(s => `<option ${m.side === s ? "selected" : ""}>${s}</option>`).join("")}
                 </select>
                 <input data-f="r" type="number" min="5" max="200" value="${m.r}" title="Radius (m)">
