@@ -49,7 +49,7 @@ async function addPoint(point) {
 
 async function getPoints(filter = {}) {
     const client = getClient();
-    const { date, deviceId, start, end } = filter;
+    const { date, deviceId, start, end, flaggedOnly } = filter;
 
     if (!client) {
         let pts = memPoints;
@@ -62,6 +62,7 @@ async function getPoints(filter = {}) {
             if (!isNaN(e)) pts = pts.filter(p => new Date(p.timestamp || p.receivedAt || 0).getTime() <= e);
         } else if (date) pts = pts.filter(p => (p.timestamp || p.receivedAt || "").slice(0, 10) === date);
         if (deviceId) pts = pts.filter(p => p.deviceId === deviceId);
+        if (flaggedOnly) pts = pts.filter(p => p.flagged);
         return pts;
     }
 
@@ -86,6 +87,9 @@ async function getPoints(filter = {}) {
     if (deviceId) {
         sql += " AND deviceId = ?";
         args.push(deviceId);
+    }
+    if (flaggedOnly) {
+        sql += " AND flagged = 1";
     }
 
     sql += " ORDER BY id ASC";

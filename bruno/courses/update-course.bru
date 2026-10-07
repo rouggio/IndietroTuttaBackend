@@ -1,0 +1,21 @@
+meta {
+  name: Update course
+  type: http
+  seq: 14
+}
+
+put {
+  url: {{baseUrl}}/courses/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+body:json {
+  {
+    "name": "Saturday stick (long legs)"
+  }
+}

@@ -124,7 +124,7 @@ router.delete("/gps/flagged", async (req, res) => {
 // --------------------------------------------------
 
 router.get("/gps", async (req, res) => {
-    const { date, deviceId, start, end } = req.query;
+    const { date, deviceId, start, end, flagged } = req.query;
     if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
         return res.status(400).json({ error: "deviceId query param required" });
     }
@@ -140,10 +140,12 @@ router.get("/gps", async (req, res) => {
         if (!isNaN(e.getTime())) cleanEnd = e.toISOString();
     }
     // if range provided, it takes precedence over date
+    // flagged=true limits to device waypoint flags (course adopter)
+    const flaggedOnly = flagged === "true" || flagged === "1";
     if (cleanStart || cleanEnd) {
-        res.json(await getPoints({ deviceId: cleanDeviceId, start: cleanStart, end: cleanEnd }));
+        res.json(await getPoints({ deviceId: cleanDeviceId, start: cleanStart, end: cleanEnd, flaggedOnly }));
     } else {
-        res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId }));
+        res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId, flaggedOnly }));
     }
 });
 
