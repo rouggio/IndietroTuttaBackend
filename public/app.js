@@ -1468,16 +1468,31 @@ async function loadCourseTemplates() {
             const res = await fetch("/courses/templates");
             courseTemplatesCache = await res.json();
         }
+        const myRes = await fetch("/courses?templates=1");
+        const myTpls = await myRes.json();
         el.innerHTML = `<div class="device-meta" style="margin-bottom:6px">Wind-frame presets — placed + rotated on the day.</div>
         <div class="template-grid">` + courseTemplatesCache.map(t => `
             <div class="template-card" data-tpl="${escHtml(t.key)}">
                 <b>${escHtml(t.name)}</b>
                 <span class="device-meta">${escHtml(t.desc)} · ${t.marks.length} marks</span>
-            </div>`).join("") + `</div>`;
+            </div>`).join("") + `</div>` + (myTpls.length ? `
+            <div class="device-meta" style="margin:8px 0 4px 0"><b>My templates</b></div>
+            <div class="template-grid">` + myTpls.map(c => `
+            <div class="template-card" data-course-tpl="${c.id}">
+                <b>${escHtml(c.name)}</b>
+                <span class="device-meta">${c.marks.length} marks · v${c.version}</span>
+            </div>`).join("") + `</div>` : "");
         el.querySelectorAll("[data-tpl]").forEach(card => {
             card.addEventListener("click", () => {
                 const t = courseTemplatesCache.find(x => x.key === card.getAttribute("data-tpl"));
-                if (t) openBuilder({ name: t.name, marks: t.marks.map(m => ({ ...m })) });
+                if (t) openBuilder({ name: t.name + " (copy)", marks: t.marks.map(m => ({ ...m })) });
+            });
+        });
+        el.querySelectorAll("[data-course-tpl]").forEach(card => {
+            card.addEventListener("click", async () => {
+                const res = await fetch(`/courses/${card.getAttribute("data-course-tpl")}`);
+                const c = await res.json();
+                if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })), isTemplate: !!c.is_template });
             });
         });
     } catch (e) {
@@ -1490,16 +1505,16 @@ async function loadMyCourses() {
     const el = document.getElementById("course-tab-courses");
     try {
         const res = await fetch("/courses");
-        myCoursesCache = await res.json();
+        myCoursesCache = (await res.json()).filter(c => !c.is_template);
         if (!myCoursesCache.length) {
-            el.innerHTML = `<div class="device-meta">No saved courses yet.</div>
+            el.innerHTML = `<div class="device-meta">No saved courses yet — open a template, edit it, then “Save course”.</div>
                 <div class="builder-row"><button id="newCourseBtn">New course</button></div>`;
         } else {
             el.innerHTML = myCoursesCache.map(c => `
                 <div class="device-item" data-course="${c.id}" style="cursor:pointer">
                     <div style="overflow:hidden;flex:1">
                         <span class="device-name">${escHtml(c.name)}</span>
-                        <div class="device-meta">${c.marks.length} marks · v${c.version}${c.is_template ? " · template" : ""}</div>
+                        <div class="device-meta">${c.marks.length} marks · v${c.version}</div>
                     </div>
                     <div style="text-align:right">
                         <button class="mini-del" data-del-course="${c.id}" title="Delete course" style="border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer">×</button>
@@ -1512,7 +1527,7 @@ async function loadMyCourses() {
             row.addEventListener("click", e => {
                 if (e.target.closest("[data-del-course]")) return;
                 const c = myCoursesCache.find(x => String(x.id) === row.getAttribute("data-course"));
-                if (c) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })) });
+                if (c) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })), isTemplate: !!c.is_template });
             });
         });
         el.querySelectorAll("[data-del-course]").forEach(btn => {
@@ -1530,7 +1545,7 @@ async function loadMyCourses() {
 
 // --- Builder state + preview layers ---
 const CB = {
-    open: false, courseId: null, name: "", marks: [],
+    open: false, courseId: null, isTemplate: true, name: "", marks: [],
     origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'origin' | null
 };
 let coursePreview = null; // L.layerGroup for resolved preview
@@ -1550,6 +1565,7 @@ const MARK_COLORS = { start: "#16a34a", finish: "#dc2626", gate: "#984ea3", mark
 
 function openBuilder(init = {}) {
     CB.courseId = init.courseId ?? null;
+    CB.isTemplate = init.isTemplate ?? true;
     CB.name = init.name || "";
     CB.marks = (init.marks || []).map(m => ({ ...m }));
     CB.origin = init.origin || null;
@@ -1836,12 +1852,15 @@ document.getElementById("builderWindSuggest")?.addEventListener("click", async (
 });
 
 // --- Save template / freeze to session ---
-async function builderSaveCourse() {
+// Save as template (reusable shape) or as course (concrete course off a
+// template). PUT keeps the existing flag — use the other button to convert.
+async function builderSaveCourse(asTemplate) {
     const msg = document.getElementById("builder-msg");
     const name = document.getElementById("builder-name").value.trim() || "Untitled course";
     try {
         let res;
-        if (CB.courseId) {
+        // same kind → update in place; switching kind forks a new row
+        if (CB.courseId && CB.isTemplate === !!asTemplate) {
             res = await fetch(`/courses/${CB.courseId}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name, marks: CB.marks }),
@@ -1849,15 +1868,17 @@ async function builderSaveCourse() {
         } else {
             res = await fetch("/courses", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, marks: CB.marks, is_template: true }),
+                body: JSON.stringify({ name, marks: CB.marks, is_template: !!asTemplate }),
             });
         }
         const j = await res.json();
         if (!res.ok) { msg.textContent = j.error || "Save failed."; return null; }
         CB.courseId = j.id;
         CB.name = j.name;
+        CB.isTemplate = !!j.is_template;
         document.getElementById("builder-name").value = j.name;
         msg.textContent = "";
+        courseTemplatesCache = null;
         loadMyCourses();
         return j;
     } catch {
@@ -1865,10 +1886,11 @@ async function builderSaveCourse() {
         return null;
     }
 }
-document.getElementById("builderSave")?.addEventListener("click", builderSaveCourse);
+document.getElementById("builderSave")?.addEventListener("click", () => builderSaveCourse(true));
+document.getElementById("builderSaveCourse")?.addEventListener("click", () => builderSaveCourse(false));
 document.getElementById("builderFreeze")?.addEventListener("click", async () => {
     const msg = document.getElementById("builder-msg");
-    const course = await builderSaveCourse();
+    const course = await builderSaveCourse(false);
     if (!course) return;
     const date = document.getElementById("freeze-date").value;
     const mode = document.getElementById("freeze-mode").value;
