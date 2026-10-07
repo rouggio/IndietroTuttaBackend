@@ -2411,7 +2411,7 @@ let sessionsCache = [];
 let selectedSessionId = null;
 
 // --- Session creation draft: template + placement previewed on the chart ---
-const SESSDRAFT = { template: null, origin: null, windDir: 315, scale: 1 };
+const SESSDRAFT = { template: null, sel: null, origin: null, windDir: 315, scale: 1 };
 let sessPreview = null;
 function clearSessPreview() {
     if (sessPreview) { map.removeLayer(sessPreview); sessPreview = null; }
@@ -2465,12 +2465,28 @@ function renderSessPreview() {
             { color: "#984ea3", weight: 2, dashArray: "6 4" }).addTo(sessPreview);
     });
 }
-async function pickSessTemplate(id) {
+async function pickSessTemplate(value) {
     try {
-        const res = await fetch(`/courses/${id}`);
-        const c = await res.json();
-        if (!c || !c.marks) return;
+        let c = null;
+        if (String(value).startsWith("t:")) {
+            if (!courseTemplatesCache) {
+                const res = await fetch("/courses/templates");
+                courseTemplatesCache = await res.json();
+            }
+            const t = (courseTemplatesCache || []).find(x => x.key === String(value).slice(2));
+            if (t) c = {
+                ...t,
+                marks: t.marks.map(m => ({ ...m })),
+                startLine: t.startLine ? { ...t.startLine } : null,
+                finishLine: t.finishLine && typeof t.finishLine === "object" ? { ...t.finishLine } : (t.finishLine ?? null),
+            };
+        } else {
+            const res = await fetch(`/courses/${String(value).replace(/^c:/, "")}`);
+            c = await res.json();
+            if (!c || !c.marks) return;
+        }
         SESSDRAFT.template = c;
+        SESSDRAFT.sel = String(value);
         if (!SESSDRAFT.origin) {
             const m = map.getCenter();
             SESSDRAFT.origin = { lat: Math.round(m.lat * 1e5) / 1e5, lon: Math.round(m.lng * 1e5) / 1e5 };
@@ -2491,16 +2507,17 @@ function syncSessForm() {
 async function loadSessions(selectId) {
     const el = document.getElementById("course-tab-sessions");
     try {
-        const [sessRes, courseRes] = await Promise.all([fetch("/sessions"), fetch("/courses")]);
+        const [sessRes, courseRes, tplRes] = await Promise.all([fetch("/sessions"), fetch("/courses"), fetch("/courses/templates")]);
         sessionsCache = await sessRes.json();
         const courses = await courseRes.json();
+        courseTemplatesCache = courseTemplatesCache || await tplRes.json();
         if (!lastDevices.length) await refreshDevices();
         if (selectId) selectedSessionId = selectId;
         const boatChecks = lastDevices.map(d => `<label style="display:inline-block;margin-right:8px;font-weight:normal;font-size:12px">
             <input type="checkbox" data-sb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
         el.innerHTML = `
             <div class="device-meta" style="margin-bottom:6px"><b>New session</b> — pick a template, place it on the chart, set the wind</div>
-            <div class="builder-row"><select id="sess-course">${courses.map(c => `<option value="${c.id}">${escHtml(c.name)} (${c.marks.length})</option>`).join("")}</select></div>
+            <div class="builder-row"><select id="sess-course">${courseTemplatesCache.map(t => `<option value="t:${escHtml(t.key)}">${escHtml(t.name)}</option>`).join("")}${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)}</option>`).join("")}</select></div>
             <div class="builder-row">
                 <span id="sess-origin" class="device-meta" style="flex:2">Origin: —</span>
                 <button id="sess-center" title="Place origin at map center">Center here</button>
@@ -2534,9 +2551,8 @@ async function loadSessions(selectId) {
             <div id="sess-detail"></div>`;
         document.getElementById("sess-course").addEventListener("change", e => pickSessTemplate(e.target.value));
         const sessSel = document.getElementById("sess-course");
-        if (SESSDRAFT.template && courses.some(c => String(c.id) === String(SESSDRAFT.template.id))) {
-            sessSel.value = SESSDRAFT.template.id;
-        }
+        const hasSel = opt => [...sessSel.options].some(o => o.value === opt);
+        if (SESSDRAFT.sel && hasSel(SESSDRAFT.sel)) sessSel.value = SESSDRAFT.sel;
         pickSessTemplate(sessSel.value);
         document.getElementById("sess-wind").addEventListener("change", e => {
             SESSDRAFT.windDir = Math.min(359, Math.max(0, Math.round(Number(e.target.value) || 0)));
@@ -2575,11 +2591,27 @@ async function loadSessions(selectId) {
             const date = document.getElementById("sess-date").value;
             const mode = document.getElementById("sess-mode").value;
             const startVal = document.getElementById("sess-start").value;
-            const t = SESSDRAFT.template;
-            if (!t) { errEl.textContent = "Pick a template first."; return; }
+            const t0 = SESSDRAFT.template;
+            if (!t0) { errEl.textContent = "Pick a template first."; return; }
             if (!SESSDRAFT.origin) { errEl.textContent = "Place the origin first (Center here)."; return; }
             if (!date) { errEl.textContent = "Pick a session date."; return; }
+            let t = t0;
             try {
+                if (!t.id) {
+                    // static built-in: materialize a template row first for lineage
+                    const rc = await fetch("/courses", {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            name: t.name, desc: t.desc || null, marks: t.marks,
+                            startLine: t.startLine || null, finishLine: t.finishLine === undefined ? null : t.finishLine,
+                            is_template: true,
+                        }),
+                    });
+                    const jc = await rc.json();
+                    if (!rc.ok) { errEl.textContent = jc.error || "Create failed."; return; }
+                    t = jc;
+                    SESSDRAFT.template = jc;
+                }
                 const res = await fetch("/sessions", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -2729,6 +2761,7 @@ async function renderSessionDetail() {
 }
 
 // --- Floating panels: drag by header + no-overlap on show ---
+let floatZ = 1001; // bring-to-front counter for dragged panels
 function makeFloatingDraggable(el) {
     if (!el || el.dataset.draggable) return;
     const header = el.querySelector("h4");
@@ -2740,6 +2773,9 @@ function makeFloatingDraggable(el) {
     let drag = null;
     header.addEventListener("pointerdown", e => {
         if (e.target.closest("button,input,select,a")) return;
+        if (e.target.closest("[id$='Close']")) return; // × must stay clickable (preventDefault would eat the click)
+        // bring the grabbed panel above its siblings
+        el.style.zIndex = String(++floatZ);
         const r = el.getBoundingClientRect();
         drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
         try { header.setPointerCapture(e.pointerId); } catch {}
