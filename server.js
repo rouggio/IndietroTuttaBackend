@@ -9,6 +9,7 @@ const healthRoutes = require("./routes/health");
 const devicesRoutes = require("./routes/devices");
 const templatesRoutes = require("./routes/templates");
 const sessionsRoutes = require("./routes/sessions");
+const simRoutes = require("./routes/sim");
 const windRoutes = require("./routes/wind");
 
 const app = express();
@@ -34,6 +35,7 @@ app.use("/", healthRoutes);
 app.use("/", devicesRoutes);
 app.use("/", templatesRoutes);
 app.use("/", sessionsRoutes);
+app.use("/", simRoutes);
 app.use("/", windRoutes);
 
 // --------------------------------------------------

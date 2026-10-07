@@ -1,0 +1,24 @@
+meta {
+  name: Start sim run
+  type: http
+  seq: 40
+}
+
+post {
+  url: {{baseUrl}}/sim/runs
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "sessionId": 1,
+    "deviceId": "{{deviceId}}",
+    "speedKn": 5,
+    "startInSec": 60
+  }
+}
