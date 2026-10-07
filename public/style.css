@@ -88,9 +88,26 @@ html, body {
 
 #topbar-menu #boatsToggleBtn.active,
 #topbar-menu #timelineToggleBtn.active,
-#topbar-menu #coursesToggleBtn.active {
+#topbar-menu #templatesToggleBtn.active,
+#topbar-menu #sessionsToggleBtn.active,
+#topbar-menu #racesToggleBtn.active {
     background: #2563eb;
     color: white;
+}
+
+#topbar-menu .dropdown > .dropbtn {
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    background: #f1f5f9;
+    color: #334155;
+}
+
+#topbar-menu .dropdown-content a.active {
+    background: #dbeafe;
+    font-weight: bold;
 }
 
 #mode-switch {
@@ -598,8 +615,9 @@ html, body {
     filter: brightness(0.8);
 }
 
-/* Courses & sessions panel */
-#course-panel {
+/* Templates & sessions panels */
+#template-panel,
+#session-panel {
     position: absolute;
     top: 58px;
     right: 10px;
@@ -614,32 +632,10 @@ html, body {
     overflow-y: auto;
 }
 
-#course-panel h4 {
+#template-panel h4,
+#session-panel h4 {
     margin: 0 0 8px 0;
     font-size: 14px;
-}
-
-.course-tabs {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 8px;
-}
-
-.course-tabs button {
-    flex: 1;
-    border: 1px solid #d1d5db;
-    background: #f1f5f9;
-    border-radius: 6px;
-    padding: 5px 4px;
-    font-size: 12px;
-    cursor: pointer;
-    color: #334155;
-}
-
-.course-tabs button.active {
-    background: #0f172a;
-    color: white;
-    border-color: #0f172a;
 }
 
 .template-grid {

@@ -19,7 +19,13 @@
         <div id="topbar-menu">
             <button id="boatsToggleBtn" class="dropbtn">Boats</button>
             <button id="timelineToggleBtn" class="dropbtn">Timeline</button>
-            <button id="coursesToggleBtn" class="dropbtn">Courses</button>
+            <div class="dropdown" id="racesDropdown">
+                <button id="racesToggleBtn" class="dropbtn">Races</button>
+                <div class="dropdown-content">
+                    <a id="templatesToggleBtn">Templates</a>
+                    <a id="sessionsToggleBtn">Sessions</a>
+                </div>
+            </div>
         </div>
         <div id="topbar-controls">
             <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
@@ -48,14 +54,14 @@
     <div id="device-list">Loading...</div>
 </div>
 
-<div id="course-panel" style="display:none">
-    <h4>Courses &amp; Sessions</h4>
-    <div class="course-tabs">
-        <button data-ctab="templates" class="active">Templates</button>
-        <button data-ctab="sessions">Sessions</button>
-    </div>
+<div id="template-panel" style="display:none">
+    <h4>Templates</h4>
     <div id="course-tab-templates" class="course-tab"></div>
-    <div id="course-tab-sessions" class="course-tab" style="display:none"></div>
+</div>
+
+<div id="session-panel" style="display:none">
+    <h4>Sessions</h4>
+    <div id="course-tab-sessions" class="course-tab"></div>
 </div>
 
 <div id="builder-panel" style="display:none">

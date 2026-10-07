@@ -470,9 +470,10 @@ function saveUI() {
             panels: {
                 "device-panel": document.getElementById("device-panel")?.style.display,
                 "playback": document.getElementById("playback")?.style.display,
-                "course-panel": document.getElementById("course-panel")?.style.display,
+                "template-panel": document.getElementById("template-panel")?.style.display,
+                "session-panel": document.getElementById("session-panel")?.style.display,
             },
-            panelPos: ["device-panel", "course-panel", "builder-panel"].reduce((acc, id) => {
+            panelPos: ["device-panel", "template-panel", "session-panel", "builder-panel"].reduce((acc, id) => {
                 const el = document.getElementById(id);
                 if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
                 return acc;
@@ -1455,24 +1456,48 @@ function bearingBetween(a, b) {
     return ((Math.atan2(y, x) / r) + 360) % 360;
 }
 
-const coursesBtn = document.getElementById("coursesToggleBtn");
-const coursePanel = document.getElementById("course-panel");
-if (coursesBtn && coursePanel) {
-    const syncCoursesBtn = () => coursesBtn.classList.toggle("active", coursePanel.style.display !== "none" && coursePanel.style.display !== "");
-    coursesBtn.addEventListener("click", () => { toggleEl("course-panel"); avoidPanelOverlap(coursePanel); syncCoursesBtn(); saveUI(); });
-    new MutationObserver(syncCoursesBtn).observe(coursePanel, { attributes: true, attributeFilter: ["style"] });
-    syncCoursesBtn();
-}
-document.querySelectorAll("[data-ctab]").forEach(btn => {
-    btn.addEventListener("click", () => {
-        document.querySelectorAll("[data-ctab]").forEach(b => b.classList.toggle("active", b === btn));
-        document.querySelectorAll(".course-tab").forEach(t => t.style.display = "none");
-        const tab = document.getElementById("course-tab-" + btn.getAttribute("data-ctab"));
-        if (tab) tab.style.display = "block";
-        if (btn.getAttribute("data-ctab") === "templates") loadCourseTemplates();
-        if (btn.getAttribute("data-ctab") === "sessions") loadSessions();
+const racesDropdown = document.getElementById("racesDropdown");
+const racesToggleBtn = document.getElementById("racesToggleBtn");
+if (racesToggleBtn && racesDropdown) {
+    // touch support: tap toggles the menu (hover covers desktop)
+    racesToggleBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        racesDropdown.classList.toggle("active");
     });
-});
+    document.addEventListener("click", e => {
+        if (!e.target.closest("#racesDropdown")) racesDropdown.classList.remove("active");
+    });
+}
+function syncRacesBtn() {
+    const rt = document.getElementById("racesToggleBtn");
+    if (!rt) return;
+    const vis = el => el && el.style.display !== "none" && el.style.display !== "";
+    rt.classList.toggle("active", !!(vis(document.getElementById("template-panel")) || vis(document.getElementById("session-panel"))));
+}
+const templatesBtn = document.getElementById("templatesToggleBtn");
+const templatePanel = document.getElementById("template-panel");
+if (templatesBtn && templatePanel) {
+    const syncTemplatesBtn = () => {
+        const open = templatePanel.style.display !== "none" && templatePanel.style.display !== "";
+        templatesBtn.classList.toggle("active", open);
+        syncRacesBtn();
+    };
+    templatesBtn.addEventListener("click", () => { toggleEl("template-panel"); avoidPanelOverlap(templatePanel); syncTemplatesBtn(); saveUI(); loadCourseTemplates(); if (racesDropdown) racesDropdown.classList.remove("active"); });
+    new MutationObserver(syncTemplatesBtn).observe(templatePanel, { attributes: true, attributeFilter: ["style"] });
+    syncTemplatesBtn();
+}
+const sessionsBtn = document.getElementById("sessionsToggleBtn");
+const sessionPanel = document.getElementById("session-panel");
+if (sessionsBtn && sessionPanel) {
+    const syncSessionsBtn = () => {
+        const open = sessionPanel.style.display !== "none" && sessionPanel.style.display !== "";
+        sessionsBtn.classList.toggle("active", open);
+        syncRacesBtn();
+    };
+    sessionsBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncSessionsBtn(); saveUI(); loadSessions(); if (racesDropdown) racesDropdown.classList.remove("active"); });
+    new MutationObserver(syncSessionsBtn).observe(sessionPanel, { attributes: true, attributeFilter: ["style"] });
+    syncSessionsBtn();
+}
 
 let courseTemplatesCache = null;
 async function loadCourseTemplates() {
@@ -1516,7 +1541,7 @@ async function loadCourseTemplates() {
                 if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })) });
             });
         });
-        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("course-panel"));
+        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("template-panel"));
     } catch (e) {
         el.innerHTML = '<div class="boat-info-err">Failed to load templates.</div>';
     }
@@ -1832,7 +1857,7 @@ document.getElementById("builderWindSuggest")?.addEventListener("click", async (
 
 // --- Save template / freeze to session ---
 // Save as template (the only shape library — sessions freeze from here).
-async function builderSaveCourse() {
+async function builderSaveTemplate() {
     const msg = document.getElementById("builder-msg");
     const name = document.getElementById("builder-name").value.trim() || "Untitled template";
     try {
@@ -1860,10 +1885,10 @@ async function builderSaveCourse() {
         return null;
     }
 }
-document.getElementById("builderSave")?.addEventListener("click", () => builderSaveCourse());
+document.getElementById("builderSave")?.addEventListener("click", () => builderSaveTemplate());
 document.getElementById("builderFreeze")?.addEventListener("click", async () => {
     const msg = document.getElementById("builder-msg");
-    const course = await builderSaveCourse();
+    const course = await builderSaveTemplate();
     if (!course) return;
     const date = document.getElementById("freeze-date").value;
     const mode = document.getElementById("freeze-mode").value;
@@ -1891,8 +1916,7 @@ document.getElementById("builderFreeze")?.addEventListener("click", async () => 
             });
         }
         closeBuilder();
-        switchCourseTab("sessions");
-        loadSessions(j.id);
+        openSessionsPanel(j.id);
     } catch {
         msg.textContent = "Network error.";
     }
@@ -1911,11 +1935,16 @@ function saveBuilderDraft() {
         }));
     } catch {}
 }
-function switchCourseTab(name) {
-    document.querySelectorAll("[data-ctab]").forEach(b => b.classList.toggle("active", b.getAttribute("data-ctab") === name));
-    document.querySelectorAll(".course-tab").forEach(t => t.style.display = "none");
-    const tab = document.getElementById("course-tab-" + name);
-    if (tab) tab.style.display = "block";
+// Show the sessions panel (used after freezing a session from the builder).
+function openSessionsPanel(selectId) {
+    const panel = document.getElementById("session-panel");
+    if (panel && !panelVisible(panel)) toggleEl("session-panel");
+    if (panel) avoidPanelOverlap(panel);
+    const sb = document.getElementById("sessionsToggleBtn");
+    if (sb && panel) sb.classList.toggle("active", panelVisible(panel));
+    syncRacesBtn();
+    saveUI();
+    loadSessions(selectId);
 }
 
 // --- Sessions tab: list + create + committee controls ---
@@ -1996,7 +2025,7 @@ async function loadSessions(selectId) {
             });
         });
         if (selectedSessionId) renderSessionDetail();
-        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("course-panel"));
+        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-panel"));
     } catch (e) {
         el.innerHTML = '<div class="boat-info-err">Failed to load sessions.</div>';
     }
@@ -2100,7 +2129,7 @@ async function renderSessionDetail() {
             selectedSessionId = null;
             loadSessions();
         });
-        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("course-panel"));
+        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-panel"));
     } catch {
         el.innerHTML = '<div class="boat-info-err">Failed to load session.</div>';
     }
@@ -2148,7 +2177,7 @@ function rectsOverlap(a, b) {
 // Panels the user dragged themselves are never auto-moved.
 function avoidPanelOverlap(el) {
     if (!panelVisible(el) || el.dataset.moved) return;
-    const others = ["device-panel", "course-panel", "builder-panel"]
+    const others = ["device-panel", "template-panel", "session-panel", "builder-panel"]
         .map(id => document.getElementById(id))
         .filter(o => o && o !== el && panelVisible(o));
     let moved = false;
@@ -2167,8 +2196,10 @@ function avoidPanelOverlap(el) {
     if (moved) { try { saveUI(); } catch {} }
 }
 makeFloatingDraggable(document.getElementById("device-panel"));
-makeFloatingDraggable(document.getElementById("course-panel"));
+makeFloatingDraggable(document.getElementById("template-panel"));
+makeFloatingDraggable(document.getElementById("session-panel"));
 makeFloatingDraggable(document.getElementById("builder-panel"));
 // fix any overlap restored from a previous session
-avoidPanelOverlap(document.getElementById("course-panel"));
+avoidPanelOverlap(document.getElementById("template-panel"));
+avoidPanelOverlap(document.getElementById("session-panel"));
 avoidPanelOverlap(document.getElementById("device-panel"));
