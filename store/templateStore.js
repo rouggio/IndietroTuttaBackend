@@ -1,7 +1,7 @@
 const { getClient, initDb } = require("./db");
 
 // ------------------------------------------------------------------
-// Courses: templates in WIND-FRAME offsets (meters).
+// Templates: reusable shapes in WIND-FRAME offsets (meters).
 // +y = upwind (direction the wind comes FROM). No lat/lon here —
 // a course is pure shape; sessions place + rotate it on the day.
 // Mark: { x, y, r, side: P|S|G, type: start|mark|gate|finish, gate? }
@@ -90,11 +90,11 @@ function cloneTemplate(t) {
     };
 }
 
-function getTemplates() {
+function getPresetTemplates() {
     return TEMPLATES.map(cloneTemplate);
 }
 
-function getTemplate(key) {
+function getPresetTemplate(key) {
     const t = TEMPLATES.find(t => t.key === key);
     return t ? cloneTemplate(t) : null;
 }
@@ -186,7 +186,7 @@ function validateLines(startLine, finishLine) {
     return null;
 }
 
-function rowToCourse(r) {
+function rowToTemplate(r) {
     const parseOpt = v => (v ? JSON.parse(v) : null);
     return {
         id: r.id,
@@ -203,10 +203,10 @@ function rowToCourse(r) {
 }
 
 // In-memory fallback
-const memCourses = new Map();
+const memTemplates = new Map();
 let memNextId = 1;
 
-async function createCourse({ name, desc = null, owner = null, marks, startLine = null, finishLine = null, is_template = false }) {
+async function createTemplate({ name, desc = null, owner = null, marks, startLine = null, finishLine = null, is_template = true }) {
     if (typeof name !== "string" || !name.trim() || name.trim().length > 64) {
         throw Object.assign(new Error("name must be 1..64 chars"), { status: 400 });
     }
@@ -230,13 +230,13 @@ async function createCourse({ name, desc = null, owner = null, marks, startLine 
     if (!client) {
         const id = memNextId++;
         const course = { id, ...clean, version: 1, createdAt: new Date().toISOString() };
-        memCourses.set(id, course);
+        memTemplates.set(id, course);
         return course;
     }
     await initDb();
     const now = new Date().toISOString();
     const res = await client.execute({
-        sql: "INSERT INTO courses (name, desc, owner, marks, startLine, finishLine, version, is_template, createdAt) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        sql: "INSERT INTO templates (name, desc, owner, marks, startLine, finishLine, version, is_template, createdAt) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
         args: [clean.name, clean.desc, clean.owner, JSON.stringify(clean.marks),
             clean.startLine ? JSON.stringify(clean.startLine) : null,
             clean.finishLine ? JSON.stringify(clean.finishLine) : null,
@@ -245,30 +245,30 @@ async function createCourse({ name, desc = null, owner = null, marks, startLine 
     return { id: Number(res.lastInsertRowid), ...clean, version: 1, createdAt: now };
 }
 
-async function listCourses({ templatesOnly = false } = {}) {
+async function listTemplates({ templatesOnly = false } = {}) {
     const client = getClient();
     if (!client) {
-        return [...memCourses.values()].filter(c => !templatesOnly || c.is_template);
+        return [...memTemplates.values()].filter(c => !templatesOnly || c.is_template);
     }
     await initDb();
     const res = await client.execute({
         sql: templatesOnly
-            ? "SELECT * FROM courses WHERE is_template = 1 ORDER BY id ASC"
-            : "SELECT * FROM courses ORDER BY id ASC",
+            ? "SELECT * FROM templates WHERE is_template = 1 ORDER BY id ASC"
+            : "SELECT * FROM templates ORDER BY id ASC",
     });
-    return res.rows.map(rowToCourse);
+    return res.rows.map(rowToTemplate);
 }
 
-async function getCourse(id) {
+async function getTemplate(id) {
     const client = getClient();
-    if (!client) return memCourses.get(Number(id)) || null;
+    if (!client) return memTemplates.get(Number(id)) || null;
     await initDb();
-    const res = await client.execute({ sql: "SELECT * FROM courses WHERE id = ?", args: [Number(id)] });
-    return res.rows.length ? rowToCourse(res.rows[0]) : null;
+    const res = await client.execute({ sql: "SELECT * FROM templates WHERE id = ?", args: [Number(id)] });
+    return res.rows.length ? rowToTemplate(res.rows[0]) : null;
 }
 
-async function updateCourse(id, { name, desc, marks, startLine, finishLine }) {
-    const cur = await getCourse(id);
+async function updateTemplate(id, { name, desc, marks, startLine, finishLine }) {
+    const cur = await getTemplate(id);
     if (!cur) return null;
     const next = {
         name: name !== undefined ? name : cur.name,
@@ -291,35 +291,35 @@ async function updateCourse(id, { name, desc, marks, startLine, finishLine }) {
     const client = getClient();
     if (!client) {
         const updated = { ...cur, name: next.name.trim(), desc: typeof next.desc === "string" && next.desc.trim() ? next.desc.trim().slice(0, 140) : null, marks: next.marks, startLine: next.startLine || null, finishLine: next.finishLine === undefined ? null : next.finishLine, version: cur.version + 1 };
-        memCourses.set(cur.id, updated);
+        memTemplates.set(cur.id, updated);
         return updated;
     }
     await initDb();
     await client.execute({
-        sql: "UPDATE courses SET name = ?, desc = ?, marks = ?, startLine = ?, finishLine = ?, version = version + 1 WHERE id = ?",
+        sql: "UPDATE templates SET name = ?, desc = ?, marks = ?, startLine = ?, finishLine = ?, version = version + 1 WHERE id = ?",
         args: [next.name.trim(), (typeof next.desc === "string" && next.desc.trim() ? next.desc.trim().slice(0, 140) : null), JSON.stringify(next.marks),
             next.startLine ? JSON.stringify(next.startLine) : null,
             next.finishLine ? JSON.stringify(next.finishLine) : null, cur.id],
     });
-    return getCourse(cur.id);
+    return getTemplate(cur.id);
 }
 
-async function deleteCourse(id) {
+async function deleteTemplate(id) {
     const client = getClient();
-    if (!client) return memCourses.delete(Number(id));
+    if (!client) return memTemplates.delete(Number(id));
     await initDb();
-    const res = await client.execute({ sql: "DELETE FROM courses WHERE id = ?", args: [Number(id)] });
+    const res = await client.execute({ sql: "DELETE FROM templates WHERE id = ?", args: [Number(id)] });
     return res.rowsAffected > 0;
 }
 
 module.exports = {
-    getTemplates,
-    getTemplate,
+    getPresetTemplates,
+    getPresetTemplate,
     validateMarks,
     validateLines,
-    createCourse,
-    listCourses,
-    getCourse,
-    updateCourse,
-    deleteCourse,
+    createTemplate,
+    listTemplates,
+    getTemplate,
+    updateTemplate,
+    deleteTemplate,
 };

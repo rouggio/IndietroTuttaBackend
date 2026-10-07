@@ -1504,13 +1504,13 @@ if (sessionsBtn && sessionPanel) {
 
 let courseTemplatesCache = null;
 async function loadCourseTemplates() {
-    const el = document.getElementById("course-tab-templates");
+    const el = document.getElementById("tab-templates");
     try {
         if (!courseTemplatesCache) {
-            const res = await fetch("/courses/templates");
+            const res = await fetch("/templates/presets");
             courseTemplatesCache = await res.json();
         }
-        const myRes = await fetch("/courses?templates=1");
+        const myRes = await fetch("/templates");
         const myTpls = await myRes.json();
         el.innerHTML = `<div class="device-meta" style="margin-bottom:6px">Wind-frame presets — placed + rotated on the day.</div>
         <div class="template-grid">` + courseTemplatesCache.map(t => `
@@ -1544,16 +1544,16 @@ async function loadCourseTemplates() {
         el.querySelectorAll("[data-course-tpl]").forEach(card => {
             card.addEventListener("click", async e => {
                 if (e.target.closest("[data-del-tpl]")) return;
-                const res = await fetch(`/courses/${card.getAttribute("data-course-tpl")}`);
+                const res = await fetch(`/templates/${card.getAttribute("data-course-tpl")}`);
                 const c = await res.json();
-                if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, desc: c.desc, marks: c.marks.map(m => ({ ...m })), startLine: c.startLine, finishLine: c.finishLine });
+                if (c && c.marks) openBuilder({ templateId: c.id, name: c.name, desc: c.desc, marks: c.marks.map(m => ({ ...m })), startLine: c.startLine, finishLine: c.finishLine });
             });
         });
         el.querySelectorAll("[data-del-tpl]").forEach(btn => {
             btn.addEventListener("click", async e => {
                 e.stopPropagation();
                 if (!confirm("Delete this template? Sessions already frozen keep their copy.")) return;
-                await fetch(`/courses/${btn.getAttribute("data-del-tpl")}`, { method: "DELETE" });
+                await fetch(`/templates/${btn.getAttribute("data-del-tpl")}`, { method: "DELETE" });
                 loadCourseTemplates();
             });
         });
@@ -1565,7 +1565,7 @@ async function loadCourseTemplates() {
 
 // --- Builder state + preview layers ---
 const CB = {
-    open: false, courseId: null, name: "", desc: "", marks: [],
+    open: false, templateId: null, name: "", desc: "", marks: [],
     origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'move' | 'lineA' | 'lineB' | null
     startLine: null, finishLine: null, // wind-frame {ax,ay,bx,by}; finish may be "start"
     lineA: null, lineTarget: "start", // pending first endpoint (absolute) + which line
@@ -1637,7 +1637,7 @@ function builderResolved() {
 const MARK_COLORS = { start: "#16a34a", finish: "#dc2626", gate: "#984ea3", mark: "#f59e0b" };
 
 function openBuilder(init = {}) {
-    CB.courseId = init.courseId ?? null;
+    CB.templateId = init.templateId ?? null;
     CB.name = init.name || "";
     CB.desc = init.desc || "";
     CB.marks = (init.marks || []).map(m => ({ ...m }));
@@ -2358,20 +2358,20 @@ async function builderSaveTemplate() {
     const finishOut = CB.finishLine === "start" ? { sameAs: "start" } : CB.finishLine;
     try {
         let res;
-        if (CB.courseId) {
-            res = await fetch(`/courses/${CB.courseId}`, {
+        if (CB.templateId) {
+            res = await fetch(`/templates/${CB.templateId}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name, desc, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut }),
             });
         } else {
-            res = await fetch("/courses", {
+            res = await fetch("/templates", {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name, desc, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut, is_template: true }),
             });
         }
         const j = await res.json();
         if (!res.ok) { msg.textContent = j.error || "Save failed."; return null; }
-        CB.courseId = j.id;
+        CB.templateId = j.id;
         CB.name = j.name;
         CB.desc = j.desc || "";
         document.getElementById("builder-name").value = j.name;
@@ -2387,7 +2387,7 @@ document.getElementById("builderSave")?.addEventListener("click", () => builderS
 function saveBuilderDraft() {
     try {
         localStorage.setItem(BUILDER_DRAFT_KEY, JSON.stringify({
-            courseId: CB.courseId, name: document.getElementById("builder-name")?.value || "",
+            templateId: CB.templateId, name: document.getElementById("builder-name")?.value || "",
             desc: document.getElementById("builder-desc")?.value || "",
             marks: CB.marks, origin: CB.origin, windDir: CB.windDir, scale: CB.scale,
             startLine: CB.startLine, finishLine: CB.finishLine,
@@ -2470,7 +2470,7 @@ async function pickSessTemplate(value) {
         let c = null;
         if (String(value).startsWith("t:")) {
             if (!courseTemplatesCache) {
-                const res = await fetch("/courses/templates");
+                const res = await fetch("/templates/presets");
                 courseTemplatesCache = await res.json();
             }
             const t = (courseTemplatesCache || []).find(x => x.key === String(value).slice(2));
@@ -2481,7 +2481,7 @@ async function pickSessTemplate(value) {
                 finishLine: t.finishLine && typeof t.finishLine === "object" ? { ...t.finishLine } : (t.finishLine ?? null),
             };
         } else {
-            const res = await fetch(`/courses/${String(value).replace(/^c:/, "")}`);
+            const res = await fetch(`/templates/${String(value).replace(/^c:/, "")}`);
             c = await res.json();
             if (!c || !c.marks) return;
         }
@@ -2505,9 +2505,9 @@ function syncSessForm() {
         ? `${SESSDRAFT.origin.lat.toFixed(5)}, ${SESSDRAFT.origin.lon.toFixed(5)}` : "—");
 }
 async function loadSessions(selectId) {
-    const el = document.getElementById("course-tab-sessions");
+    const el = document.getElementById("tab-sessions");
     try {
-        const [sessRes, courseRes, tplRes] = await Promise.all([fetch("/sessions"), fetch("/courses"), fetch("/courses/templates")]);
+        const [sessRes, courseRes, tplRes] = await Promise.all([fetch("/sessions"), fetch("/templates"), fetch("/templates/presets")]);
         sessionsCache = await sessRes.json();
         const courses = await courseRes.json();
         courseTemplatesCache = courseTemplatesCache || await tplRes.json();
@@ -2517,7 +2517,7 @@ async function loadSessions(selectId) {
             <input type="checkbox" data-sb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
         el.innerHTML = `
             <div class="device-meta" style="margin-bottom:6px"><b>New session</b> — pick a template, place it on the chart, set the wind</div>
-            <div class="builder-row"><select id="sess-course">${courseTemplatesCache.map(t => `<option value="t:${escHtml(t.key)}">${escHtml(t.name)}</option>`).join("")}${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)}</option>`).join("")}</select></div>
+            <div class="builder-row"><select id="sess-template">${courseTemplatesCache.map(t => `<option value="t:${escHtml(t.key)}">${escHtml(t.name)}</option>`).join("")}${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)}</option>`).join("")}</select></div>
             <div class="builder-row">
                 <span id="sess-origin" class="device-meta" style="flex:2">Origin: —</span>
                 <button id="sess-center" title="Place origin at map center">Center here</button>
@@ -2549,8 +2549,8 @@ async function loadSessions(selectId) {
                     </div>
                 </div>`).join("") : '<div class="device-meta">No sessions yet.</div>') + `</div>
             <div id="sess-detail"></div>`;
-        document.getElementById("sess-course").addEventListener("change", e => pickSessTemplate(e.target.value));
-        const sessSel = document.getElementById("sess-course");
+        document.getElementById("sess-template").addEventListener("change", e => pickSessTemplate(e.target.value));
+        const sessSel = document.getElementById("sess-template");
         const hasSel = opt => [...sessSel.options].some(o => o.value === opt);
         if (SESSDRAFT.sel && hasSel(SESSDRAFT.sel)) sessSel.value = SESSDRAFT.sel;
         pickSessTemplate(sessSel.value);
@@ -2595,27 +2595,23 @@ async function loadSessions(selectId) {
             if (!t0) { errEl.textContent = "Pick a template first."; return; }
             if (!SESSDRAFT.origin) { errEl.textContent = "Place the origin first (Center here)."; return; }
             if (!date) { errEl.textContent = "Pick a session date."; return; }
-            let t = t0;
+            // sessions encapsulate: DB template rows pass lineage, anything else
+            // freezes as an inline snapshot (no phantom template rows created)
+            const shapeBody = t0.id
+                ? { templateId: t0.id }
+                : {
+                    snapshot: {
+                        name: t0.name, marks: t0.marks,
+                        startLine: t0.startLine || null,
+                        finishLine: t0.finishLine === undefined ? null : t0.finishLine,
+                    },
+                };
             try {
-                if (!t.id) {
-                    // static built-in: materialize a template row first for lineage
-                    const rc = await fetch("/courses", {
-                        method: "POST", headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            name: t.name, desc: t.desc || null, marks: t.marks,
-                            startLine: t.startLine || null, finishLine: t.finishLine === undefined ? null : t.finishLine,
-                            is_template: true,
-                        }),
-                    });
-                    const jc = await rc.json();
-                    if (!rc.ok) { errEl.textContent = jc.error || "Create failed."; return; }
-                    t = jc;
-                    SESSDRAFT.template = jc;
-                }
                 const res = await fetch("/sessions", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        courseId: t.id, name: `${t.name} — ${date}`, date, mode,
+                        ...shapeBody,
+                        name: `${t0.name} — ${date}`, date, mode,
                         originLat: SESSDRAFT.origin.lat, originLon: SESSDRAFT.origin.lon,
                         windDir: SESSDRAFT.windDir, scale: SESSDRAFT.scale,
                         startTime: startVal ? new Date(startVal).toISOString() : null,
@@ -2623,7 +2619,7 @@ async function loadSessions(selectId) {
                 });
                 const j = await res.json();
                 if (!res.ok) { errEl.textContent = j.error || "Create failed."; return; }
-                const ids = [...document.querySelectorAll("#course-tab-sessions input[data-sb]:checked")].map(x => x.getAttribute("data-sb"));
+                const ids = [...document.querySelectorAll("#tab-sessions input[data-sb]:checked")].map(x => x.getAttribute("data-sb"));
                 for (const id of ids) {
                     await fetch(`/sessions/${j.id}/boats`, {
                         method: "POST", headers: { "Content-Type": "application/json" },

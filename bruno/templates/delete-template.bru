@@ -1,11 +1,11 @@
 meta {
-  name: Get course
+  name: Delete course
   type: http
-  seq: 13
+  seq: 15
 }
 
-get {
-  url: {{baseUrl}}/courses/:id
+delete {
+  url: {{baseUrl}}/templates/:id
   body: none
   auth: none
 }
@@ -13,3 +13,4 @@ get {
 params:path {
   id: 1
 }
+

@@ -1,5 +1,5 @@
 const { getClient, initDb } = require("./db");
-const { getCourse } = require("./courseStore");
+const { getTemplate, validateMarks, validateLines } = require("./templateStore");
 
 // ------------------------------------------------------------------
 // Sessions freeze a course onto a day: frozen template copy +
@@ -52,13 +52,6 @@ function resolveSegment(seg, { originLat, originLon, windDir, scale = 1 }) {
 
 // Lines snapshot (wind-frame) + resolved absolute. finishLine may be
 // {sameAs:"start"} — resolved finish then mirrors the resolved start.
-function snapshotLines(course) {
-    return {
-        startLine: course.startLine || null,
-        finishLine: course.finishLine === undefined ? null : course.finishLine,
-    };
-}
-
 function resolveLines(lines, inst) {
     const start = lines.startLine ? resolveSegment(lines.startLine, inst) : null;
     let finish = null;
@@ -122,7 +115,8 @@ function validateSessionInput(b) {
 function rowToSession(r, boats = []) {
     return {
         id: r.id,
-        courseId: r.courseId,
+        templateId: r.templateId !== undefined && r.templateId !== null ? r.templateId : null,
+        templateVersion: r.templateVersion !== undefined && r.templateVersion !== null ? r.templateVersion : null,
         name: r.name || null,
         date: r.date,
         mode: r.mode,
@@ -160,15 +154,38 @@ async function getBoats(sessionId) {
 
 async function createSession(b) {
     const err = validateSessionInput(b) ||
-        (!b.courseId ? "courseId required" : null) ||
         (!b.date ? "date required" : null) ||
         (b.originLat === undefined ? "originLat required" : null) ||
         (b.originLon === undefined ? "originLon required" : null) ||
         (b.windDir === undefined ? "windDir required" : null);
     if (err) throw Object.assign(new Error(err), { status: 400 });
 
-    const course = await getCourse(b.courseId);
-    if (!course) throw Object.assign(new Error("course not found"), { status: 404 });
+    // Shape source: a template row (lineage recorded) or an inline snapshot
+    // (fully self-contained — no template row needed).
+    let templateId = null, templateVersion = null, shapeName = "Session";
+    let shape = null;
+    if (b.templateId !== undefined && b.templateId !== null) {
+        const tpl = await getTemplate(Number(b.templateId));
+        if (!tpl) throw Object.assign(new Error("template not found"), { status: 404 });
+        templateId = tpl.id;
+        templateVersion = tpl.version;
+        shapeName = tpl.name;
+        shape = { marks: tpl.marks, startLine: tpl.startLine || null, finishLine: tpl.finishLine === undefined ? null : tpl.finishLine };
+    } else if (b.snapshot && typeof b.snapshot === "object") {
+        const snapErr = validateMarks(b.snapshot.marks, b.snapshot.startLine, b.snapshot.finishLine) ||
+            validateLines(b.snapshot.startLine, b.snapshot.finishLine);
+        if (snapErr) throw Object.assign(new Error(snapErr), { status: 400 });
+        if (typeof b.snapshot.name === "string" && b.snapshot.name.trim()) {
+            shapeName = b.snapshot.name.trim().slice(0, 64);
+        }
+        shape = {
+            marks: b.snapshot.marks,
+            startLine: b.snapshot.startLine || null,
+            finishLine: b.snapshot.finishLine === undefined ? null : b.snapshot.finishLine,
+        };
+    } else {
+        throw Object.assign(new Error("templateId or snapshot required"), { status: 400 });
+    }
 
     const inst = {
         originLat: b.originLat,
@@ -176,14 +193,15 @@ async function createSession(b) {
         windDir: b.windDir,
         scale: b.scale === undefined ? 1 : b.scale,
     };
-    const snapshot = course.marks;
+    const snapshot = shape.marks;
     const marks = resolveMarks(snapshot, inst);
-    const linesSnap = snapshotLines(course);
+    const linesSnap = { startLine: shape.startLine, finishLine: shape.finishLine };
     const lines = resolveLines(linesSnap, inst);
     const now = new Date().toISOString();
     const base = {
-        courseId: course.id,
-        name: typeof b.name === "string" && b.name ? b.name.slice(0, 64) : course.name,
+        templateId,
+        templateVersion,
+        name: typeof b.name === "string" && b.name ? b.name.slice(0, 64) : shapeName,
         date: b.date,
         mode: b.mode || "practice",
         ...inst,
@@ -207,10 +225,10 @@ async function createSession(b) {
     }
     await initDb();
     const res = await client.execute({
-        sql: `INSERT INTO sessions (courseId, name, date, mode, originLat, originLon, windDir, scale,
+        sql: `INSERT INTO sessions (templateId, templateVersion, name, date, mode, originLat, originLon, windDir, scale,
               startTime, status, courseVersion, templateSnapshot, marks, startLine, finishLine, createdAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-        args: [base.courseId, base.name, base.date, base.mode, base.originLat, base.originLon,
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+        args: [base.templateId, base.templateVersion, base.name, base.date, base.mode, base.originLat, base.originLon,
             base.windDir, base.scale, base.startTime, base.status,
             JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks),
             base.startLine ? JSON.stringify(base.startLine) : null,
@@ -375,7 +393,8 @@ async function repeatSession(id, { date, mode, name } = {}) {
     const cleanMode = mode && MODES.includes(mode) ? mode : cur.mode;
     const now = new Date().toISOString();
     const base = {
-        courseId: cur.courseId,
+        templateId: cur.templateId,
+        templateVersion: cur.templateVersion,
         name: (typeof name === "string" && name ? name : cur.name || "Session").slice(0, 64) + "",
         date,
         mode: cleanMode,
@@ -405,10 +424,10 @@ async function repeatSession(id, { date, mode, name } = {}) {
     }
     await initDb();
     const res = await client.execute({
-        sql: `INSERT INTO sessions (courseId, name, date, mode, originLat, originLon, windDir, scale,
+        sql: `INSERT INTO sessions (templateId, templateVersion, name, date, mode, originLat, originLon, windDir, scale,
               startTime, status, courseVersion, templateSnapshot, marks, startLine, finishLine, createdAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-        args: [base.courseId, base.name, base.date, base.mode, base.originLat, base.originLon,
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+        args: [base.templateId, base.templateVersion, base.name, base.date, base.mode, base.originLat, base.originLon,
             base.windDir, base.scale, base.startTime, base.status,
             JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks),
             base.startLine ? JSON.stringify(base.startLine) : null,

@@ -84,25 +84,33 @@ async function initDb() {
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_flagged ON gps_points(flagged)`);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_timestamp ON gps_points(timestamp)`);
 
-        // Race program (Step 1A): course templates + day sessions.
-        // Course marks are wind-frame offsets in meters (see store/courseStore.js).
+        // Race program: template library (shape only) + day sessions.
+        // Template marks are wind-frame offsets in meters (see store/templateStore.js).
+        // One-time rename from the old "courses" name; tolerant to fresh DBs.
+        try {
+            await c.execute(`ALTER TABLE courses RENAME TO templates`);
+        } catch (e) {
+            if (!/no such table/i.test(e.message || "")) throw e;
+        }
         await c.execute(`
-            CREATE TABLE IF NOT EXISTS courses (
+            CREATE TABLE IF NOT EXISTS templates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 owner TEXT,
                 marks TEXT NOT NULL,
                 version INTEGER NOT NULL DEFAULT 1,
-                is_template INTEGER NOT NULL DEFAULT 0,
+                is_template INTEGER NOT NULL DEFAULT 1,
                 createdAt TEXT NOT NULL
             )
         `);
-        // A session freezes a course onto a day: frozen template copy +
-        // instantiation params + resolved absolute marks.
+        // A session encapsulates a template frozen onto a day: snapshot copy +
+        // instantiation params + resolved absolute marks. templateId is nullable
+        // provenance ("cloned from", may dangle) — never read through.
         await c.execute(`
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                courseId INTEGER,
+                templateId INTEGER,
+                templateVersion INTEGER,
                 name TEXT,
                 date TEXT NOT NULL,
                 mode TEXT NOT NULL DEFAULT 'practice',
@@ -118,6 +126,19 @@ async function initDb() {
                 createdAt TEXT NOT NULL
             )
         `);
+        // Migrate pre-rename schemas (best-effort, ignore when absent).
+        try {
+            await c.execute(`ALTER TABLE sessions RENAME COLUMN courseId TO templateId`);
+        } catch (e) {
+            if (!/no such column/i.test(e.message || "")) throw e;
+        }
+        for (const col of ["templateVersion"]) {
+            try {
+                await c.execute(`ALTER TABLE sessions ADD COLUMN ${col} INTEGER`);
+            } catch (e) {
+                if (!/duplicate column/i.test(e.message || "")) throw e;
+            }
+        }
         await c.execute(`
             CREATE TABLE IF NOT EXISTS session_boats (
                 sessionId INTEGER NOT NULL,
@@ -127,9 +148,9 @@ async function initDb() {
             )
         `);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(date)`);
-        // Step 2+: optional start/finish line segments (wind-frame on courses,
+        // Step 2+: optional start/finish line segments (wind-frame on templates,
         // resolved absolute on sessions). finishLine may be {"sameAs":"start"}.
-        for (const table of ["courses", "sessions"]) {
+        for (const table of ["templates", "sessions"]) {
             for (const col of ["startLine", "finishLine"]) {
                 try {
                     await c.execute(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`);
@@ -140,7 +161,7 @@ async function initDb() {
         }
         // Template description (editable in builder, shown in template list).
         try {
-            await c.execute(`ALTER TABLE courses ADD COLUMN desc TEXT`);
+            await c.execute(`ALTER TABLE templates ADD COLUMN desc TEXT`);
         } catch (e) {
             if (!/duplicate column/i.test(e.message || "")) throw e;
         }

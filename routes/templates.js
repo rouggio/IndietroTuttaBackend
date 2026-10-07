@@ -1,14 +1,14 @@
 const express = require("express");
 
 const {
-    getTemplates,
+    getPresetTemplates,
+    getPresetTemplate,
+    createTemplate,
+    listTemplates,
     getTemplate,
-    createCourse,
-    listCourses,
-    getCourse,
-    updateCourse,
-    deleteCourse,
-} = require("../store/courseStore");
+    updateTemplate,
+    deleteTemplate,
+} = require("../store/templateStore");
 
 const router = express.Router();
 
@@ -17,85 +17,86 @@ function sendErr(res, e) {
 }
 
 // --------------------------------------------------
-// GET /courses/templates — the 5 wind-frame presets (no DB)
+// GET /templates/presets — the built-in sailing shapes (no DB)
 // --------------------------------------------------
 
-router.get("/courses/templates", (req, res) => {
-    res.json(getTemplates());
+router.get("/templates/presets", (req, res) => {
+    res.json(getPresetTemplates());
 });
 
 // --------------------------------------------------
-// GET /courses[?templates=1]
+// GET /templates (all rows are templates)
 // --------------------------------------------------
 
-router.get("/courses", async (req, res) => {
+router.get("/templates", async (req, res) => {
     try {
-        res.json(await listCourses({ templatesOnly: req.query.templates === "1" }));
+        res.json(await listTemplates());
     } catch (e) {
         sendErr(res, e);
     }
 });
 
 // --------------------------------------------------
-// POST /courses — {name, owner?, marks} or {name, template: key}
+// POST /templates — {name, desc?, owner?, marks, startLine?, finishLine?}
+// or {name, template: presetKey}
 // --------------------------------------------------
 
-router.post("/courses", async (req, res) => {
+router.post("/templates", async (req, res) => {
     try {
-        let { name, desc, owner, marks, template, is_template, startLine, finishLine } = req.body || {};
+        let { name, desc, owner, marks, template, startLine, finishLine } = req.body || {};
         let finalMarks = marks, finalStart = startLine, finalFinish = finishLine;
         if (template) {
-            const t = getTemplate(template);
+            const t = getPresetTemplate(template);
             if (!t) return res.status(400).json({ error: "unknown template" });
             finalMarks = finalMarks || t.marks;
             if (finalStart === undefined) finalStart = t.startLine || null;
             if (finalFinish === undefined) finalFinish = t.finishLine === undefined ? null : t.finishLine;
             if (desc === undefined) desc = t.desc || null;
         }
-        const course = await createCourse({ name, desc, owner, marks: finalMarks, startLine: finalStart, finishLine: finalFinish, is_template });
-        res.status(201).json(course);
+        const tpl = await createTemplate({ name, desc, owner, marks: finalMarks, startLine: finalStart, finishLine: finalFinish });
+        res.status(201).json(tpl);
     } catch (e) {
         sendErr(res, e);
     }
 });
 
 // --------------------------------------------------
-// GET /courses/:id
+// GET /templates/:id
 // --------------------------------------------------
 
-router.get("/courses/:id", async (req, res) => {
+router.get("/templates/:id", async (req, res) => {
     try {
-        const course = await getCourse(req.params.id);
-        if (!course) return res.status(404).json({ error: "course not found" });
-        res.json(course);
+        const tpl = await getTemplate(req.params.id);
+        if (!tpl) return res.status(404).json({ error: "template not found" });
+        res.json(tpl);
     } catch (e) {
         sendErr(res, e);
     }
 });
 
 // --------------------------------------------------
-// PUT /courses/:id — {name?, marks?}, bumps version
+// PUT /templates/:id — {name?, desc?, marks?, startLine?, finishLine?}
 // --------------------------------------------------
 
-router.put("/courses/:id", async (req, res) => {
+router.put("/templates/:id", async (req, res) => {
     try {
         const { name, desc, marks, startLine, finishLine } = req.body || {};
-        const course = await updateCourse(req.params.id, { name, desc, marks, startLine, finishLine });
-        if (!course) return res.status(404).json({ error: "course not found" });
-        res.json(course);
+        const tpl = await updateTemplate(req.params.id, { name, desc, marks, startLine, finishLine });
+        if (!tpl) return res.status(404).json({ error: "template not found" });
+        res.json(tpl);
     } catch (e) {
         sendErr(res, e);
     }
 });
 
 // --------------------------------------------------
-// DELETE /courses/:id
+// DELETE /templates/:id
 // --------------------------------------------------
 
-router.delete("/courses/:id", async (req, res) => {
+router.delete("/templates/:id", async (req, res) => {
     try {
-        const ok = await deleteCourse(req.params.id);
-        if (!ok) return res.status(404).json({ error: "course not found" });
+        const ok = await deleteTemplate(req.params.id);
+        if (!ok) return res.status(404).json({ error: "template not found" });
         res.json({ status: "deleted" });
     } catch (e) {
         sendErr(res, e);

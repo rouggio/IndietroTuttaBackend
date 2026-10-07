@@ -32,9 +32,10 @@ router.get("/sessions", async (req, res) => {
 });
 
 // --------------------------------------------------
-// POST /sessions — freeze a course onto a day.
-// {courseId, date, mode?, originLat, originLon, windDir,
-//  scale?, startTime?, name?} → resolved absolute marks.
+// POST /sessions — encapsulate a template (or ad-hoc shape) onto a day.
+// {templateId?, snapshot:{name?,marks,startLine?,finishLine}?, date, mode?,
+//  originLat, originLon, windDir, scale?, startTime?, name?}
+// → frozen snapshot + resolved absolute marks.
 // --------------------------------------------------
 
 router.post("/sessions", async (req, res) => {
