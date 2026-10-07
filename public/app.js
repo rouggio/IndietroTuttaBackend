@@ -1740,13 +1740,21 @@ function updateBuilderPreview() {
             updateBuilderPreview(); saveBuilderDraft();
         });
     });
-    // wind arrow at origin (points where the wind comes FROM)
+    // wind arrow at origin (points where the wind comes FROM), with arrowhead
     const t = (CB.windDir * Math.PI) / 180;
     const ax = Math.sin(t), ay = Math.cos(t); // unit vector toward wind source (E,N)
     const o = CB.origin;
-    const tip = [o.lat + ay * 120 / 111320, o.lon + ax * 120 / (111320 * Math.cos(o.lat * Math.PI / 180))];
+    const cosLat = Math.cos(o.lat * Math.PI / 180);
+    const toLL = (E, N) => [o.lat + N / 111320, o.lon + E / (111320 * cosLat)];
+    const LEN = 120, HEAD = 30, ANG = (25 * Math.PI) / 180;
+    const tip = toLL(ax * LEN, ay * LEN);
+    const cA = Math.cos(ANG), sA = Math.sin(ANG);
+    const w1 = toLL(ax * LEN + HEAD * (-ax * cA + ay * sA), ay * LEN + HEAD * (-ay * cA - ax * sA));
+    const w2 = toLL(ax * LEN + HEAD * (-ax * cA - ay * sA), ay * LEN + HEAD * (-ay * cA + ax * sA));
     L.polyline([[o.lat, o.lon], tip], { color: "#94a3b8", weight: 3 }).addTo(coursePreview)
         .bindTooltip(`wind ${CB.windDir}°`, { permanent: false });
+    L.polyline([tip, w1], { color: "#94a3b8", weight: 3 }).addTo(coursePreview);
+    L.polyline([tip, w2], { color: "#94a3b8", weight: 3 }).addTo(coursePreview);
 }
 
 // --- Waypoint adopter ---
