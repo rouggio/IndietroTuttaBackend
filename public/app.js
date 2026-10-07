@@ -1637,6 +1637,7 @@ function openBuilder(init = {}) {
 function closeBuilder() {
     CB.open = false;
     CB.placing = null;
+    updateWindDial();
     document.getElementById("builder-panel").style.display = "none";
     if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
     if (adoptPins) { map.removeLayer(adoptPins); adoptPins = null; }
@@ -1651,9 +1652,7 @@ document.getElementById("builder-scale")?.addEventListener("change", e => {
     updateBuilderPreview(); saveBuilderDraft();
 });
 document.getElementById("builder-wind")?.addEventListener("input", e => {
-    CB.windDir = Number(e.target.value);
-    document.getElementById("builder-wind-val").textContent = CB.windDir;
-    updateBuilderPreview(); saveBuilderDraft();
+    setBuilderWind(Number(e.target.value));
 });
 function syncBuilderArmButtons() {
     document.getElementById("builderAddMarks")?.classList.toggle("arming", CB.placing === "marks");
@@ -1805,6 +1804,7 @@ function renderBuilderMarks() {
 }
 
 function updateBuilderPreview() {
+    updateWindDial();
     if (!CB.open) return;
     if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
     if (!CB.origin || (!CB.marks.length && !CB.startLine && !CB.finishLine && !CB.lineA)) return;
@@ -1932,21 +1932,63 @@ function updateBuilderPreview() {
         L.circleMarker([CB.lineA.lat, CB.lineA.lon], { radius: 6, color: "#0f172a", fillOpacity: 1 }).addTo(coursePreview)
             .bindTooltip(`line ${CB.lineTarget}: click second end`);
     }
-    // wind arrow at origin (points where the wind comes FROM), with arrowhead
-    const t = (CB.windDir * Math.PI) / 180;
-    const ax = Math.sin(t), ay = Math.cos(t); // unit vector toward wind source (E,N)
-    const o = CB.origin;
-    const cosLat = Math.cos(o.lat * Math.PI / 180);
-    const toLL = (E, N) => [o.lat + N / 111320, o.lon + E / (111320 * cosLat)];
-    const LEN = 120, HEAD = 30, ANG = (25 * Math.PI) / 180;
-    const tip = toLL(ax * LEN, ay * LEN);
-    const cA = Math.cos(ANG), sA = Math.sin(ANG);
-    const w1 = toLL(ax * LEN + HEAD * (-ax * cA + ay * sA), ay * LEN + HEAD * (-ay * cA - ax * sA));
-    const w2 = toLL(ax * LEN + HEAD * (-ax * cA - ay * sA), ay * LEN + HEAD * (-ay * cA + ax * sA));
-    L.polyline([[o.lat, o.lon], tip], { color: "#94a3b8", weight: 3 }).addTo(coursePreview)
-        .bindTooltip(`wind ${CB.windDir}°`, { permanent: false });
-    L.polyline([tip, w1], { color: "#94a3b8", weight: 3 }).addTo(coursePreview);
-    L.polyline([tip, w2], { color: "#94a3b8", weight: 3 }).addTo(coursePreview);
+    // (wind lives in the bottom-left dial, not on the chart)
+}
+
+// --- Wind dial: screen-anchored indicator (bottom-left), tip drags to set wind ---
+let windDialCtl = null;
+function ensureWindDial() {
+    if (windDialCtl) return windDialCtl._container;
+    windDialCtl = L.control({ position: "bottomleft" });
+    windDialCtl.onAdd = function () {
+        const div = L.DomUtil.create("div", "wind-dial");
+        div.innerHTML = `<div class="wind-dial-rot" id="windDialRot"><div class="wind-dial-arrow">▲</div><div class="wind-dial-tip" id="windDialTip"></div></div><div class="wind-dial-label" id="windDialLabel"></div>`;
+        L.DomEvent.disableClickPropagation(div);
+        L.DomEvent.disableScrollPropagation(div);
+        div.querySelector("#windDialTip").addEventListener("pointerdown", windTipDown);
+        return div;
+    };
+    windDialCtl.addTo(map);
+    return windDialCtl._container;
+}
+function windTipDown(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    const tip = e.currentTarget;
+    try { tip.setPointerCapture(e.pointerId); } catch {}
+    const move = ev => {
+        const r = ensureWindDial().getBoundingClientRect();
+        const dx = ev.clientX - (r.left + r.width / 2);
+        const dy = ev.clientY - (r.top + r.height / 2);
+        setBuilderWind(Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360));
+    };
+    const up = () => {
+        tip.removeEventListener("pointermove", move);
+        tip.removeEventListener("pointerup", up);
+        tip.removeEventListener("pointercancel", up);
+    };
+    tip.addEventListener("pointermove", move);
+    tip.addEventListener("pointerup", up);
+    tip.addEventListener("pointercancel", up);
+}
+function setBuilderWind(deg) {
+    CB.windDir = ((Math.round(deg) % 360) + 360) % 360;
+    const sl = document.getElementById("builder-wind");
+    if (sl) sl.value = CB.windDir;
+    const wv = document.getElementById("builder-wind-val");
+    if (wv) wv.textContent = CB.windDir;
+    updateWindDial();
+    updateBuilderPreview();
+    saveBuilderDraft();
+}
+function updateWindDial() {
+    const c = ensureWindDial();
+    c.style.display = CB.open ? "block" : "none";
+    if (!CB.open) return;
+    const rot = document.getElementById("windDialRot");
+    const lab = document.getElementById("windDialLabel");
+    if (rot) rot.style.transform = `rotate(${CB.windDir}deg)`;
+    if (lab) lab.textContent = `${CB.windDir}°`;
 }
 
 // --- Waypoint adopter ---
@@ -2003,11 +2045,8 @@ document.getElementById("adopt-wind")?.addEventListener("click", () => {
     const msg = document.getElementById("builder-msg");
     if (adoptFlags.length < 2) { msg.textContent = "Load flags first (need at least two)."; return; }
     const b = bearingBetween(adoptFlags[0], adoptFlags[1]);
-    CB.windDir = Math.round(b) % 360;
-    document.getElementById("builder-wind").value = CB.windDir;
-    document.getElementById("builder-wind-val").textContent = CB.windDir;
     msg.textContent = "";
-    updateBuilderPreview(); saveBuilderDraft();
+    setBuilderWind(b);
 });
 document.getElementById("builderWindSuggest")?.addEventListener("click", async () => {
     const src = document.getElementById("builder-wind-src");
@@ -2017,11 +2056,8 @@ document.getElementById("builderWindSuggest")?.addEventListener("click", async (
         const res = await fetch(`/wind?lat=${CB.origin.lat}&lon=${CB.origin.lon}`);
         if (!res.ok) throw new Error();
         const w = await res.json();
-        CB.windDir = ((Math.round(w.dir) % 360) + 360) % 360;
-        document.getElementById("builder-wind").value = CB.windDir;
-        document.getElementById("builder-wind-val").textContent = CB.windDir;
+        setBuilderWind(w.dir);
         src.textContent = `${escHtml(w.source)} · ${w.distKm != null ? w.distKm + "km" : "model"} · ${w.ageMin}min ago · ${w.speedKn}kn`;
-        updateBuilderPreview(); saveBuilderDraft();
     } catch {
         src.textContent = "no wind source available";
     }
