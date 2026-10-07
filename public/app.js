@@ -1524,6 +1524,7 @@ async function loadCourseTemplates() {
             <div class="template-card" data-course-tpl="${c.id}">
                 <b>${escHtml(c.name)}</b>
                 <span class="device-meta">${c.marks.length} marks · v${c.version}</span>
+                <button data-del-tpl="${c.id}" title="Delete template" style="float:right;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;font-size:11px">×</button>
             </div>`).join("") + `</div>` : "");
         el.querySelectorAll("[data-tpl]").forEach(card => {
             card.addEventListener("click", () => {
@@ -1535,10 +1536,19 @@ async function loadCourseTemplates() {
             card.addEventListener("click", () => openBuilder({ name: "", marks: [] }));
         });
         el.querySelectorAll("[data-course-tpl]").forEach(card => {
-            card.addEventListener("click", async () => {
+            card.addEventListener("click", async e => {
+                if (e.target.closest("[data-del-tpl]")) return;
                 const res = await fetch(`/courses/${card.getAttribute("data-course-tpl")}`);
                 const c = await res.json();
                 if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })), startLine: c.startLine, finishLine: c.finishLine });
+            });
+        });
+        el.querySelectorAll("[data-del-tpl]").forEach(btn => {
+            btn.addEventListener("click", async e => {
+                e.stopPropagation();
+                if (!confirm("Delete this template? Sessions already frozen keep their copy.")) return;
+                await fetch(`/courses/${btn.getAttribute("data-del-tpl")}`, { method: "DELETE" });
+                loadCourseTemplates();
             });
         });
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("template-panel"));
@@ -2329,3 +2339,6 @@ makeFloatingDraggable(document.getElementById("builder-panel"));
 avoidPanelOverlap(document.getElementById("template-panel"));
 avoidPanelOverlap(document.getElementById("session-panel"));
 avoidPanelOverlap(document.getElementById("device-panel"));
+// populate panels restored visible (their content loads on toggle otherwise)
+if (panelVisible(document.getElementById("template-panel"))) loadCourseTemplates();
+if (panelVisible(document.getElementById("session-panel"))) loadSessions();
