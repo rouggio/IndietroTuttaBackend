@@ -1872,6 +1872,18 @@ function builderMapClick(e) {
     return true;
 }
 
+// Gate buoys only ever come in pairs — an orphaned single demotes to mark.
+function normalizeGates() {
+    const groups = {};
+    CB.marks.forEach((m, i) => { if (m.type === "gate" && m.gate) { (groups[m.gate] = groups[m.gate] || []).push(i); } });
+    Object.values(groups).forEach(g => {
+        if (g.length === 1) {
+            const m = CB.marks[g[0]];
+            m.type = "mark";
+            delete m.gate;
+        }
+    });
+}
 function renderBuilderMarks() {
     const el = document.getElementById("builder-marks");
     if (!CB.marks.length) {
@@ -1885,7 +1897,7 @@ function renderBuilderMarks() {
                 <select data-f="type" title="Mark type">
                     ${["start", "mark", "gate", "finish"].map(t => `<option ${m.type === t ? "selected" : ""}>${t}</option>`).join("")}
                 </select>
-                <select data-f="side" title="Required side (n/a for start/finish points)" ${m.type === "start" || m.type === "finish" ? "disabled" : ""}>
+                <select data-f="side" title="Required side (n/a for start/finish points and gate buoys)" ${["start", "finish", "gate"].includes(m.type) ? "disabled" : ""}>
                     ${["P", "S", "G"].map(s => `<option ${m.side === s ? "selected" : ""}>${s}</option>`).join("")}
                 </select>
                 <input data-f="r" type="number" min="5" max="200" value="${m.r}" title="Radius (m)">
@@ -1897,7 +1909,29 @@ function renderBuilderMarks() {
         </div>`).join("");
     el.querySelectorAll("[data-mark]").forEach(row => {
         const i = Number(row.getAttribute("data-mark"));
-        row.querySelector("[data-f=type]").addEventListener("change", e => { CB.marks[i].type = e.target.value; updateBuilderPreview(); saveBuilderDraft(); });
+        row.querySelector("[data-f=type]").addEventListener("change", e => {
+            const m = CB.marks[i];
+            m.type = e.target.value;
+            if (m.type === "gate") {
+                // join an open single-buoy group, else start a new pair
+                const counts = {};
+                CB.marks.forEach((x, xi) => { if (xi !== i && x.type === "gate" && x.gate) counts[x.gate] = (counts[x.gate] || 0) + 1; });
+                const open = Object.keys(counts).find(g => counts[g] === 1);
+                if (open) {
+                    m.gate = open;
+                    if (!m.side || m.side === "P" || m.side === "S") m.side = "G";
+                } else {
+                    let n = 1;
+                    while (counts["g" + n]) n++;
+                    m.gate = "g" + n;
+                    m.side = "G";
+                }
+            } else {
+                delete m.gate;
+            }
+            normalizeGates();
+            renderBuilderMarks(); updateBuilderPreview(); saveBuilderDraft();
+        });
         row.querySelector("[data-f=side]").addEventListener("change", e => { CB.marks[i].side = e.target.value; updateBuilderPreview(); saveBuilderDraft(); });
         row.querySelector("[data-f=r]").addEventListener("change", e => {
             CB.marks[i].r = Math.min(200, Math.max(5, Number(e.target.value) || 30));
@@ -1911,7 +1945,9 @@ function renderBuilderMarks() {
             if (i < CB.marks.length - 1) { [CB.marks[i + 1], CB.marks[i]] = [CB.marks[i], CB.marks[i + 1]]; renderBuilderMarks(); updateBuilderPreview(); saveBuilderDraft(); }
         });
         row.querySelector("[data-del]").addEventListener("click", () => {
-            CB.marks.splice(i, 1); renderBuilderMarks(); updateBuilderPreview(); saveBuilderDraft();
+            CB.marks.splice(i, 1);
+            normalizeGates();
+            renderBuilderMarks(); updateBuilderPreview(); saveBuilderDraft();
         });
     });
 }
