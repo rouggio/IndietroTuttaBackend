@@ -857,6 +857,19 @@ html, body {
     cursor: move;
 }
 
+/* Builder distance labels: naked text, rotated along the line via inner span */
+.dist-label {
+    background: none;
+    border: none;
+    box-shadow: none;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.dist-label:before {
+    display: none;
+}
+
 /* Wind dial: screen-anchored indicator, bottom-left of the map */
 .wind-dial {
     width: 76px;

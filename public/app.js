@@ -1554,10 +1554,21 @@ async function loadCourseTemplates() {
 // --- Builder state + preview layers ---
 const CB = {
     open: false, courseId: null, name: "", marks: [],
-    origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'origin' | 'lineA' | 'lineB' | null
+    origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'move' | 'lineA' | 'lineB' | null
     startLine: null, finishLine: null, // wind-frame {ax,ay,bx,by}; finish may be "start"
     lineA: null, lineTarget: "start", // pending first endpoint (absolute) + which line
+    showLabels: true,
 };
+// Oriented label span: text rotated along the on-screen line, line color.
+// a,b are [lat,lng]; north-up map, CSS rotate is clockwise.
+function legSpan(a, b, text, color) {
+    const dE = (b[1] - a[1]) * Math.cos((((a[0] + b[0]) / 2) * Math.PI) / 180);
+    const dN = b[0] - a[0];
+    let ang = (Math.atan2(-dN, dE) * 180) / Math.PI;
+    if (ang > 90) ang -= 180;
+    if (ang < -90) ang += 180;
+    return `<span style="display:inline-block;transform:rotate(${ang.toFixed(1)}deg);color:${color};font-weight:bold">${text}</span>`;
+}
 // JS mirror of the backend segment resolve.
 function resolveSegJS(seg, o) {
     const t = (o.windDir * Math.PI) / 180;
@@ -1575,6 +1586,7 @@ function segLenM(a, b) {
     return map.distance([a.lat, a.lon], [b.lat, b.lon]);
 }
 let coursePreview = null; // L.layerGroup for resolved preview
+let PV = null; // live refs into the preview (route/segments/dots), for in-drag updates
 let adoptPins = null;     // L.layerGroup for waypoint pins
 let adoptFlags = [];      // flagged points loaded for adoption
 let pileTops = {};        // latlon key -> pile rotation offset (stacked display only)
@@ -1615,6 +1627,7 @@ function openBuilder(init = {}) {
     document.getElementById("builder-scale").value = CB.scale;
     document.getElementById("builder-msg").textContent = "";
     document.getElementById("builder-wind-src").textContent = "";
+    document.getElementById("builderLabels")?.classList.toggle("arming", CB.showLabels);
     document.getElementById("freeze-date").value = new Date().toISOString().slice(0, 10);
     document.getElementById("builder-origin-label").textContent = CB.origin
         ? `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`
@@ -1690,6 +1703,11 @@ if (typeof map !== "undefined" && map.getContainer) {
 document.getElementById("builderAddMarks")?.addEventListener("click", () => {
     CB.placing = CB.placing === "marks" ? null : "marks";
     syncBuilderArmButtons();
+});
+document.getElementById("builderLabels")?.addEventListener("click", () => {
+    CB.showLabels = !CB.showLabels;
+    document.getElementById("builderLabels")?.classList.toggle("arming", CB.showLabels);
+    updateBuilderPreview(); saveBuilderDraft();
 });
 document.getElementById("builderMoveCourse")?.addEventListener("click", () => {
     if (CB.placing === "move") { endCourseMove(); return; }
@@ -1838,12 +1856,57 @@ function renderBuilderMarks() {
     });
 }
 
+// Live preview refresh DURING drags: moves polylines/circles/tooltips in
+// place. A full rebuild would destroy the marker being dragged, so drag
+// handlers call this; dragend commits to CB and rebuilds.
+function refreshRouteLive() {
+    if (!PV || !coursePreview) return;
+    const P = m => { const p = m.getLatLng(); return [p.lat, p.lng]; };
+    const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const dist = (a, b, color) => legSpan(a, b, Math.round(map.distance(a, b)) + " m", color || "#3b82f6");
+    let startC = null, startLen = "";
+    if (PV.startDots.length === 2) {
+        const a = P(PV.startDots[0]), b = P(PV.startDots[1]);
+        startC = mid(a, b);
+        startLen = Math.round(map.distance(a, b)) + " m";
+        if (PV.startSeg) PV.startSeg.setLatLngs([a, b]);
+        if (PV.startMove) PV.startMove.setLatLng(startC);
+        if (PV.startLenTip) PV.startLenTip.setLatLng(startC).setContent(legSpan(a, b, "start · " + startLen, "#16a34a"));
+    }
+    PV.marks.forEach((m, i) => { if (PV.circles[i]) PV.circles[i].setLatLng(m.getLatLng()); });
+    let finishC = null;
+    if (CB.finishLine === "start" && startC) {
+        finishC = startC;
+        if (PV.finishSeg && PV.startDots.length === 2) {
+            PV.finishSeg.setLatLngs([P(PV.startDots[0]), P(PV.startDots[1])]);
+        }
+        if (PV.finishLenTip && PV.startDots.length === 2) {
+            const a = P(PV.startDots[0]), b = P(PV.startDots[1]);
+            PV.finishLenTip.setLatLng(startC).setContent(legSpan(a, b, "finish = start · " + startLen, "#dc2626"));
+        }
+    } else if (PV.finishDots.length === 2) {
+        const a = P(PV.finishDots[0]), b = P(PV.finishDots[1]);
+        finishC = mid(a, b);
+        if (PV.finishSeg) PV.finishSeg.setLatLngs([a, b]);
+        if (PV.finishMove) PV.finishMove.setLatLng(finishC);
+        if (PV.finishLenTip) PV.finishLenTip.setLatLng(finishC).setContent(legSpan(a, b, "finish · " + Math.round(map.distance(a, b)) + " m", "#dc2626"));
+    }
+    const pts = [...(startC ? [startC] : []),
+        ...PV.marks.map(m => { const p = m.getLatLng(); return [p.lat, p.lng]; }),
+        ...(finishC ? [finishC] : [])];
+    if (PV.route) PV.route.setLatLngs(pts);
+    (PV.legs || []).forEach((tip, i) => {
+        if (pts[i + 1]) tip.setLatLng(mid(pts[i], pts[i + 1])).setContent(dist(pts[i], pts[i + 1], "#3b82f6"));
+    });
+}
 function updateBuilderPreview() {
     updateWindDial();
     if (!CB.open) return;
     if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
+    PV = null;
     if (!CB.origin || (!CB.marks.length && !CB.startLine && !CB.finishLine && !CB.lineA)) return;
     coursePreview = L.layerGroup().addTo(map);
+    PV = { marks: [], circles: [], route: null, legs: [], startSeg: null, finishSeg: null, startDots: [], finishDots: [], startMove: null, finishMove: null, startLenTip: null, finishLenTip: null };
     const resolved = builderResolved();
     // route runs line-center → marks → line-center when lines replace points
     const segCenter = seg => {
@@ -1854,7 +1917,17 @@ function updateBuilderPreview() {
     if (CB.startLine) latlngs.unshift(segCenter(CB.startLine));
     const effFinish = CB.finishLine === "start" ? CB.startLine : CB.finishLine;
     if (effFinish && typeof effFinish === "object") latlngs.push(segCenter(effFinish));
-    L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(coursePreview);
+    PV.route = L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(coursePreview);
+    // per-leg distance labels (naked, rotated along the leg, live-updated)
+    const legMid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (CB.showLabels) {
+        for (let li = 0; li + 1 < latlngs.length; li++) {
+            PV.legs.push(L.tooltip({ permanent: true, direction: "center", className: "dist-label" })
+                .setLatLng(legMid(latlngs[li], latlngs[li + 1]))
+                .setContent(legSpan(latlngs[li], latlngs[li + 1], Math.round(map.distance(latlngs[li], latlngs[li + 1])) + " m", "#3b82f6"))
+                .addTo(coursePreview));
+        }
+    }
     // relaxed stacking: any marks whose radius circles collide belong to one
     // pile (union-find over pairwise circle overlap) — catches exact stacks
     // and near-misses alike
@@ -1871,7 +1944,7 @@ function updateBuilderPreview() {
     const pileOf = i => buckets[find(i)];
     const pileKeyOf = i => pileOf(i).join(",");
     resolved.forEach((m, i) => {
-        L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(coursePreview);
+        PV.circles.push(L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(coursePreview));
         const pile = pileOf(i);
         const pkey = pileKeyOf(i);
         const topIdx = pile[(pileTops[pkey] || 0) % pile.length];
@@ -1892,6 +1965,8 @@ function updateBuilderPreview() {
             updateBuilderPreview();
         });
         marker.bindTooltip(`#${i + 1} ${m.type} ${m.side}` + (pile.length > 1 ? ` · pile: ${pile.map(x => x + 1).join(", ")} (click cycles)` : ""));
+        PV.marks.push(marker);
+        marker.on("drag", refreshRouteLive);
         marker.on("dragend", () => {
             const ll = marker.getLatLng();
             const off = offsetsFromLatLon(ll.lat, ll.lng, builderInst());
@@ -1914,13 +1989,16 @@ function updateBuilderPreview() {
         if (role === "start") CB.startLine = seg; else CB.finishLine = seg;
         updateLineInfo(); updateBuilderPreview(); saveBuilderDraft();
     };
-    const endDot = (lat, lon, color, role, end) => {
+    const endDot = (lat, lon, color, role, end, dots) => {
         const mk = L.marker([lat, lon], {
             draggable: true,
             icon: L.divIcon({ html: `<div class="line-end-dot" style="border-color:${color}"></div>`, className: "", iconSize: [12, 12], iconAnchor: [6, 6] }),
         }).addTo(coursePreview);
         mk.bindTooltip(`${role} line end ${end} (drag)`);
+        mk.on("drag", refreshRouteLive);
         mk.on("dragend", () => lineEndDrag(role, end, mk));
+        dots.push(mk);
+        return mk;
     };
     let resStart = null;
     // dragging the square handle moves the whole line (both ends shift)
@@ -1941,26 +2019,51 @@ function updateBuilderPreview() {
             icon: L.divIcon({ html: `<div class="line-move-dot" style="border-color:${color}"></div>`, className: "", iconSize: [14, 14], iconAnchor: [7, 7] }),
         }).addTo(coursePreview);
         mk.bindTooltip(`drag to move ${role} line`);
+        // live: shift both ends by the handle displacement, then refresh
+        mk.on("drag", () => {
+            const dots = role === "start" ? PV.startDots : PV.finishDots;
+            if (!PV || dots.length !== 2) return;
+            const c = mk.getLatLng();
+            const a = dots[0].getLatLng(), b = dots[1].getLatLng();
+            const dy = c.lat - (a.lat + b.lat) / 2, dx = c.lng - (a.lng + b.lng) / 2;
+            dots[0].setLatLng([a.lat + dy, a.lng + dx]);
+            dots[1].setLatLng([b.lat + dy, b.lng + dx]);
+            refreshRouteLive();
+        });
         mk.on("dragend", () => moveLine(role, seg, mk));
+        return mk;
+    };
+    const lenTip = (a, b, text, color) => {
+        if (!CB.showLabels) return null;
+        return L.tooltip({ permanent: true, direction: "center", className: "dist-label" })
+            .setLatLng([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])
+            .setContent(legSpan(a, b, text + Math.round(map.distance(a, b)) + " m", color))
+            .addTo(coursePreview);
     };
     if (CB.startLine) {
         resStart = resolveSegJS(CB.startLine, builderInst());
-        L.polyline([[resStart.latA, resStart.lonA], [resStart.latB, resStart.lonB]], { color: "#16a34a", weight: 5 }).addTo(coursePreview)
+        const A = [resStart.latA, resStart.lonA], B = [resStart.latB, resStart.lonB];
+        PV.startSeg = L.polyline([A, B], { color: "#16a34a", weight: 5 }).addTo(coursePreview)
             .bindTooltip("start line", { permanent: false });
-        endDot(resStart.latA, resStart.lonA, "#16a34a", "start", "A");
-        endDot(resStart.latB, resStart.lonB, "#16a34a", "start", "B");
-        moveDot((resStart.latA + resStart.latB) / 2, (resStart.lonA + resStart.lonB) / 2, "#16a34a", "start", CB.startLine);
+        PV.startLenTip = lenTip(A, B, "start · ", "#16a34a");
+        endDot(resStart.latA, resStart.lonA, "#16a34a", "start", "A", PV.startDots);
+        endDot(resStart.latB, resStart.lonB, "#16a34a", "start", "B", PV.startDots);
+        PV.startMove = moveDot((resStart.latA + resStart.latB) / 2, (resStart.lonA + resStart.lonB) / 2, "#16a34a", "start", CB.startLine);
     }
     if (CB.finishLine === "start" && resStart) {
-        L.polyline([[resStart.latA, resStart.lonA], [resStart.latB, resStart.lonB]], { color: "#dc2626", weight: 2, dashArray: "6 4" }).addTo(coursePreview)
+        const A = [resStart.latA, resStart.lonA], B = [resStart.latB, resStart.lonB];
+        PV.finishSeg = L.polyline([A, B], { color: "#dc2626", weight: 2, dashArray: "6 4" }).addTo(coursePreview)
             .bindTooltip("finish = start line", { permanent: false });
+        PV.finishLenTip = lenTip(A, B, "finish = start · ", "#dc2626");
     } else if (CB.finishLine && typeof CB.finishLine === "object") {
         const r = resolveSegJS(CB.finishLine, builderInst());
-        L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], { color: "#dc2626", weight: 5 }).addTo(coursePreview)
+        const A = [r.latA, r.lonA], B = [r.latB, r.lonB];
+        PV.finishSeg = L.polyline([A, B], { color: "#dc2626", weight: 5 }).addTo(coursePreview)
             .bindTooltip("finish line", { permanent: false });
-        endDot(r.latA, r.lonA, "#dc2626", "finish", "A");
-        endDot(r.latB, r.lonB, "#dc2626", "finish", "B");
-        moveDot((r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2, "#dc2626", "finish", CB.finishLine);
+        PV.finishLenTip = lenTip(A, B, "finish · ", "#dc2626");
+        endDot(r.latA, r.lonA, "#dc2626", "finish", "A", PV.finishDots);
+        endDot(r.latB, r.lonB, "#dc2626", "finish", "B", PV.finishDots);
+        PV.finishMove = moveDot((r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2, "#dc2626", "finish", CB.finishLine);
     }
     // pending first endpoint while defining a line
     if (CB.lineA) {
