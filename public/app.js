@@ -1694,15 +1694,26 @@ function updateBuilderPreview() {
     const resolved = builderResolved();
     const latlngs = resolved.map(m => [m.lat, m.lon]);
     L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(coursePreview);
-    // W/L-style courses stack marks on identical spots — group them so the
-    // tooltip names the whole pile (topmost number is the visible label)
-    const keyOf = m => m.lat.toFixed(6) + "," + m.lon.toFixed(6);
-    const groups = {};
-    resolved.forEach((m, i) => { (groups[keyOf(m)] = groups[keyOf(m)] || []).push(i); });
+    // relaxed stacking: any marks whose radius circles collide belong to one
+    // pile (union-find over pairwise circle overlap) — catches exact stacks
+    // and near-misses alike
+    const parent = resolved.map((_, i) => i);
+    const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < resolved.length; i++) {
+        for (let j = i + 1; j < resolved.length; j++) {
+            const a = resolved[i], b = resolved[j];
+            if (map.distance([a.lat, a.lon], [b.lat, b.lon]) < a.r + b.r) parent[find(i)] = find(j);
+        }
+    }
+    const buckets = {};
+    resolved.forEach((_, i) => { const k = find(i); (buckets[k] = buckets[k] || []).push(i); });
+    const pileOf = i => buckets[find(i)];
+    const pileKeyOf = i => pileOf(i).join(",");
     resolved.forEach((m, i) => {
         L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(coursePreview);
-        const pile = groups[keyOf(m)];
-        const topIdx = pile[(pileTops[keyOf(m)] || 0) % pile.length];
+        const pile = pileOf(i);
+        const pkey = pileKeyOf(i);
+        const topIdx = pile[(pileTops[pkey] || 0) % pile.length];
         const isTop = i === topIdx;
         const marker = L.marker([m.lat, m.lon], {
             draggable: true,
@@ -1716,10 +1727,10 @@ function updateBuilderPreview() {
         // click a pile cycles which mark is on top (course order untouched)
         marker.on("click", () => {
             if (pile.length < 2) return;
-            pileTops[keyOf(m)] = ((pileTops[keyOf(m)] || 0) + 1) % pile.length;
+            pileTops[pkey] = ((pileTops[pkey] || 0) + 1) % pile.length;
             updateBuilderPreview();
         });
-        marker.bindTooltip(`#${i + 1} ${m.type} ${m.side}` + (pile.length > 1 ? ` · stacked: ${pile.map(x => x + 1).join(", ")} (click cycles)` : ""));
+        marker.bindTooltip(`#${i + 1} ${m.type} ${m.side}` + (pile.length > 1 ? ` · pile: ${pile.map(x => x + 1).join(", ")} (click cycles)` : ""));
         marker.on("dragend", () => {
             const ll = marker.getLatLng();
             const off = offsetsFromLatLon(ll.lat, ll.lng, builderInst());
