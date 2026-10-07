@@ -1561,6 +1561,7 @@ function openBuilder(init = {}) {
     saveBuilderDraft();
     loadAdoptBoats();
     refreshFreezeBoats();
+    if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("builder-panel"));
 }
 function closeBuilder() {
     CB.open = false;
@@ -2113,6 +2114,7 @@ function makeFloatingDraggable(el) {
         if (!drag) return;
         el.style.left = Math.max(0, e.clientX - drag.dx) + "px";
         el.style.top = Math.max(0, e.clientY - drag.dy) + "px";
+        el.dataset.moved = "1"; // user owns the position from here on
     });
     const end = () => { drag = null; };
     header.addEventListener("pointerup", end);
@@ -2124,11 +2126,12 @@ function panelVisible(el) {
 function rectsOverlap(a, b) {
     return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
-// If el (just shown) covers another open floating panel, cascade it below;
-// if that runs off-screen, dock it right of the other panel instead.
+// If el (just shown/grown) covers another open floating panel, cascade it
+// below; if that runs off-screen, dock it right of the other panel instead.
+// Panels the user dragged themselves are never auto-moved.
 function avoidPanelOverlap(el) {
-    if (!panelVisible(el)) return;
-    const others = ["device-panel", "course-panel"]
+    if (!panelVisible(el) || el.dataset.moved) return;
+    const others = ["device-panel", "course-panel", "builder-panel"]
         .map(id => document.getElementById(id))
         .filter(o => o && o !== el && panelVisible(o));
     for (const o of others) {
@@ -2145,6 +2148,7 @@ function avoidPanelOverlap(el) {
 }
 makeFloatingDraggable(document.getElementById("device-panel"));
 makeFloatingDraggable(document.getElementById("course-panel"));
+makeFloatingDraggable(document.getElementById("builder-panel"));
 // fix any overlap restored from a previous session
 avoidPanelOverlap(document.getElementById("course-panel"));
 avoidPanelOverlap(document.getElementById("device-panel"));
