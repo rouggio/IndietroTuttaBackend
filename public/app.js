@@ -1455,7 +1455,6 @@ document.querySelectorAll("[data-ctab]").forEach(btn => {
         const tab = document.getElementById("course-tab-" + btn.getAttribute("data-ctab"));
         if (tab) tab.style.display = "block";
         if (btn.getAttribute("data-ctab") === "templates") loadCourseTemplates();
-        if (btn.getAttribute("data-ctab") === "courses") loadMyCourses();
         if (btn.getAttribute("data-ctab") === "sessions") loadSessions();
     });
 });
@@ -1475,6 +1474,9 @@ async function loadCourseTemplates() {
             <div class="template-card" data-tpl="${escHtml(t.key)}">
                 <b>${escHtml(t.name)}</b>
                 <span class="device-meta">${escHtml(t.desc)} · ${t.marks.length} marks</span>
+            <div class="template-card" data-blank-tpl>
+                <b>Blank</b>
+                <span class="device-meta">Start from scratch</span>
             </div>`).join("") + `</div>` + (myTpls.length ? `
             <div class="device-meta" style="margin:8px 0 4px 0"><b>My templates</b></div>
             <div class="template-grid">` + myTpls.map(c => `
@@ -1488,11 +1490,14 @@ async function loadCourseTemplates() {
                 if (t) openBuilder({ name: t.name + " (copy)", marks: t.marks.map(m => ({ ...m })) });
             });
         });
+        el.querySelectorAll("[data-blank-tpl]").forEach(card => {
+            card.addEventListener("click", () => openBuilder({ name: "", marks: [] }));
+        });
         el.querySelectorAll("[data-course-tpl]").forEach(card => {
             card.addEventListener("click", async () => {
                 const res = await fetch(`/courses/${card.getAttribute("data-course-tpl")}`);
                 const c = await res.json();
-                if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })), isTemplate: !!c.is_template });
+                if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })) });
             });
         });
     } catch (e) {
@@ -1500,52 +1505,9 @@ async function loadCourseTemplates() {
     }
 }
 
-let myCoursesCache = [];
-async function loadMyCourses() {
-    const el = document.getElementById("course-tab-courses");
-    try {
-        const res = await fetch("/courses");
-        myCoursesCache = (await res.json()).filter(c => !c.is_template);
-        if (!myCoursesCache.length) {
-            el.innerHTML = `<div class="device-meta">No saved courses yet — open a template, edit it, then “Save course”.</div>
-                <div class="builder-row"><button id="newCourseBtn">New course</button></div>`;
-        } else {
-            el.innerHTML = myCoursesCache.map(c => `
-                <div class="device-item" data-course="${c.id}" style="cursor:pointer">
-                    <div style="overflow:hidden;flex:1">
-                        <span class="device-name">${escHtml(c.name)}</span>
-                        <div class="device-meta">${c.marks.length} marks · v${c.version}</div>
-                    </div>
-                    <div style="text-align:right">
-                        <button class="mini-del" data-del-course="${c.id}" title="Delete course" style="border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer">×</button>
-                    </div>
-                </div>`).join("") + `
-                <div class="builder-row"><button id="newCourseBtn">New course</button></div>`;
-        }
-        document.getElementById("newCourseBtn")?.addEventListener("click", () => openBuilder({ name: "", marks: [] }));
-        el.querySelectorAll("[data-course]").forEach(row => {
-            row.addEventListener("click", e => {
-                if (e.target.closest("[data-del-course]")) return;
-                const c = myCoursesCache.find(x => String(x.id) === row.getAttribute("data-course"));
-                if (c) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })), isTemplate: !!c.is_template });
-            });
-        });
-        el.querySelectorAll("[data-del-course]").forEach(btn => {
-            btn.addEventListener("click", async e => {
-                e.stopPropagation();
-                if (!confirm("Delete this course? Sessions already frozen keep their copy.")) return;
-                await fetch(`/courses/${btn.getAttribute("data-del-course")}`, { method: "DELETE" });
-                loadMyCourses();
-            });
-        });
-    } catch (e) {
-        el.innerHTML = '<div class="boat-info-err">Failed to load courses.</div>';
-    }
-}
-
 // --- Builder state + preview layers ---
 const CB = {
-    open: false, courseId: null, isTemplate: true, name: "", marks: [],
+    open: false, courseId: null, name: "", marks: [],
     origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'origin' | null
 };
 let coursePreview = null; // L.layerGroup for resolved preview
@@ -1565,7 +1527,6 @@ const MARK_COLORS = { start: "#16a34a", finish: "#dc2626", gate: "#984ea3", mark
 
 function openBuilder(init = {}) {
     CB.courseId = init.courseId ?? null;
-    CB.isTemplate = init.isTemplate ?? true;
     CB.name = init.name || "";
     CB.marks = (init.marks || []).map(m => ({ ...m }));
     CB.origin = init.origin || null;
@@ -1852,15 +1813,13 @@ document.getElementById("builderWindSuggest")?.addEventListener("click", async (
 });
 
 // --- Save template / freeze to session ---
-// Save as template (reusable shape) or as course (concrete course off a
-// template). PUT keeps the existing flag — use the other button to convert.
-async function builderSaveCourse(asTemplate) {
+// Save as template (the only shape library — sessions freeze from here).
+async function builderSaveCourse() {
     const msg = document.getElementById("builder-msg");
-    const name = document.getElementById("builder-name").value.trim() || "Untitled course";
+    const name = document.getElementById("builder-name").value.trim() || "Untitled template";
     try {
         let res;
-        // same kind → update in place; switching kind forks a new row
-        if (CB.courseId && CB.isTemplate === !!asTemplate) {
+        if (CB.courseId) {
             res = await fetch(`/courses/${CB.courseId}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name, marks: CB.marks }),
@@ -1868,29 +1827,25 @@ async function builderSaveCourse(asTemplate) {
         } else {
             res = await fetch("/courses", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, marks: CB.marks, is_template: !!asTemplate }),
+                body: JSON.stringify({ name, marks: CB.marks, is_template: true }),
             });
         }
         const j = await res.json();
         if (!res.ok) { msg.textContent = j.error || "Save failed."; return null; }
         CB.courseId = j.id;
         CB.name = j.name;
-        CB.isTemplate = !!j.is_template;
         document.getElementById("builder-name").value = j.name;
         msg.textContent = "";
-        courseTemplatesCache = null;
-        loadMyCourses();
         return j;
     } catch {
         msg.textContent = "Network error.";
         return null;
     }
 }
-document.getElementById("builderSave")?.addEventListener("click", () => builderSaveCourse(true));
-document.getElementById("builderSaveCourse")?.addEventListener("click", () => builderSaveCourse(false));
+document.getElementById("builderSave")?.addEventListener("click", () => builderSaveCourse());
 document.getElementById("builderFreeze")?.addEventListener("click", async () => {
     const msg = document.getElementById("builder-msg");
-    const course = await builderSaveCourse(false);
+    const course = await builderSaveCourse();
     if (!course) return;
     const date = document.getElementById("freeze-date").value;
     const mode = document.getElementById("freeze-mode").value;
@@ -1960,7 +1915,7 @@ async function loadSessions(selectId) {
         const boatChecks = lastDevices.map(d => `<label style="display:inline-block;margin-right:8px;font-weight:normal;font-size:12px">
             <input type="checkbox" data-sb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
         el.innerHTML = `
-            <div class="device-meta" style="margin-bottom:6px"><b>New session</b> (freeze a course onto a day)</div>
+            <div class="device-meta" style="margin-bottom:6px"><b>New session</b> (template + day; origin/wind default to map center)</div>
             <div class="builder-row"><select id="sess-course">${courses.map(c => `<option value="${c.id}">${escHtml(c.name)} (${c.marks.length})</option>`).join("")}</select></div>
             <div class="builder-row">
                 <input id="sess-date" type="date" value="${new Date().toISOString().slice(0, 10)}">
@@ -2066,6 +2021,10 @@ async function renderSessionDetail() {
                     <button id="sess-add-btn">Add</button>
                 </div>
                 <div class="builder-row">
+                    <input id="sess-repeat-date" type="date" value="${new Date().toISOString().slice(0, 10)}" title="Repeat this session on a new day">
+                    <button id="sess-repeat" title="Same course, boats and wind on a new day">Repeat</button>
+                </div>
+                <div class="builder-row">
                     <button id="sess-del" style="color:#dc2626">Delete session</button>
                 </div>
                 <div id="sess-detail-err" class="boat-info-err"></div>
@@ -2105,6 +2064,17 @@ async function renderSessionDetail() {
             await fetch(`/sessions/${s.id}/boats/${encodeURIComponent(a.getAttribute("data-unboat"))}`, { method: "DELETE" });
             loadSessions(s.id);
         }));
+        document.getElementById("sess-repeat").addEventListener("click", async () => {
+            const date = document.getElementById("sess-repeat-date").value;
+            if (!date) return;
+            const r = await fetch(`/sessions/${s.id}/repeat`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ date }),
+            });
+            const j = await r.json();
+            if (!r.ok) document.getElementById("sess-detail-err").textContent = j.error || "Repeat failed.";
+            else loadSessions(j.id);
+        });
         document.getElementById("sess-del").addEventListener("click", async () => {
             if (!confirm("Delete this session?")) return;
             await fetch(`/sessions/${s.id}`, { method: "DELETE" });

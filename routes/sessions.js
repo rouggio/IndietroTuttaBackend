@@ -8,6 +8,7 @@ const {
     deleteSession,
     addBoat,
     removeBoat,
+    repeatSession,
 } = require("../store/sessionStore");
 
 const router = express.Router();
@@ -82,6 +83,22 @@ router.delete("/sessions/:id", async (req, res) => {
         const ok = await deleteSession(req.params.id);
         if (!ok) return res.status(404).json({ error: "session not found" });
         res.json({ status: "deleted" });
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
+// POST /sessions/:id/repeat — same course onto a new day.
+// {date, mode?, name?} → fresh scheduled session, boats carried over.
+// --------------------------------------------------
+
+router.post("/sessions/:id/repeat", async (req, res) => {
+    try {
+        const { date, mode, name } = req.body || {};
+        const s = await repeatSession(req.params.id, { date, mode, name });
+        if (!s) return res.status(404).json({ error: "session not found" });
+        res.status(201).json(s);
     } catch (e) {
         sendErr(res, e);
     }

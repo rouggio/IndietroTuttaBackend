@@ -270,6 +270,62 @@ async function removeBoat(sessionId, deviceId) {
     return getSession(cur.id);
 }
 
+// Repeat a session onto a new day: same frozen geometry + placement,
+// same boats, fresh start (no startTime, back to scheduled).
+async function repeatSession(id, { date, mode, name } = {}) {
+    const cur = await getSession(id);
+    if (!cur) return null;
+    if (!date || !DATE_RE.test(date)) {
+        throw Object.assign(new Error("date must be YYYY-MM-DD"), { status: 400 });
+    }
+    const cleanMode = mode && MODES.includes(mode) ? mode : cur.mode;
+    const now = new Date().toISOString();
+    const base = {
+        courseId: cur.courseId,
+        name: (typeof name === "string" && name ? name : cur.name || "Session").slice(0, 64) + "",
+        date,
+        mode: cleanMode,
+        originLat: cur.originLat,
+        originLon: cur.originLon,
+        windDir: cur.windDir,
+        scale: cur.scale,
+        startTime: null,
+        status: "scheduled",
+        courseVersion: 1,
+        templateSnapshot: cur.templateSnapshot,
+        marks: cur.marks,
+        createdAt: now,
+    };
+    // default repeat name carries the new date unless overridden
+    if (!name) base.name = `${(cur.name || "Session").split(" — ")[0]} — ${date}`.slice(0, 64);
+
+    const client = getClient();
+    if (!client) {
+        const newId = memNextId++;
+        const s = { id: newId, ...base };
+        memSessions.set(newId, s);
+        memBoats.set(newId, (memBoats.get(cur.id) || []).map(b => ({ ...b })));
+        return { ...s, boats: memBoats.get(newId) };
+    }
+    await initDb();
+    const res = await client.execute({
+        sql: `INSERT INTO sessions (courseId, name, date, mode, originLat, originLon, windDir, scale,
+              startTime, status, courseVersion, templateSnapshot, marks, createdAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+        args: [base.courseId, base.name, base.date, base.mode, base.originLat, base.originLon,
+            base.windDir, base.scale, base.startTime, base.status,
+            JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks), now],
+    });
+    const newId = Number(res.lastInsertRowid);
+    for (const b of cur.boats) {
+        await client.execute({
+            sql: "INSERT INTO session_boats (sessionId, deviceId, startOffsetSec) VALUES (?, ?, ?)",
+            args: [newId, b.deviceId, b.startOffsetSec || 0],
+        });
+    }
+    return getSession(newId);
+}
+
 module.exports = {
     resolveMarks,
     createSession,
@@ -279,4 +335,5 @@ module.exports = {
     deleteSession,
     addBoat,
     removeBoat,
+    repeatSession,
 };
