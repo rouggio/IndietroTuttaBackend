@@ -472,6 +472,11 @@ function saveUI() {
                 "playback": document.getElementById("playback")?.style.display,
                 "course-panel": document.getElementById("course-panel")?.style.display,
             },
+            panelPos: ["device-panel", "course-panel", "builder-panel"].reduce((acc, id) => {
+                const el = document.getElementById(id);
+                if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
+                return acc;
+            }, {}),
             viewGpsVisible: undefined, // legacy compat (now per-boat panels)
             openPanels: [...boatPanels.values()].filter(p => p.open).map(p => p.id),
         };
@@ -493,6 +498,14 @@ function loadUI() {
         if (d.customEnd) customEnd = d.customEnd;
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => { const el=document.getElementById(id); if(el && disp) el.style.display=disp; });
+        if (d.panelPos) Object.entries(d.panelPos).forEach(([id, pos]) => {
+            const el = document.getElementById(id);
+            if (el && pos && isFinite(parseFloat(pos.left)) && isFinite(parseFloat(pos.top))) {
+                el.style.left = Math.max(0, Math.min(parseFloat(pos.left), window.innerWidth - 60)) + "px";
+                el.style.top = Math.max(0, parseFloat(pos.top)) + "px";
+                el.dataset.moved = "1"; // restored = user-owned, cascade leaves it alone
+            }
+        });
         // restore boats button active state
         const dp=document.getElementById("device-panel"), bb=document.getElementById("boatsToggleBtn");
         if(dp && bb) bb.classList.toggle("active", dp.style.display!=="none" && dp.style.display!=="");
@@ -2116,7 +2129,11 @@ function makeFloatingDraggable(el) {
         el.style.top = Math.max(0, e.clientY - drag.dy) + "px";
         el.dataset.moved = "1"; // user owns the position from here on
     });
-    const end = () => { drag = null; };
+    const end = () => {
+        if (!drag) return;
+        drag = null;
+        try { saveUI(); } catch {}
+    };
     header.addEventListener("pointerup", end);
     header.addEventListener("pointercancel", end);
 }
@@ -2134,6 +2151,7 @@ function avoidPanelOverlap(el) {
     const others = ["device-panel", "course-panel", "builder-panel"]
         .map(id => document.getElementById(id))
         .filter(o => o && o !== el && panelVisible(o));
+    let moved = false;
     for (const o of others) {
         const r = el.getBoundingClientRect(), q = o.getBoundingClientRect();
         if (!rectsOverlap(r, q)) continue;
@@ -2144,7 +2162,9 @@ function avoidPanelOverlap(el) {
         } else {
             el.style.top = below + "px";
         }
+        moved = true;
     }
+    if (moved) { try { saveUI(); } catch {} }
 }
 makeFloatingDraggable(document.getElementById("device-panel"));
 makeFloatingDraggable(document.getElementById("course-panel"));
