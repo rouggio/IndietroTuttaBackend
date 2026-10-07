@@ -22,6 +22,7 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
 - `gps.js`: `POST /gps` (validate lat/lon numbers, store + upsert device; accepts waypoint `uid`), `DELETE /gps/flagged` (exact `{uid}` + `DeviceId` header → deletes that flagged point), `GET /gps?date=&deviceId=` or `?start=&end=` + `&flagged=true` (device waypoint flags for course adopter), `GET /gps/latest?deviceId=`, `GET /gps/count`, `GET /gps/days?deviceId=` (days with data + counts for per-boat calendar).
 - `courses.js`: `GET /courses/templates` (5 wind-frame presets, no DB), `GET /courses[?templates=1]`, `POST /courses` (`{name,marks}` or `{name,template}`), `GET/PUT/DELETE /courses/:id` (PUT bumps `version`).
 - `sessions.js`: `GET /sessions[?date=]`, `POST /sessions` (freeze course on day → resolved marks), `GET/PUT/DELETE /sessions/:id` (geometry edits re-resolve + bump `courseVersion`), `POST/DELETE /sessions/:id/boats[/:deviceId]` (participants + pursuit `startOffsetSec`).
+- `wind.js`: `GET /wind?lat=&lon=` — suggest-only venue wind (WU PWS `WU_API_KEY` → Weathercloud unofficial → Open-Meteo model), 10-min cache; caller freezes value into session.
 - `devices.js` (+ `/boats` alias): `GET /devices`, `GET /boats`, `PUT /devices/:id` / `PUT /boats/:id` rename `{username, boat}` (no heartbeat side effects), `DELETE /devices/:id` (+ `/boats/:id`).
 
 ## Frontend (`public/`)

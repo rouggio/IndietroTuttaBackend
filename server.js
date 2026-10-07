@@ -9,6 +9,7 @@ const healthRoutes = require("./routes/health");
 const devicesRoutes = require("./routes/devices");
 const coursesRoutes = require("./routes/courses");
 const sessionsRoutes = require("./routes/sessions");
+const windRoutes = require("./routes/wind");
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use("/", healthRoutes);
 app.use("/", devicesRoutes);
 app.use("/", coursesRoutes);
 app.use("/", sessionsRoutes);
+app.use("/", windRoutes);
 
 // --------------------------------------------------
 // Start server
