@@ -1604,7 +1604,8 @@ function openBuilder(init = {}) {
     CB.scale = init.scale || 1;
     CB.placing = null;
     CB.startLine = init.startLine || null;
-    CB.finishLine = init.finishLine === undefined ? null : init.finishLine;
+    // server form {sameAs:"start"} normalizes to the UI shorthand
+    CB.finishLine = init.finishLine && init.finishLine.sameAs === "start" ? "start" : (init.finishLine || null);
     CB.lineA = null;
     CB.open = true;
     pileTops = {};
@@ -1887,12 +1888,33 @@ function updateBuilderPreview() {
         mk.on("dragend", () => lineEndDrag(role, end, mk));
     };
     let resStart = null;
+    // dragging the square handle moves the whole line (both ends shift)
+    const moveLine = (role, seg, marker) => {
+        const ll = marker.getLatLng();
+        const off = offsetsFromLatLon(ll.lat, ll.lng, builderInst());
+        const dx = off.x - (seg.ax + seg.bx) / 2;
+        const dy = off.y - (seg.ay + seg.by) / 2;
+        const r1 = v => Math.round(v * 10) / 10;
+        const moved = { ax: r1(seg.ax + dx), ay: r1(seg.ay + dy), bx: r1(seg.bx + dx), by: r1(seg.by + dy) };
+        if ([moved.ax, moved.ay, moved.bx, moved.by].some(v => Math.abs(v) > 5000)) { updateBuilderPreview(); return; } // snap back
+        if (role === "start") CB.startLine = moved; else CB.finishLine = moved;
+        updateLineInfo(); updateBuilderPreview(); saveBuilderDraft();
+    };
+    const moveDot = (lat, lon, color, role, seg) => {
+        const mk = L.marker([lat, lon], {
+            draggable: true,
+            icon: L.divIcon({ html: `<div class="line-move-dot" style="border-color:${color}"></div>`, className: "", iconSize: [14, 14], iconAnchor: [7, 7] }),
+        }).addTo(coursePreview);
+        mk.bindTooltip(`drag to move ${role} line`);
+        mk.on("dragend", () => moveLine(role, seg, mk));
+    };
     if (CB.startLine) {
         resStart = resolveSegJS(CB.startLine, builderInst());
         L.polyline([[resStart.latA, resStart.lonA], [resStart.latB, resStart.lonB]], { color: "#16a34a", weight: 5 }).addTo(coursePreview)
             .bindTooltip("start line", { permanent: false });
         endDot(resStart.latA, resStart.lonA, "#16a34a", "start", "A");
         endDot(resStart.latB, resStart.lonB, "#16a34a", "start", "B");
+        moveDot((resStart.latA + resStart.latB) / 2, (resStart.lonA + resStart.lonB) / 2, "#16a34a", "start", CB.startLine);
     }
     if (CB.finishLine === "start" && resStart) {
         L.polyline([[resStart.latA, resStart.lonA], [resStart.latB, resStart.lonB]], { color: "#dc2626", weight: 2, dashArray: "6 4" }).addTo(coursePreview)
@@ -1903,6 +1925,7 @@ function updateBuilderPreview() {
             .bindTooltip("finish line", { permanent: false });
         endDot(r.latA, r.lonA, "#dc2626", "finish", "A");
         endDot(r.latB, r.lonB, "#dc2626", "finish", "B");
+        moveDot((r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2, "#dc2626", "finish", CB.finishLine);
     }
     // pending first endpoint while defining a line
     if (CB.lineA) {
@@ -2009,17 +2032,19 @@ document.getElementById("builderWindSuggest")?.addEventListener("click", async (
 async function builderSaveTemplate() {
     const msg = document.getElementById("builder-msg");
     const name = document.getElementById("builder-name").value.trim() || "Untitled template";
+    // UI shorthand "start" → server form {sameAs:"start"}
+    const finishOut = CB.finishLine === "start" ? { sameAs: "start" } : CB.finishLine;
     try {
         let res;
         if (CB.courseId) {
             res = await fetch(`/courses/${CB.courseId}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, marks: CB.marks, startLine: CB.startLine, finishLine: CB.finishLine }),
+                body: JSON.stringify({ name, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut }),
             });
         } else {
             res = await fetch("/courses", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, marks: CB.marks, startLine: CB.startLine, finishLine: CB.finishLine, is_template: true }),
+                body: JSON.stringify({ name, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut, is_template: true }),
             });
         }
         const j = await res.json();

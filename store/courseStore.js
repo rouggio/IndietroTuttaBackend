@@ -153,6 +153,8 @@ function validateSegment(seg, what) {
 function validateLines(startLine, finishLine) {
     const e1 = validateSegment(startLine, "startLine");
     if (e1) return e1;
+    // tolerate the UI shorthand
+    if (finishLine === "start") finishLine = { sameAs: "start" };
     if (finishLine !== null && finishLine !== undefined) {
         if (typeof finishLine === "object" && finishLine.sameAs === "start") {
             if (!startLine) return "finishLine.sameAs=start needs a startLine";
@@ -189,6 +191,7 @@ async function createCourse({ name, owner = null, marks, startLine = null, finis
     }
     const err = validateMarks(marks, startLine, finishLine) || validateLines(startLine, finishLine);
     if (err) throw Object.assign(new Error(err), { status: 400 });
+    const normFinish = finishLine === "start" ? { sameAs: "start" } : (finishLine === undefined ? null : finishLine);
 
     const client = getClient();
     const clean = {
@@ -196,7 +199,7 @@ async function createCourse({ name, owner = null, marks, startLine = null, finis
         owner: typeof owner === "string" && owner ? owner.slice(0, 64) : null,
         marks,
         startLine: startLine || null,
-        finishLine: finishLine === undefined ? null : finishLine,
+        finishLine: normFinish,
         is_template: !!is_template,
     };
     if (!client) {
@@ -246,7 +249,9 @@ async function updateCourse(id, { name, marks, startLine, finishLine }) {
         name: name !== undefined ? name : cur.name,
         marks: marks !== undefined ? marks : cur.marks,
         startLine: startLine !== undefined ? startLine : cur.startLine,
-        finishLine: finishLine !== undefined ? finishLine : cur.finishLine,
+        finishLine: finishLine !== undefined
+            ? (finishLine === "start" ? { sameAs: "start" } : finishLine)
+            : cur.finishLine,
     };
     if (typeof next.name !== "string" || !next.name.trim() || next.name.trim().length > 64) {
         throw Object.assign(new Error("name must be 1..64 chars"), { status: 400 });
