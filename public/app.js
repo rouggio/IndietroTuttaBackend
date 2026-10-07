@@ -1865,20 +1865,44 @@ function updateBuilderPreview() {
             updateBuilderPreview(); saveBuilderDraft();
         });
     });
-    // start/finish line segments (green/red); shared finish drawn dashed over start
+    // start/finish line segments (green/red); shared finish drawn dashed over start.
+    // endpoints are draggable dots — drag adjusts the line on the chart.
+    const lineEndDrag = (role, end, marker) => {
+        const ll = marker.getLatLng();
+        const off = offsetsFromLatLon(ll.lat, ll.lng, builderInst());
+        const r1 = v => Math.round(v * 10) / 10;
+        const seg = { ...(role === "start" ? CB.startLine : CB.finishLine) };
+        if (end === "A") { seg.ax = r1(off.x); seg.ay = r1(off.y); }
+        else { seg.bx = r1(off.x); seg.by = r1(off.y); }
+        if (Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) < 5) { updateBuilderPreview(); return; } // snap back
+        if (role === "start") CB.startLine = seg; else CB.finishLine = seg;
+        updateLineInfo(); updateBuilderPreview(); saveBuilderDraft();
+    };
+    const endDot = (lat, lon, color, role, end) => {
+        const mk = L.marker([lat, lon], {
+            draggable: true,
+            icon: L.divIcon({ html: `<div class="line-end-dot" style="border-color:${color}"></div>`, className: "", iconSize: [12, 12], iconAnchor: [6, 6] }),
+        }).addTo(coursePreview);
+        mk.bindTooltip(`${role} line end ${end} (drag)`);
+        mk.on("dragend", () => lineEndDrag(role, end, mk));
+    };
+    let resStart = null;
     if (CB.startLine) {
-        const r = resolveSegJS(CB.startLine, builderInst());
-        L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], { color: "#16a34a", weight: 5 }).addTo(coursePreview)
+        resStart = resolveSegJS(CB.startLine, builderInst());
+        L.polyline([[resStart.latA, resStart.lonA], [resStart.latB, resStart.lonB]], { color: "#16a34a", weight: 5 }).addTo(coursePreview)
             .bindTooltip("start line", { permanent: false });
+        endDot(resStart.latA, resStart.lonA, "#16a34a", "start", "A");
+        endDot(resStart.latB, resStart.lonB, "#16a34a", "start", "B");
     }
-    if (CB.finishLine === "start" && CB.startLine) {
-        const r = resolveSegJS(CB.startLine, builderInst());
-        L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], { color: "#dc2626", weight: 2, dashArray: "6 4" }).addTo(coursePreview)
+    if (CB.finishLine === "start" && resStart) {
+        L.polyline([[resStart.latA, resStart.lonA], [resStart.latB, resStart.lonB]], { color: "#dc2626", weight: 2, dashArray: "6 4" }).addTo(coursePreview)
             .bindTooltip("finish = start line", { permanent: false });
     } else if (CB.finishLine && typeof CB.finishLine === "object") {
         const r = resolveSegJS(CB.finishLine, builderInst());
         L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], { color: "#dc2626", weight: 5 }).addTo(coursePreview)
             .bindTooltip("finish line", { permanent: false });
+        endDot(r.latA, r.lonA, "#dc2626", "finish", "A");
+        endDot(r.latB, r.lonB, "#dc2626", "finish", "B");
     }
     // pending first endpoint while defining a line
     if (CB.lineA) {
