@@ -866,6 +866,8 @@ html, body {
     border: 1px solid #cbd5e1;
     box-shadow: 0 1px 6px rgba(0,0,0,.25);
     position: relative;
+    cursor: grab;
+    touch-action: none;
 }
 
 .wind-dial-rot {
@@ -882,21 +884,6 @@ html, body {
     color: #0f172a;
     font-size: 20px;
     line-height: 1;
-}
-
-.wind-dial-tip {
-    position: absolute;
-    top: 2px;
-    left: 50%;
-    width: 18px;
-    height: 18px;
-    margin-left: -9px;
-    border-radius: 50%;
-    background: #2563eb;
-    border: 2px solid white;
-    box-shadow: 0 1px 4px rgba(0,0,0,.4);
-    cursor: grab;
-    touch-action: none;
 }
 
 .wind-dial-label {

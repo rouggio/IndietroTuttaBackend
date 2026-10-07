@@ -1709,8 +1709,12 @@ function builderMapClick(e) {
     if (!CB.open || !CB.placing) return false;
     if (CB.placing === "lineA" || CB.placing === "lineB") {
         const msg = document.getElementById("builder-msg");
-        if (!CB.origin) { msg.textContent = "Set the origin first."; CB.placing = null; syncBuilderArmButtons(); return true; }
         if (CB.placing === "lineA") {
+            if (!CB.origin) {
+                CB.origin = { lat: e.latlng.lat, lon: e.latlng.lng };
+                document.getElementById("builder-origin-label").textContent =
+                    `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)} (from line start)`;
+            }
             CB.lineA = { lat: e.latlng.lat, lon: e.latlng.lng };
             CB.placing = "lineB";
             msg.textContent = "";
@@ -1942,34 +1946,35 @@ function ensureWindDial() {
     windDialCtl = L.control({ position: "bottomleft" });
     windDialCtl.onAdd = function () {
         const div = L.DomUtil.create("div", "wind-dial");
-        div.innerHTML = `<div class="wind-dial-rot" id="windDialRot"><div class="wind-dial-arrow">▲</div><div class="wind-dial-tip" id="windDialTip"></div></div><div class="wind-dial-label" id="windDialLabel"></div>`;
+        div.innerHTML = `<div class="wind-dial-rot" id="windDialRot"><div class="wind-dial-arrow">▲</div></div><div class="wind-dial-label" id="windDialLabel"></div>`;
         L.DomEvent.disableClickPropagation(div);
         L.DomEvent.disableScrollPropagation(div);
-        div.querySelector("#windDialTip").addEventListener("pointerdown", windTipDown);
+        div.addEventListener("pointerdown", windDialDown);
         return div;
     };
     windDialCtl.addTo(map);
     return windDialCtl._container;
 }
-function windTipDown(e) {
+function windDialDown(e) {
     e.stopPropagation();
     e.preventDefault();
-    const tip = e.currentTarget;
-    try { tip.setPointerCapture(e.pointerId); } catch {}
+    const dial = e.currentTarget;
+    try { dial.setPointerCapture(e.pointerId); } catch {}
     const move = ev => {
-        const r = ensureWindDial().getBoundingClientRect();
+        const r = dial.getBoundingClientRect();
         const dx = ev.clientX - (r.left + r.width / 2);
         const dy = ev.clientY - (r.top + r.height / 2);
         setBuilderWind(Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360));
     };
+    move(e);
     const up = () => {
-        tip.removeEventListener("pointermove", move);
-        tip.removeEventListener("pointerup", up);
-        tip.removeEventListener("pointercancel", up);
+        dial.removeEventListener("pointermove", move);
+        dial.removeEventListener("pointerup", up);
+        dial.removeEventListener("pointercancel", up);
     };
-    tip.addEventListener("pointermove", move);
-    tip.addEventListener("pointerup", up);
-    tip.addEventListener("pointercancel", up);
+    dial.addEventListener("pointermove", move);
+    dial.addEventListener("pointerup", up);
+    dial.addEventListener("pointercancel", up);
 }
 function setBuilderWind(deg) {
     CB.windDir = ((Math.round(deg) % 360) + 360) % 360;
