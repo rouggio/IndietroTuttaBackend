@@ -1,0 +1,26 @@
+meta {
+  name: Add boat to session
+  type: http
+  seq: 25
+}
+
+post {
+  url: {{baseUrl}}/sessions/:id/boats
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "deviceId": "{{deviceId}}",
+    "startOffsetSec": 0
+  }
+}

@@ -1,0 +1,34 @@
+meta {
+  name: Create session from inline snapshot (no template row)
+  type: http
+  seq: 27
+}
+
+post {
+  url: {{baseUrl}}/sessions
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "snapshot": {
+      "name": "Ad-hoc stick",
+      "marks": [
+        {"x": 0, "y": 500, "r": 30, "side": "P", "type": "mark"}
+      ],
+      "startLine": {"ax": -40, "ay": 0, "bx": 40, "by": 0},
+      "finishLine": {"sameAs": "start"}
+    },
+    "date": "2026-10-10",
+    "mode": "practice",
+    "originLat": 39.92,
+    "originLon": 9.65,
+    "windDir": 315,
+    "scale": 1
+  }
+}

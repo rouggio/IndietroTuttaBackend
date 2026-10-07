@@ -1,0 +1,15 @@
+meta {
+  name: Delete session
+  type: http
+  seq: 24
+}
+
+delete {
+  url: {{baseUrl}}/sessions/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 1
+}

@@ -13,12 +13,19 @@
 
 <div id="topbar">
     <div style="display:flex;align-items:center;gap:12px">
-        <div id="topbar-logo">⛵ Indietro Tutta</div>
+        <div id="topbar-logo">⛵ Indietro Tutta!</div>
     </div>
     <div style="display:flex;align-items:center;gap:12px;margin-left:auto">
         <div id="topbar-menu">
             <button id="boatsToggleBtn" class="dropbtn">Boats</button>
             <button id="timelineToggleBtn" class="dropbtn">Timeline</button>
+            <div class="dropdown" id="racesDropdown">
+                <button id="racesToggleBtn" class="dropbtn">Races ▾</button>
+                <div class="dropdown-content">
+                    <a id="templatesToggleBtn">Templates</a>
+                    <a id="sessionsToggleBtn">Sessions</a>
+                </div>
+            </div>
         </div>
         <div id="topbar-controls">
             <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
@@ -45,6 +52,63 @@
     <h4>Boats</h4>
     <input id="boatFilter" type="text" placeholder="Filter boats…" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:8px;font-size:13px">
     <div id="device-list">Loading...</div>
+</div>
+
+<div id="template-panel" style="display:none">
+    <h4>Templates</h4>
+    <div id="tab-templates" class="course-tab"></div>
+</div>
+
+<div id="session-panel" style="display:none">
+    <h4>Sessions <span style="float:right;cursor:pointer" id="sessionClose">×</span></h4>
+    <div id="tab-sessions" class="course-tab"></div>
+</div>
+
+<div id="builder-panel" style="display:none">
+    <h4>Template builder <span style="float:right;cursor:pointer" id="builderClose">×</span></h4>
+    <label class="builder-label">Name
+        <input id="builder-name" maxlength="64" placeholder="e.g. Saturday stick">
+    </label>
+    <label class="builder-label">Description
+        <input id="builder-desc" maxlength="140" placeholder="e.g. Light-air bay course">
+    </label>
+    <div id="builder-marks"></div>
+    <div class="device-meta">Roundings in sailing order: P/S leave to port/starboard · G either side · gate = buoy pair. Start/finish points only needed when no lines are set.</div>
+    <div class="builder-row">
+        <button id="builderAddMarks" title="Click map to drop marks">+ Add marks</button>
+        <button id="builderMoveCourse" title="Drag the whole course on the map">Move course</button>
+        <button id="builderLabels" class="arming" title="Toggle distance labels">Labels</button>
+    </div>
+    <div id="builder-origin-label" class="device-meta">Origin: not set (added automatically)</div>
+    <div class="builder-wind">
+        <div class="device-meta">Wind from <b id="builder-wind-val">315</b>° — drag the bottom-left dial</div>
+        <div class="builder-row">
+            <button id="builderWindSuggest" title="Suggest wind from nearby stations">Suggest</button>
+            <span id="builder-wind-src" class="device-meta"></span>
+        </div>
+    </div>
+    <label class="builder-label">Scale
+        <input id="builder-scale" type="number" min="0.1" max="5" step="0.1" value="1">
+    </label>
+    <div class="builder-lines">
+        <b>Lines</b>
+        <div id="builder-lines-list"></div>
+    </div>
+    <div class="builder-adopt">
+        <b>Adopt device waypoints</b>
+        <div class="builder-row">
+            <select id="adopt-boat"></select>
+            <input id="adopt-date" type="date">
+            <button id="adopt-load">Load</button>
+        </div>
+        <div class="device-meta">Pins appear on map in time order — click one to append as a mark. First append sets the origin.</div>
+    </div>
+    <div class="builder-freeze">
+        <div class="builder-row">
+            <button id="builderSave">Save template</button>
+        </div>
+    </div>
+    <div id="builder-msg" class="boat-info-err"></div>
 </div>
 
 <div id="playback">

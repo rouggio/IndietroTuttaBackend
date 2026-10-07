@@ -1,0 +1,26 @@
+meta {
+  name: Repeat session on new day
+  type: http
+  seq: 26
+}
+
+post {
+  url: {{baseUrl}}/sessions/:id/repeat
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "date": "2026-10-17",
+    "mode": "practice"
+  }
+}

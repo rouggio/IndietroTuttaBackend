@@ -7,6 +7,9 @@ const { initDb } = require("./store/db");
 const gpsRoutes = require("./routes/gps");
 const healthRoutes = require("./routes/health");
 const devicesRoutes = require("./routes/devices");
+const templatesRoutes = require("./routes/templates");
+const sessionsRoutes = require("./routes/sessions");
+const windRoutes = require("./routes/wind");
 
 const app = express();
 
@@ -29,6 +32,9 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use("/", gpsRoutes);
 app.use("/", healthRoutes);
 app.use("/", devicesRoutes);
+app.use("/", templatesRoutes);
+app.use("/", sessionsRoutes);
+app.use("/", windRoutes);
 
 // --------------------------------------------------
 // Start server
@@ -36,11 +42,11 @@ app.use("/", devicesRoutes);
 
 initDb().then(() => {
     app.listen(PORT, () => {
-        console.log(`GPS server listening on port ${PORT}`);
+        console.log(`IndietroTutta server listening on port ${PORT}`);
     });
 }).catch(err => {
     console.error("Failed to init DB, starting without it:", err.message);
     app.listen(PORT, () => {
-        console.log(`GPS server listening on port ${PORT} (no DB)`);
+        console.log(`IndietroTutta server listening on port ${PORT} (no DB)`);
     });
 });

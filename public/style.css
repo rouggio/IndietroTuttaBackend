@@ -87,9 +87,27 @@ html, body {
 }
 
 #topbar-menu #boatsToggleBtn.active,
-#topbar-menu #timelineToggleBtn.active {
+#topbar-menu #timelineToggleBtn.active,
+#topbar-menu #templatesToggleBtn.active,
+#topbar-menu #sessionsToggleBtn.active,
+#topbar-menu #racesToggleBtn.active {
     background: #2563eb;
     color: white;
+}
+
+#topbar-menu .dropdown > .dropbtn {
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    background: #f1f5f9;
+    color: #334155;
+}
+
+#topbar-menu .dropdown-content a.active {
+    background: #dbeafe;
+    font-weight: bold;
 }
 
 #mode-switch {
@@ -595,4 +613,323 @@ html, body {
 
 .boat-cal-btn:hover {
     filter: brightness(0.8);
+}
+
+/* Templates & sessions panels */
+#template-panel,
+#session-panel {
+    position: absolute;
+    top: 58px;
+    right: 10px;
+    z-index: 1000;
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    min-width: 250px;
+    max-width: 320px;
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
+}
+
+#template-panel h4,
+#session-panel h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+}
+
+.template-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.template-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    background: #f8fafc;
+}
+
+.template-card:hover {
+    border-color: #2563eb;
+}
+
+.template-card b {
+    display: block;
+    font-size: 12px;
+}
+
+.mode-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: white;
+}
+
+.mode-badge.practice { background: #16a34a; }
+.mode-badge.race { background: #2563eb; }
+
+.status-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 8px;
+    font-size: 11px;
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.status-badge.live { background: #fef3c7; color: #92400e; }
+.status-badge.finished, .status-badge.abandoned { background: #f3f4f6; color: #6b7280; }
+
+/* Builder panel (right side, map stays visible) */
+#builder-panel {
+    position: absolute;
+    top: 58px;
+    right: 10px;
+    z-index: 1000;
+    background: white;
+    padding: 12px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    width: 300px;
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
+    font-size: 13px;
+}
+
+#builder-panel h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+}
+
+.builder-label {
+    display: block;
+    font-weight: bold;
+    margin: 8px 0 2px 0;
+    font-size: 12px;
+    color: #334155;
+}
+
+.builder-label input, .builder-row input, .builder-row select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 5px 7px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: normal;
+}
+
+.builder-row {
+    display: flex;
+    gap: 6px;
+    margin: 6px 0;
+    align-items: center;
+}
+
+.builder-row button {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #f1f5f9;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.builder-row button.arming {
+    background: #fef3c7;
+    border-color: #f59e0b;
+}
+
+.builder-row button.primary {
+    background: #16a34a;
+    color: white;
+    border-color: #16a34a;
+}
+
+.mark-row {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 5px 6px;
+    margin: 4px 0;
+    font-size: 12px;
+    background: #f8fafc;
+}
+
+.mark-row .mark-head {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.mark-row select, .mark-row input {
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 12px;
+    padding: 2px 4px;
+    max-width: 64px;
+}
+
+.mark-row .mini {
+    border: 1px solid #d1d5db;
+    background: white;
+    border-radius: 4px;
+    padding: 2px 6px;
+    cursor: pointer;
+    font-size: 11px;
+}
+
+.builder-adopt, .builder-freeze, .builder-wind, .builder-lines {
+    border-top: 1px solid #f3f4f6;
+    margin-top: 8px;
+    padding-top: 6px;
+}
+
+.builder-adopt b, .builder-lines b {
+    font-size: 12px;
+}
+
+.adopt-pin-label {
+    background: #dc2626;
+    color: white;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    line-height: 20px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: bold;
+    border: 2px solid white;
+    box-shadow: 0 1px 4px rgba(0,0,0,.4);
+}
+
+.builder-mark-label {
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    line-height: 22px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: bold;
+    color: white;
+    border: 2px solid white;
+    box-shadow: 0 1px 4px rgba(0,0,0,.4);
+}
+
+.pile-count {
+    position: absolute;
+    top: -7px;
+    right: -10px;
+    background: #0f172a;
+    color: white;
+    font-size: 9px;
+    font-weight: bold;
+    border-radius: 8px;
+    padding: 0 4px;
+    line-height: 14px;
+    border: 1px solid white;
+}
+
+.line-end-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: white;
+    border: 3px solid #16a34a;
+    box-shadow: 0 1px 4px rgba(0,0,0,.5);
+    cursor: grab;
+}
+
+.line-move-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: white;
+    border: 3px solid #0f172a;
+    box-shadow: 0 1px 4px rgba(0,0,0,.5);
+    cursor: move;
+}
+
+/* Builder distance labels: naked text, rotated along the line via inner span */
+.dist-label {
+    background: none;
+    border: none;
+    box-shadow: none;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.dist-label:before {
+    display: none;
+}
+
+/* Wind dial: screen-anchored indicator, bottom-left of the map */
+.wind-dial {
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    background: rgba(255,255,255,.93);
+    border: 1px solid #cbd5e1;
+    box-shadow: 0 1px 6px rgba(0,0,0,.25);
+    position: relative;
+    cursor: grab;
+    touch-action: none;
+}
+
+.wind-dial-rot {
+    position: absolute;
+    inset: 0;
+}
+
+.wind-dial-arrow {
+    position: absolute;
+    top: 8px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #0f172a;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.wind-dial-label {
+    position: absolute;
+    bottom: 5px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 11px;
+    font-weight: bold;
+    color: #0f172a;
+}
+
+.sess-detail {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 8px;
+    margin-top: 8px;
+    font-size: 12px;
+    background: #f8fafc;
+}
+
+.sess-detail table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.sess-detail td:first-child {
+    font-weight: bold;
+    padding-right: 8px;
+    color: #475569;
+}
+
+.sess-detail td {
+    padding: 2px 0;
 }

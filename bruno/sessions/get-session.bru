@@ -1,0 +1,15 @@
+meta {
+  name: Get session
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{baseUrl}}/sessions/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 1
+}

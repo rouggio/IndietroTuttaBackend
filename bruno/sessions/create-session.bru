@@ -1,0 +1,28 @@
+meta {
+  name: Create session (encapsulate template on day)
+  type: http
+  seq: 21
+}
+
+post {
+  url: {{baseUrl}}/sessions
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "templateId": 1,
+    "name": "Saturday practice",
+    "date": "2026-10-10",
+    "mode": "practice",
+    "originLat": 39.92,
+    "originLon": 9.65,
+    "windDir": 315,
+    "scale": 1
+  }
+}
