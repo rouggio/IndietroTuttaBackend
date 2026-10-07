@@ -1540,6 +1540,12 @@ function openBuilder(init = {}) {
     CB.scale = init.scale || 1;
     CB.placing = null;
     CB.open = true;
+    // templates arrive without placement: default the origin to the map
+    // center so the preview renders immediately (user refines it after)
+    if (!CB.origin && CB.marks.length) {
+        const c = map.getCenter();
+        CB.origin = { lat: Math.round(c.lat * 1e5) / 1e5, lon: Math.round(c.lng * 1e5) / 1e5 };
+    }
     document.getElementById("builder-panel").style.display = "block";
     document.getElementById("builder-name").value = CB.name;
     document.getElementById("builder-wind").value = CB.windDir;
@@ -1548,6 +1554,9 @@ function openBuilder(init = {}) {
     document.getElementById("builder-msg").textContent = "";
     document.getElementById("builder-wind-src").textContent = "";
     document.getElementById("freeze-date").value = new Date().toISOString().slice(0, 10);
+    document.getElementById("builder-origin-label").textContent = CB.origin
+        ? `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`
+        : "Origin: not set (click Set origin)";
     renderBuilderMarks();
     updateBuilderPreview();
     saveBuilderDraft();
@@ -1667,8 +1676,14 @@ function updateBuilderPreview() {
     const resolved = builderResolved();
     const latlngs = resolved.map(m => [m.lat, m.lon]);
     L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(coursePreview);
+    // W/L-style courses stack marks on identical spots — group them so the
+    // tooltip names the whole pile (topmost number is the visible label)
+    const keyOf = m => m.lat.toFixed(6) + "," + m.lon.toFixed(6);
+    const groups = {};
+    resolved.forEach((m, i) => { (groups[keyOf(m)] = groups[keyOf(m)] || []).push(i + 1); });
     resolved.forEach((m, i) => {
         L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(coursePreview);
+        const pile = groups[keyOf(m)];
         const marker = L.marker([m.lat, m.lon], {
             draggable: true,
             icon: L.divIcon({
@@ -1676,6 +1691,7 @@ function updateBuilderPreview() {
                 className: "", iconSize: [22, 22], iconAnchor: [11, 11],
             }),
         }).addTo(coursePreview);
+        marker.bindTooltip(`#${i + 1} ${m.type} ${m.side}` + (pile.length > 1 ? ` · stacked: ${pile.join(", ")}` : ""));
         marker.on("dragend", () => {
             const ll = marker.getLatLng();
             const off = offsetsFromLatLon(ll.lat, ll.lng, builderInst());
