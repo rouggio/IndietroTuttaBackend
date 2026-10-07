@@ -1491,6 +1491,12 @@ if (sessionsBtn && sessionPanel) {
     sessionsBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncSessionsBtn(); saveUI(); loadSessions(); if (racesDropdown) racesDropdown.classList.remove("active"); if (!panelVisible(sessionPanel)) clearSessPreview(); });
     new MutationObserver(syncSessionsBtn).observe(sessionPanel, { attributes: true, attributeFilter: ["style"] });
     syncSessionsBtn();
+    document.getElementById("sessionClose")?.addEventListener("click", () => {
+        sessionPanel.style.display = "none";
+        clearSessPreview();
+        syncSessionsBtn();
+        saveUI();
+    });
 }
 
 let courseTemplatesCache = null;
