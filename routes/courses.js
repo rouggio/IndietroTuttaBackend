@@ -43,13 +43,15 @@ router.get("/courses", async (req, res) => {
 router.post("/courses", async (req, res) => {
     try {
         const { name, owner, marks, template, is_template, startLine, finishLine } = req.body || {};
-        let finalMarks = marks;
+        let finalMarks = marks, finalStart = startLine, finalFinish = finishLine;
         if (template) {
             const t = getTemplate(template);
             if (!t) return res.status(400).json({ error: "unknown template" });
             finalMarks = finalMarks || t.marks;
+            if (finalStart === undefined) finalStart = t.startLine || null;
+            if (finalFinish === undefined) finalFinish = t.finishLine === undefined ? null : t.finishLine;
         }
-        const course = await createCourse({ name, owner, marks: finalMarks, startLine, finishLine, is_template });
+        const course = await createCourse({ name, owner, marks: finalMarks, startLine: finalStart, finishLine: finalFinish, is_template });
         res.status(201).json(course);
     } catch (e) {
         sendErr(res, e);

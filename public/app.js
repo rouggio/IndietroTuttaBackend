@@ -1523,7 +1523,7 @@ async function loadCourseTemplates() {
         el.querySelectorAll("[data-tpl]").forEach(card => {
             card.addEventListener("click", () => {
                 const t = courseTemplatesCache.find(x => x.key === card.getAttribute("data-tpl"));
-                if (t) openBuilder({ name: t.name + " (copy)", marks: t.marks.map(m => ({ ...m })) });
+                if (t) openBuilder({ name: t.name + " (copy)", marks: t.marks.map(m => ({ ...m })), startLine: t.startLine ? { ...t.startLine } : null, finishLine: t.finishLine ? { ...t.finishLine } : null });
             });
         });
         el.querySelectorAll("[data-blank-tpl]").forEach(card => {
@@ -1581,7 +1581,7 @@ function legLabelPos(a, b) {
     const r = ((legAngle(a, b) + 90) * Math.PI) / 180;
     return map.containerPointToLatLng([p.x + Math.cos(r) * 5, p.y + Math.sin(r) * 5]);
 }
-// JS mirror of the backend segment resolve.
+// JS mirror of the backend segment resolve (incl. square-to-wind + bias).
 function resolveSegJS(seg, o) {
     const t = (o.windDir * Math.PI) / 180;
     const cosLat = Math.cos((o.originLat * Math.PI) / 180);
@@ -1591,8 +1591,19 @@ function resolveSegJS(seg, o) {
         const N = -x * scale * Math.sin(t) + y * scale * Math.cos(t);
         return { lat: o.originLat + N / 111320, lon: o.originLon + E / (111320 * cosLat) };
     };
-    const a = pt(seg.ax, seg.ay), b = pt(seg.bx, seg.by);
-    return { ...seg, latA: a.lat, lonA: a.lon, latB: b.lat, lonB: b.lon };
+    if (seg.square === false) {
+        const a = pt(seg.ax, seg.ay), b = pt(seg.bx, seg.by);
+        return { ...seg, latA: a.lat, lonA: a.lon, latB: b.lat, lonB: b.lon };
+    }
+    const cx = (seg.ax + seg.bx) / 2, cy = (seg.ay + seg.by) / 2;
+    const len = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) * scale;
+    const bdeg = ((((o.windDir + 90 + (seg.bias || 0)) % 360) + 360) % 360);
+    const brad = (bdeg * Math.PI) / 180;
+    const c = pt(cx, cy);
+    const half = len / 2;
+    const dLa = (half * Math.cos(brad)) / 111320;
+    const dLo = (half * Math.sin(brad)) / (111320 * cosLat);
+    return { ...seg, latA: c.lat - dLa, lonA: c.lon - dLo, latB: c.lat + dLa, lonB: c.lon + dLo };
 }
 function segLenM(a, b) {
     return map.distance([a.lat, a.lon], [b.lat, b.lon]);
@@ -1733,43 +1744,80 @@ document.getElementById("builderMoveCourse")?.addEventListener("click", () => {
     CB.placing = "move";
     syncBuilderArmButtons();
 });
-function updateLineInfo() {
-    const el = document.getElementById("builder-line-info");
+// Lines list (alongside the marks): length, square/bias, same-as, define/clear.
+function renderLinesBox() {
+    const el = document.getElementById("builder-lines-list");
     if (!el) return;
-    const parts = [];
-    if (CB.startLine) {
-        const r = CB.origin ? resolveSegJS(CB.startLine, builderInst()) : null;
-        parts.push(`Start line${r ? ` ${Math.round(map.distance([r.latA, r.lonA], [r.latB, r.lonB]))}m` : ""}`);
-    }
-    if (CB.finishLine === "start") parts.push("Finish = start line");
-    else if (CB.finishLine) parts.push("Finish line set");
-    if (CB.startLine && CB.marks.length && CB.marks[0].type === "start") parts.push("start point redundant — deletable");
-    if ((CB.finishLine === "start" || CB.finishLine) && CB.marks.length && CB.marks[CB.marks.length - 1].type === "finish") parts.push("finish point redundant — deletable");
-    el.textContent = parts.length ? parts.join(" · ") : "No start line — start/finish fall back to radius circles.";
-    document.getElementById("builderLineStart")?.classList.toggle("arming", CB.placing === "lineA" && CB.lineTarget === "start" || CB.placing === "lineB" && CB.lineTarget === "start");
-    document.getElementById("builderLineFinish")?.classList.toggle("arming", CB.placing === "lineA" && CB.lineTarget === "finish" || CB.placing === "lineB" && CB.lineTarget === "finish");
+    const segLen = seg => Math.round(Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) * (CB.scale || 1));
+    const squareTxt = seg => seg.square === false ? "fixed" : `⊥ wind${seg.bias ? ((seg.bias > 0 ? "+" : "") + seg.bias + "°") : ""}`;
+    const row = (role, seg, isSame) => `
+        <div class="mark-row" data-line="${role}">
+            <div class="mark-head">
+                <b>${role === "start" ? "Start" : "Finish"}</b>
+                <span class="device-meta">${isSame ? "same as start" : seg ? `${segLen(seg)}m · ${squareTxt(seg)}` : "radius circle"}</span>
+            </div>
+            ${seg && !isSame ? `<div class="mark-head" style="margin-top:4px">
+                <label class="device-meta">bias <input data-lb="bias" type="number" min="-60" max="60" step="1" value="${seg.bias || 0}" title="Skew vs square (deg)">°</label>
+                <label class="device-meta"><input data-lb="square" type="checkbox" ${seg.square === false ? "" : "checked"}> square</label>
+            </div>` : ""}
+            <div class="mark-head" style="margin-top:4px">
+                <button class="mini" data-lact="define">Define</button>
+                ${role === "finish" && !isSame ? `<button class="mini" data-lact="same">Same as start</button>` : ""}
+                ${(seg || isSame) ? `<button class="mini" data-lact="clear">Clear</button>` : ""}
+            </div>
+        </div>`;
+    el.innerHTML = row("start", CB.startLine, false) +
+        row("finish", CB.finishLine === "start" ? null : CB.finishLine, CB.finishLine === "start");
+    el.querySelectorAll("[data-line]").forEach(box => {
+        const role = box.getAttribute("data-line");
+        const cur = () => (role === "start" ? CB.startLine : CB.finishLine);
+        const set = seg => { if (role === "start") CB.startLine = seg; else CB.finishLine = seg; };
+        const bias = box.querySelector('[data-lb="bias"]');
+        if (bias) bias.addEventListener("change", () => {
+            const c = cur();
+            if (!c || typeof c !== "object") return;
+            set({ ...c, bias: Math.max(-60, Math.min(60, Number(bias.value) || 0)) });
+            afterLineEdit();
+        });
+        const sq = box.querySelector('[data-lb="square"]');
+        if (sq) sq.addEventListener("change", () => {
+            const c = cur();
+            if (!c || typeof c !== "object") return;
+            const upd = { ...c };
+            if (sq.checked) delete upd.square; else upd.square = false;
+            set(upd);
+            afterLineEdit();
+        });
+        box.querySelectorAll("[data-lact]").forEach(btn => btn.addEventListener("click", () => {
+            const act = btn.getAttribute("data-lact");
+            if (act === "define") {
+                CB.lineTarget = role; CB.lineA = null;
+                CB.placing = "lineA";
+            } else if (act === "same") {
+                if (!CB.startLine) { document.getElementById("builder-msg").textContent = "Set the start line first."; return; }
+                CB.finishLine = "start";
+            } else if (act === "clear") {
+                set(null);
+                CB.lineA = null;
+                if (CB.placing === "lineA" || CB.placing === "lineB") CB.placing = null;
+            }
+            afterLineEdit();
+        }));
+        box.querySelectorAll('[data-lact="define"]').forEach(btn => {
+            btn.classList.toggle("arming", (CB.placing === "lineA" || CB.placing === "lineB") && CB.lineTarget === role);
+        });
+    });
 }
-document.getElementById("builderLineStart")?.addEventListener("click", () => {
-    CB.lineTarget = "start"; CB.lineA = null;
-    CB.placing = CB.placing === "lineA" ? null : "lineA";
-    syncBuilderArmButtons(); updateLineInfo();
-});
-document.getElementById("builderLineFinish")?.addEventListener("click", () => {
-    CB.lineTarget = "finish"; CB.lineA = null;
-    CB.placing = CB.placing === "lineA" ? null : "lineA";
-    syncBuilderArmButtons(); updateLineInfo();
-});
-document.getElementById("builderLineSame")?.addEventListener("click", () => {
-    const msg = document.getElementById("builder-msg");
-    if (!CB.startLine) { msg.textContent = "Set the start line first."; return; }
-    CB.finishLine = "start";
-    msg.textContent = "";
-    updateLineInfo(); updateBuilderPreview(); saveBuilderDraft();
-});
-document.getElementById("builderLineClear")?.addEventListener("click", () => {
-    CB.startLine = null; CB.finishLine = null; CB.lineA = null; CB.placing = null;
-    syncBuilderArmButtons(); updateLineInfo(); updateBuilderPreview(); saveBuilderDraft();
-});
+function afterLineEdit() {
+    document.getElementById("builder-msg").textContent = "";
+    syncBuilderArmButtons();
+    renderLinesBox();
+    updateBuilderPreview();
+    saveBuilderDraft();
+}
+function updateLineInfo() {
+    renderLinesBox();
+}
 // Consumed by the map click handler (registered earlier): true = handled.
 function builderMapClick(e) {
     if (CB.suppressClick) { CB.suppressClick = false; return true; }
@@ -1837,7 +1885,7 @@ function renderBuilderMarks() {
                 <select data-f="type" title="Mark type">
                     ${["start", "mark", "gate", "finish"].map(t => `<option ${m.type === t ? "selected" : ""}>${t}</option>`).join("")}
                 </select>
-                <select data-f="side" title="Required side">
+                <select data-f="side" title="Required side (n/a for start/finish points)" ${m.type === "start" || m.type === "finish" ? "disabled" : ""}>
                     ${["P", "S", "G"].map(s => `<option ${m.side === s ? "selected" : ""}>${s}</option>`).join("")}
                 </select>
                 <input data-f="r" type="number" min="5" max="200" value="${m.r}" title="Radius (m)">

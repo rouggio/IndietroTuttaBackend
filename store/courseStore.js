@@ -11,80 +11,92 @@ const { getClient, initDb } = require("./db");
 
 const LEG = 500;   // default leg length, meters
 const GATE_HALF = 40;
+const LINE_HALF = 40; // start/finish line half-length (80m line at origin)
+
+// OOTB templates: roundings only — ends are line segments (start + shared
+// finish), resolved square to the session wind.
+const OOTB_LINES = {
+    startLine: { ax: -LINE_HALF, ay: 0, bx: LINE_HALF, by: 0 },
+    finishLine: { sameAs: "start" },
+};
 
 const TEMPLATES = [
     {
         key: "wl",
         name: "Windward-Leeward",
         desc: "Start → 1 → 2 → 1 → Finish",
+        ...OOTB_LINES,
         marks: [
-            { x: 0, y: 0, r: 30, side: "P", type: "start" },
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
             { x: 0, y: 0, r: 30, side: "P", type: "mark" },
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
-            { x: 0, y: 0, r: 30, side: "P", type: "finish" },
         ],
     },
     {
         key: "wl-gate",
         name: "W/L with Gate",
         desc: "Start → 1 → Gate → 1 → Finish",
+        ...OOTB_LINES,
         marks: [
-            { x: 0, y: 0, r: 30, side: "P", type: "start" },
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
             { x: -GATE_HALF, y: 0, r: 30, side: "G", type: "gate", gate: "g1" },
             { x: GATE_HALF, y: 0, r: 30, side: "G", type: "gate", gate: "g1" },
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
-            { x: 0, y: 0, r: 30, side: "P", type: "finish" },
         ],
     },
     {
         key: "triangle",
         name: "Triangle",
         desc: "Start → 1 → 2 → 3 → Finish",
+        ...OOTB_LINES,
         marks: [
-            { x: 0, y: 0, r: 30, side: "P", type: "start" },
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
             { x: 350, y: 100, r: 30, side: "P", type: "mark" },
             { x: -350, y: 100, r: 30, side: "P", type: "mark" },
-            { x: 0, y: 0, r: 30, side: "P", type: "finish" },
         ],
     },
     {
         key: "wlt",
         name: "WLT Olympic",
         desc: "Start → 1 → 2 → 3 → 1 → Finish",
+        ...OOTB_LINES,
         marks: [
-            { x: 0, y: 0, r: 30, side: "P", type: "start" },
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
             { x: 350, y: 100, r: 30, side: "P", type: "mark" },
             { x: -350, y: 100, r: 30, side: "P", type: "mark" },
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
-            { x: 0, y: 0, r: 30, side: "P", type: "finish" },
         ],
     },
     {
         key: "trapezoid",
         name: "Trapezoid",
         desc: "Start → 1 → 2 → 3 → 4 → Finish",
+        ...OOTB_LINES,
         marks: [
-            { x: 0, y: 0, r: 30, side: "P", type: "start" },
             { x: -150, y: LEG, r: 30, side: "P", type: "mark" },
             { x: 150, y: LEG, r: 30, side: "P", type: "mark" },
             { x: 150, y: 0, r: 30, side: "P", type: "mark" },
             { x: -150, y: 0, r: 30, side: "P", type: "mark" },
-            { x: 0, y: 0, r: 30, side: "P", type: "finish" },
         ],
     },
 ];
 
+function cloneTemplate(t) {
+    return {
+        ...t,
+        marks: t.marks.map(m => ({ ...m })),
+        startLine: t.startLine ? { ...t.startLine } : t.startLine,
+        finishLine: t.finishLine && typeof t.finishLine === "object" ? { ...t.finishLine } : t.finishLine,
+    };
+}
+
 function getTemplates() {
-    return TEMPLATES.map(t => ({ ...t, marks: t.marks.map(m => ({ ...m })) }));
+    return TEMPLATES.map(cloneTemplate);
 }
 
 function getTemplate(key) {
     const t = TEMPLATES.find(t => t.key === key);
-    return t ? { ...t, marks: t.marks.map(m => ({ ...m })) } : null;
+    return t ? cloneTemplate(t) : null;
 }
 
 const SIDES = ["P", "S", "G"];
@@ -136,8 +148,10 @@ function validateMarks(marks, startLine = null, finishLine = null) {
     return null;
 }
 
-// Optional line segments (wind-frame meters): {ax,ay,bx,by}.
-// finishLine may instead be {sameAs:"start"} — shared start/finish line.
+// Optional line segments (wind-frame meters): {ax,ay,bx,by} plus behavior:
+// square (default true) = bearing follows session wind + bias;
+// square:false = fixed geometry rotating with the template.
+// bias: deliberate skew in degrees (-60..60, 0 = square). Length ≥5m.
 function validateSegment(seg, what) {
     if (seg === null || seg === undefined) return null;
     for (const k of ["ax", "ay", "bx", "by"]) {
@@ -147,6 +161,12 @@ function validateSegment(seg, what) {
     }
     const len = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay);
     if (len < 5) return `${what} must be at least 5m long`;
+    if (seg.square !== undefined && typeof seg.square !== "boolean") {
+        return `${what}.square must be a boolean when present`;
+    }
+    if (seg.bias !== undefined && (typeof seg.bias !== "number" || !isFinite(seg.bias) || Math.abs(seg.bias) > 60)) {
+        return `${what}.bias must be -60..60 when present`;
+    }
     return null;
 }
 

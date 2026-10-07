@@ -28,13 +28,26 @@ function resolveMarks(offsetMarks, { originLat, originLon, windDir, scale = 1 })
 function resolveSegment(seg, { originLat, originLon, windDir, scale = 1 }) {
     const t = (windDir * Math.PI) / 180;
     const cosLat = Math.cos((originLat * Math.PI) / 180);
-    const pt = (x, y) => {
+    const loc = (x, y) => {
         const E = (x * scale) * Math.cos(t) + (y * scale) * Math.sin(t);
         const N = -(x * scale) * Math.sin(t) + (y * scale) * Math.cos(t);
         return { lat: originLat + N / EARTH_M, lon: originLon + E / (EARTH_M * cosLat) };
     };
-    const a = pt(seg.ax, seg.ay), b = pt(seg.bx, seg.by);
-    return { ...seg, latA: a.lat, lonA: a.lon, latB: b.lat, lonB: b.lon };
+    if (seg.square === false) {
+        // fixed geometry: endpoints rotate with the template
+        const a = loc(seg.ax, seg.ay), b = loc(seg.bx, seg.by);
+        return { ...seg, latA: a.lat, lonA: a.lon, latB: b.lat, lonB: b.lon };
+    }
+    // square to wind (default): fixed center + length, bearing follows wind + bias
+    const cx = (seg.ax + seg.bx) / 2, cy = (seg.ay + seg.by) / 2;
+    const len = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) * scale;
+    const bdeg = ((((windDir + 90 + (seg.bias || 0)) % 360) + 360) % 360);
+    const brad = (bdeg * Math.PI) / 180;
+    const c = loc(cx, cy);
+    const half = len / 2;
+    const dLa = (half * Math.cos(brad)) / EARTH_M;
+    const dLo = (half * Math.sin(brad)) / (EARTH_M * cosLat);
+    return { ...seg, latA: c.lat - dLa, lonA: c.lon - dLo, latB: c.lat + dLa, lonB: c.lon + dLo };
 }
 
 // Lines snapshot (wind-frame) + resolved absolute. finishLine may be
