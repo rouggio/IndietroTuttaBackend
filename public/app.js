@@ -412,6 +412,7 @@ map.on("click", e => {
 });
 // Hover anywhere on the map (wide radius — thin route lines are hard to hit)
 map.on("mousemove", e => {
+    if (typeof CB !== "undefined" && CB.open && CB.placing) return; // builder gesture in progress
     const n = findNearestPoint(e.latlng, 100);
     if (n) showHoverPoint(n);
     else hideHover();
@@ -1624,7 +1625,7 @@ function openBuilder(init = {}) {
     document.getElementById("freeze-date").value = new Date().toISOString().slice(0, 10);
     document.getElementById("builder-origin-label").textContent = CB.origin
         ? `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`
-        : "Origin: not set (click Set origin)";
+        : "Origin: not set (added automatically)";
     updateLineInfo();
     renderBuilderMarks();
     updateBuilderPreview();
@@ -1652,15 +1653,61 @@ document.getElementById("builder-scale")?.addEventListener("change", e => {
 });
 function syncBuilderArmButtons() {
     document.getElementById("builderAddMarks")?.classList.toggle("arming", CB.placing === "marks");
-    document.getElementById("builderSetOrigin")?.classList.toggle("arming", CB.placing === "origin");
+    document.getElementById("builderMoveCourse")?.classList.toggle("arming", CB.placing === "move");
     updateLineInfo();
+}
+// Move-course drag: armed via the button, then press-drag anywhere on the
+// map shifts the origin (marks/lines keep their relative geometry).
+let courseMove = null;
+function endCourseMove() {
+    courseMove = null;
+    CB.placing = null;
+    CB.suppressClick = true; // swallow the click released after the drag
+    if (map.dragging) map.dragging.enable();
+    syncBuilderArmButtons();
+    saveBuilderDraft();
+}
+if (typeof map !== "undefined" && map.getContainer) {
+    const box = map.getContainer();
+    box.addEventListener("pointerdown", e => {
+        if (!CB.open || CB.placing !== "move" || !CB.origin) return;
+        if (e.target.closest(".leaflet-marker-icon, .leaflet-tooltip, .leaflet-control, button, input, select, a")) return;
+        e.stopPropagation();
+        e.preventDefault();
+        if (map.dragging) map.dragging.disable();
+        const p = map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
+        courseMove = { startLat: p.lat, startLon: p.lng, oLat: CB.origin.lat, oLon: CB.origin.lon };
+        try { box.setPointerCapture(e.pointerId); } catch {}
+    });
+    box.addEventListener("pointermove", e => {
+        if (!courseMove) return;
+        const p = map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
+        CB.origin = {
+            lat: courseMove.oLat + (p.lat - courseMove.startLat),
+            lon: courseMove.oLon + (p.lng - courseMove.startLon),
+        };
+        document.getElementById("builder-origin-label").textContent =
+            `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`;
+        updateBuilderPreview();
+    });
+    const upMove = () => { if (courseMove) endCourseMove(); };
+    box.addEventListener("pointerup", upMove);
+    box.addEventListener("pointercancel", upMove);
 }
 document.getElementById("builderAddMarks")?.addEventListener("click", () => {
     CB.placing = CB.placing === "marks" ? null : "marks";
     syncBuilderArmButtons();
 });
-document.getElementById("builderSetOrigin")?.addEventListener("click", () => {
-    CB.placing = CB.placing === "origin" ? null : "origin";
+document.getElementById("builderMoveCourse")?.addEventListener("click", () => {
+    if (CB.placing === "move") { endCourseMove(); return; }
+    if (!CB.origin) {
+        const c = map.getCenter();
+        CB.origin = { lat: Math.round(c.lat * 1e5) / 1e5, lon: Math.round(c.lng * 1e5) / 1e5 };
+        document.getElementById("builder-origin-label").textContent =
+            `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`;
+        updateBuilderPreview();
+    }
+    CB.placing = "move";
     syncBuilderArmButtons();
 });
 function updateLineInfo() {
@@ -1702,6 +1749,7 @@ document.getElementById("builderLineClear")?.addEventListener("click", () => {
 });
 // Consumed by the map click handler (registered earlier): true = handled.
 function builderMapClick(e) {
+    if (CB.suppressClick) { CB.suppressClick = false; return true; }
     if (!CB.open || !CB.placing) return false;
     if (CB.placing === "lineA" || CB.placing === "lineB") {
         const msg = document.getElementById("builder-msg");
@@ -1734,13 +1782,7 @@ function builderMapClick(e) {
         syncBuilderArmButtons();
         return true;
     }
-    if (CB.placing === "origin") {
-        CB.origin = { lat: e.latlng.lat, lon: e.latlng.lng };
-        document.getElementById("builder-origin-label").textContent =
-            `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`;
-        CB.placing = null;
-        updateBuilderPreview(); saveBuilderDraft();
-    } else if (CB.placing === "marks") {
+    if (CB.placing === "marks") {
         if (!CB.origin) {
             CB.origin = { lat: e.latlng.lat, lon: e.latlng.lng };
             document.getElementById("builder-origin-label").textContent =
