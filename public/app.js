@@ -405,6 +405,7 @@ function hideHover() {
     if (timelineHoverEl) timelineHoverEl.style.display = "none";
 }
 map.on("click", e => {
+    if (typeof sessSuppressClick !== "undefined" && sessSuppressClick) { sessSuppressClick = false; return; }
     if (typeof builderMapClick === "function" && builderMapClick(e)) return;
     const nearest = findNearestPoint(e.latlng);
     if (nearest) { openBoatPanel(nearest.deviceId, nearest); jumpTimelineTo(nearest); }
@@ -1491,11 +1492,12 @@ if (sessionsBtn && sessionPanel) {
         sessionsBtn.classList.toggle("active", open);
         syncRacesBtn();
     };
-    sessionsBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncSessionsBtn(); saveUI(); loadSessions(); if (racesDropdown) racesDropdown.classList.remove("active"); if (!panelVisible(sessionPanel)) clearSessPreview(); });
+    sessionsBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncSessionsBtn(); saveUI(); loadSessions(); if (racesDropdown) racesDropdown.classList.remove("active"); if (!panelVisible(sessionPanel)) { disarmSessMove(); clearSessPreview(); } });
     new MutationObserver(syncSessionsBtn).observe(sessionPanel, { attributes: true, attributeFilter: ["style"] });
     syncSessionsBtn();
     document.getElementById("sessionClose")?.addEventListener("click", () => {
         sessionPanel.style.display = "none";
+        disarmSessMove();
         clearSessPreview();
         syncSessionsBtn();
         saveUI();
@@ -2411,8 +2413,50 @@ let sessionsCache = [];
 let selectedSessionId = null;
 
 // --- Session creation draft: template + placement previewed on the chart ---
-const SESSDRAFT = { template: null, sel: null, origin: null, windDir: 315, scale: 1 };
+const SESSDRAFT = { template: null, sel: null, origin: null, windDir: 315, scale: 1, placing: null };
 let sessPreview = null;
+let sessMove = null;
+let sessSuppressClick = false;
+function disarmSessMove() {
+    sessMove = null;
+    if (SESSDRAFT.placing === "move") SESSDRAFT.placing = null;
+    if (map.dragging) map.dragging.enable();
+    document.getElementById("sess-move")?.classList.remove("arming");
+}
+if (typeof map !== "undefined" && map.getContainer) {
+    const sessBox = map.getContainer();
+    sessBox.addEventListener("pointerdown", e => {
+        if (SESSDRAFT.placing !== "move" || !SESSDRAFT.origin) return;
+        if (!panelVisible(document.getElementById("session-panel"))) { disarmSessMove(); return; }
+        if (e.target.closest(".leaflet-marker-icon, .leaflet-tooltip, .leaflet-control, button, input, select, a")) return;
+        e.stopPropagation();
+        e.preventDefault();
+        if (map.dragging) map.dragging.disable();
+        const p = map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
+        sessMove = { lastLat: p.lat, lastLon: p.lng };
+        try { sessBox.setPointerCapture(e.pointerId); } catch {}
+    });
+    sessBox.addEventListener("pointermove", e => {
+        if (!sessMove) return;
+        const p = map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
+        const dy = p.lat - sessMove.lastLat, dx = p.lng - sessMove.lastLon;
+        if (!dy && !dx) return;
+        sessMove.lastLat = p.lat; sessMove.lastLon = p.lng;
+        SESSDRAFT.origin = { lat: SESSDRAFT.origin.lat + dy, lon: SESSDRAFT.origin.lon + dx };
+        syncSessForm();
+        renderSessPreview();
+    });
+    const sessUp = () => {
+        if (!sessMove) return;
+        sessMove = null;
+        SESSDRAFT.placing = null;
+        sessSuppressClick = true;
+        if (map.dragging) map.dragging.enable();
+        document.getElementById("sess-move")?.classList.remove("arming");
+    };
+    sessBox.addEventListener("pointerup", sessUp);
+    sessBox.addEventListener("pointercancel", sessUp);
+}
 function clearSessPreview() {
     if (sessPreview) { map.removeLayer(sessPreview); sessPreview = null; }
 }
@@ -2532,7 +2576,7 @@ async function loadSessions(selectId) {
                 <input id="sess-date" type="date" value="${new Date().toISOString().slice(0, 10)}">
                 <select id="sess-mode"><option value="practice">Practice</option><option value="race">Race</option></select>
             </div>
-            <div class="builder-row"><input id="sess-start" type="datetime-local" title="Start time (optional)"></div>
+            <div class="builder-row"><label class="device-meta" style="flex:1">Start <input id="sess-start" type="time" title="Start time on session date (optional)"></label></div>
             <div style="margin:4px 0">${boatChecks || '<span class="device-meta">No boats known yet.</span>'}</div>
             <div class="builder-row"><button id="sess-create" class="primary">Create session</button></div>
             <div id="sess-create-err" class="boat-info-err"></div>
@@ -2564,11 +2608,16 @@ async function loadSessions(selectId) {
             e.target.value = SESSDRAFT.scale;
             renderSessPreview();
         });
-        document.getElementById("sess-center").addEventListener("click", () => {
-            const m = map.getCenter();
-            SESSDRAFT.origin = { lat: Math.round(m.lat * 1e5) / 1e5, lon: Math.round(m.lng * 1e5) / 1e5 };
-            syncSessForm();
-            renderSessPreview();
+        document.getElementById("sess-move").addEventListener("click", () => {
+            if (SESSDRAFT.placing === "move") { disarmSessMove(); return; }
+            if (!SESSDRAFT.origin) {
+                const m = map.getCenter();
+                SESSDRAFT.origin = { lat: Math.round(m.lat * 1e5) / 1e5, lon: Math.round(m.lng * 1e5) / 1e5 };
+                syncSessForm();
+                renderSessPreview();
+            }
+            SESSDRAFT.placing = "move";
+            document.getElementById("sess-move")?.classList.add("arming");
         });
         document.getElementById("sess-wind-suggest").addEventListener("click", async () => {
             const src = document.getElementById("sess-wind-src");
@@ -2591,6 +2640,7 @@ async function loadSessions(selectId) {
             const date = document.getElementById("sess-date").value;
             const mode = document.getElementById("sess-mode").value;
             const startVal = document.getElementById("sess-start").value;
+            const startISO = startVal ? new Date(`${date}T${startVal}`).toISOString() : null;
             const t0 = SESSDRAFT.template;
             if (!t0) { errEl.textContent = "Pick a template first."; return; }
             if (!SESSDRAFT.origin) { errEl.textContent = "Place the origin first (Center here)."; return; }
@@ -2614,7 +2664,7 @@ async function loadSessions(selectId) {
                         name: `${t0.name} — ${date}`, date, mode,
                         originLat: SESSDRAFT.origin.lat, originLon: SESSDRAFT.origin.lon,
                         windDir: SESSDRAFT.windDir, scale: SESSDRAFT.scale,
-                        startTime: startVal ? new Date(startVal).toISOString() : null,
+                        startTime: startISO,
                     }),
                 });
                 const j = await res.json();
@@ -2681,7 +2731,7 @@ async function renderSessionDetail() {
                     <button id="sess-post" title="Postpone 5 minutes">+5:00</button>
                 </div>
                 <div class="builder-row">
-                    <input id="sess-start-custom" type="datetime-local" value="${s.startTime ? toLocalDatetimeValue(new Date(s.startTime)) : ""}">
+                    <input id="sess-start-custom" type="time" value="${s.startTime ? toLocalDatetimeValue(new Date(s.startTime)).slice(11, 16) : ""}" title="Start time on ${escHtml(s.date)}">
                     <button id="sess-start-apply">Set start</button>
                 </div>
                 <div class="builder-row">
@@ -2716,7 +2766,7 @@ async function renderSessionDetail() {
         document.getElementById("sess-start-apply").addEventListener("click", () => {
             const v = document.getElementById("sess-start-custom").value;
             if (!v) return;
-            put({ startTime: new Date(v).toISOString() });
+            put({ startTime: new Date(`${s.date}T${v}`).toISOString() });
         });
         document.getElementById("sess-add-btn").addEventListener("click", async () => {
             const id = document.getElementById("sess-add-boat").value;
