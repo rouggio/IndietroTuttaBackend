@@ -499,7 +499,10 @@ function loadUI() {
         if (d.customStart) customStart = d.customStart;
         if (d.customEnd) customEnd = d.customEnd;
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
-        if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => { const el=document.getElementById(id); if(el && disp) el.style.display=disp; });
+        if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => {
+            if (id === "session-panel") return; // sessions always start closed
+            const el=document.getElementById(id); if(el && disp) el.style.display=disp;
+        });
         if (d.panelPos) Object.entries(d.panelPos).forEach(([id, pos]) => {
             const el = document.getElementById(id);
             if (el && pos && isFinite(parseFloat(pos.left)) && isFinite(parseFloat(pos.top))) {
@@ -2418,6 +2421,8 @@ function sessDraftInst() {
 }
 function renderSessPreview() {
     clearSessPreview();
+    // a template fetch may resolve after the panel was closed — stay buried
+    if (!panelVisible(document.getElementById("session-panel"))) return;
     const t = SESSDRAFT.template;
     if (!t || !SESSDRAFT.origin) return;
     const o = sessDraftInst();
