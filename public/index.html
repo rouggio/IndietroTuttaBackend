@@ -70,6 +70,7 @@
         <input id="builder-name" maxlength="64" placeholder="e.g. Saturday stick">
     </label>
     <div id="builder-marks"></div>
+    <div class="device-meta">Roundings in sailing order: P/S leave to port/starboard · G either side · gate = buoy pair. Start/finish points only needed when no lines are set.</div>
     <div class="builder-row">
         <button id="builderAddMarks" title="Click map to drop marks">+ Add marks</button>
         <button id="builderMoveCourse" title="Drag the whole course on the map">Move course</button>
@@ -87,16 +88,8 @@
         <input id="builder-scale" type="number" min="0.1" max="5" step="0.1" value="1">
     </label>
     <div class="builder-lines">
-        <b>Start / finish lines</b>
-        <div id="builder-line-info" class="device-meta">No start line — start/finish fall back to radius circles.</div>
-        <div class="builder-row">
-            <button id="builderLineStart">Set start line</button>
-            <button id="builderLineFinish">Set finish line</button>
-        </div>
-        <div class="builder-row">
-            <button id="builderLineSame">Finish = start line</button>
-            <button id="builderLineClear">Clear lines</button>
-        </div>
+        <b>Lines</b>
+        <div id="builder-lines-list"></div>
     </div>
     <div class="builder-adopt">
         <b>Adopt device waypoints</b>
