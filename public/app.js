@@ -1377,7 +1377,7 @@ const boatsBtn = document.getElementById("boatsToggleBtn");
 const devicePanel = document.getElementById("device-panel");
 if (boatsBtn && devicePanel) {
     const syncBoatsBtn = () => boatsBtn.classList.toggle("active", devicePanel.style.display !== "none" && devicePanel.style.display !== "");
-    boatsBtn.addEventListener("click", () => { toggleEl("device-panel"); syncBoatsBtn(); saveUI(); });
+    boatsBtn.addEventListener("click", () => { toggleEl("device-panel"); avoidPanelOverlap(devicePanel); syncBoatsBtn(); saveUI(); });
     // keep in sync if panel toggled elsewhere
     new MutationObserver(syncBoatsBtn).observe(devicePanel, { attributes:true, attributeFilter:["style"] });
 }
@@ -1428,7 +1428,7 @@ const coursesBtn = document.getElementById("coursesToggleBtn");
 const coursePanel = document.getElementById("course-panel");
 if (coursesBtn && coursePanel) {
     const syncCoursesBtn = () => coursesBtn.classList.toggle("active", coursePanel.style.display !== "none" && coursePanel.style.display !== "");
-    coursesBtn.addEventListener("click", () => { toggleEl("course-panel"); syncCoursesBtn(); saveUI(); });
+    coursesBtn.addEventListener("click", () => { toggleEl("course-panel"); avoidPanelOverlap(coursePanel); syncCoursesBtn(); saveUI(); });
     new MutationObserver(syncCoursesBtn).observe(coursePanel, { attributes: true, attributeFilter: ["style"] });
     syncCoursesBtn();
 }
@@ -2030,3 +2030,60 @@ async function renderSessionDetail() {
         el.innerHTML = '<div class="boat-info-err">Failed to load session.</div>';
     }
 }
+
+// --- Floating panels: drag by header + no-overlap on show ---
+function makeFloatingDraggable(el) {
+    if (!el || el.dataset.draggable) return;
+    const header = el.querySelector("h4");
+    if (!header) return;
+    el.dataset.draggable = "1";
+    header.style.cursor = "move";
+    header.style.userSelect = "none";
+    header.style.touchAction = "none";
+    let drag = null;
+    header.addEventListener("pointerdown", e => {
+        if (e.target.closest("button,input,select,a")) return;
+        const r = el.getBoundingClientRect();
+        drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+        try { header.setPointerCapture(e.pointerId); } catch {}
+        e.preventDefault();
+    });
+    header.addEventListener("pointermove", e => {
+        if (!drag) return;
+        el.style.left = Math.max(0, e.clientX - drag.dx) + "px";
+        el.style.top = Math.max(0, e.clientY - drag.dy) + "px";
+    });
+    const end = () => { drag = null; };
+    header.addEventListener("pointerup", end);
+    header.addEventListener("pointercancel", end);
+}
+function panelVisible(el) {
+    return !!el && el.style.display !== "none" && el.style.display !== "";
+}
+function rectsOverlap(a, b) {
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+// If el (just shown) covers another open floating panel, cascade it below;
+// if that runs off-screen, dock it right of the other panel instead.
+function avoidPanelOverlap(el) {
+    if (!panelVisible(el)) return;
+    const others = ["device-panel", "course-panel"]
+        .map(id => document.getElementById(id))
+        .filter(o => o && o !== el && panelVisible(o));
+    for (const o of others) {
+        const r = el.getBoundingClientRect(), q = o.getBoundingClientRect();
+        if (!rectsOverlap(r, q)) continue;
+        const below = q.bottom + 8;
+        if (below + Math.min(r.height, 300) > window.innerHeight) {
+            el.style.left = Math.min(q.right + 8, Math.max(0, window.innerWidth - r.width - 8)) + "px";
+            el.style.top = "58px";
+        } else {
+            el.style.top = below + "px";
+        }
+    }
+}
+makeFloatingDraggable(document.getElementById("device-panel"));
+makeFloatingDraggable(document.getElementById("course-panel"));
+// fix any overlap restored from a previous session
+avoidPanelOverlap(document.getElementById("course-panel"));
+avoidPanelOverlap(document.getElementById("device-panel"));
