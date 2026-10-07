@@ -2200,7 +2200,8 @@ function updateBuilderPreview() {
             .addTo(coursePreview) : null;
         PV.gateSegs.push({ seg, tip, i: g[0], j: g[1] });
     });
-    // pending first endpoint while defining a line    if (CB.lineA) {
+    // pending first endpoint while defining a line
+    if (CB.lineA) {
         L.circleMarker([CB.lineA.lat, CB.lineA.lon], { radius: 6, color: "#0f172a", fillOpacity: 1 }).addTo(coursePreview)
             .bindTooltip(`line ${CB.lineTarget}: click second end`);
     }
