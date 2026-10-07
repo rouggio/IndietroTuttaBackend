@@ -19,6 +19,7 @@
         <div id="topbar-menu">
             <button id="boatsToggleBtn" class="dropbtn">Boats</button>
             <button id="timelineToggleBtn" class="dropbtn">Timeline</button>
+            <button id="coursesToggleBtn" class="dropbtn">Courses</button>
         </div>
         <div id="topbar-controls">
             <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
@@ -45,6 +46,67 @@
     <h4>Boats</h4>
     <input id="boatFilter" type="text" placeholder="Filter boats…" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:8px;font-size:13px">
     <div id="device-list">Loading...</div>
+</div>
+
+<div id="course-panel" style="display:none">
+    <h4>Courses &amp; Sessions</h4>
+    <div class="course-tabs">
+        <button data-ctab="templates" class="active">Templates</button>
+        <button data-ctab="courses">My courses</button>
+        <button data-ctab="sessions">Sessions</button>
+    </div>
+    <div id="course-tab-templates" class="course-tab"></div>
+    <div id="course-tab-courses" class="course-tab" style="display:none"></div>
+    <div id="course-tab-sessions" class="course-tab" style="display:none"></div>
+</div>
+
+<div id="builder-panel" style="display:none">
+    <h4>Course builder <span style="float:right;cursor:pointer" id="builderClose">×</span></h4>
+    <label class="builder-label">Name
+        <input id="builder-name" maxlength="64" placeholder="e.g. Saturday stick">
+    </label>
+    <div id="builder-marks"></div>
+    <div class="builder-row">
+        <button id="builderAddMarks" title="Click map to drop marks">+ Add marks</button>
+        <button id="builderSetOrigin" title="Click map to set venue origin">Set origin</button>
+    </div>
+    <div id="builder-origin-label" class="device-meta">Origin: not set (click Set origin)</div>
+    <div class="builder-wind">
+        <label>Wind from (<span id="builder-wind-val">315</span>°)
+            <input type="range" id="builder-wind" min="0" max="359" value="315" style="width:100%">
+        </label>
+        <div class="builder-row">
+            <button id="builderWindSuggest" title="Suggest wind from nearby stations">Suggest</button>
+            <span id="builder-wind-src" class="device-meta"></span>
+        </div>
+    </div>
+    <label class="builder-label">Scale
+        <input id="builder-scale" type="number" min="0.1" max="5" step="0.1" value="1">
+    </label>
+    <div class="builder-adopt">
+        <b>Adopt device waypoints</b>
+        <div class="builder-row">
+            <select id="adopt-boat"></select>
+            <input id="adopt-date" type="date">
+            <button id="adopt-load">Load</button>
+        </div>
+        <div class="device-meta">Pins appear on map in time order — click one to append as a mark. First append sets the origin.</div>
+        <div class="builder-row">
+            <button id="adopt-wind" title="Set wind from first two flags (sailed upwind leg)">Wind from first two flags</button>
+        </div>
+    </div>
+    <div class="builder-freeze">
+        <div class="builder-row">
+            <input id="freeze-date" type="date">
+            <select id="freeze-mode"><option value="practice">Practice</option><option value="race">Race</option></select>
+        </div>
+        <div id="freeze-boats" class="device-meta"></div>
+        <div class="builder-row">
+            <button id="builderSave">Save template</button>
+            <button id="builderFreeze" class="primary">Freeze to session</button>
+        </div>
+    </div>
+    <div id="builder-msg" class="boat-info-err"></div>
 </div>
 
 <div id="playback">

@@ -31,6 +31,8 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
 - Map: polyline tracks + flagged markers, per-boat colored stripes, no-auto-pan (recenter on demand), hover 100m dots, click-to-jump.
 - Boat panels (Leaflet controls, draggable): Speed/Course/Time + Boat make-model, header icons ⌖ (center map, keeps zoom) + ⓘ (info modal) + ×. Info modal: read-only Device/Status/Firmware/Last/First seen + editable Boat name + Make/model → `PUT /boats/:id`, list + panels refresh.
 - Boats list: filter, status dots + firmware (`v1.0.x` after lastSeen when reported), 📅 per-row sailing-days calendar (active days in boat color → click sets custom day range).
+- Courses panel (topbar toggle, 3 tabs): Templates (5 presets → builder), My courses (preview/edit/delete), Sessions (create + committee: start +5:00/postpone/custom start, status, boats + pursuit offsets, delete).
+- Builder (right panel, map stays visible): click-to-drop + draggable marks (type/side/radius/order editors), venue origin picker, wind slider + `/wind` suggest (source/dist/age shown), scale, waypoint adopter (boat+day → flagged pins → append, first sets origin, wind from first two flags), save template, freeze to session (+auto-assign boats). Drafts in `localStorage`.
 - Playback: play/rewind/speed 1–20x, timeline with per-boat tracks + speed overlay, cursor follows nearest real point, live hides timeline.
 - `public/ota/latest.txt + firmware.bin` — written by device `make dist`, served static. `favicon.svg` boat icon.
 

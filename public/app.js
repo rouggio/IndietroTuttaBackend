@@ -389,6 +389,7 @@ function hideHover() {
     if (timelineHoverEl) timelineHoverEl.style.display = "none";
 }
 map.on("click", e => {
+    if (typeof builderMapClick === "function" && builderMapClick(e)) return;
     const nearest = findNearestPoint(e.latlng);
     if (nearest) { openBoatPanel(nearest.deviceId, nearest); jumpTimelineTo(nearest); }
     else closeAllBoatPanels();
@@ -453,6 +454,7 @@ function saveUI() {
             panels: {
                 "device-panel": document.getElementById("device-panel")?.style.display,
                 "playback": document.getElementById("playback")?.style.display,
+                "course-panel": document.getElementById("course-panel")?.style.display,
             },
             viewGpsVisible: undefined, // legacy compat (now per-boat panels)
             openPanels: [...boatPanels.values()].filter(p => p.open).map(p => p.id),
@@ -1388,3 +1390,643 @@ if (timelineBtn && playbackEl) {
     syncTimelineBtn();
 }
 document.getElementById("boatFilter")?.addEventListener("input", () => { saveUI(); refreshDevices(); });
+
+// --- Courses, builder & sessions (Step 2) ---
+function escHtml(s) {
+    return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+// JS mirror of the backend wind-frame resolve (rotate + translate).
+function resolveMarksJS(offsetMarks, o) {
+    const t = (o.windDir * Math.PI) / 180;
+    const cosLat = Math.cos((o.originLat * Math.PI) / 180);
+    const scale = o.scale || 1;
+    return offsetMarks.map(m => {
+        const x = m.x * scale, y = m.y * scale;
+        const E = x * Math.cos(t) + y * Math.sin(t);
+        const N = -x * Math.sin(t) + y * Math.cos(t);
+        return { ...m, lat: o.originLat + N / 111320, lon: o.originLon + E / (111320 * cosLat) };
+    });
+}
+// Inverse: absolute lat/lon → wind-frame offsets (waypoint adopter).
+function offsetsFromLatLon(lat, lon, o) {
+    const t = (o.windDir * Math.PI) / 180;
+    const cosLat = Math.cos((o.originLat * Math.PI) / 180);
+    const E = (lon - o.originLon) * 111320 * cosLat;
+    const N = (lat - o.originLat) * 111320;
+    const scale = o.scale || 1;
+    return { x: (E * Math.cos(t) - N * Math.sin(t)) / scale, y: (E * Math.sin(t) + N * Math.cos(t)) / scale };
+}
+function bearingBetween(a, b) {
+    const r = Math.PI / 180;
+    const dLon = (b.lon - a.lon) * r;
+    const y = Math.sin(dLon) * Math.cos(b.lat * r);
+    const x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos(dLon);
+    return ((Math.atan2(y, x) / r) + 360) % 360;
+}
+
+const coursesBtn = document.getElementById("coursesToggleBtn");
+const coursePanel = document.getElementById("course-panel");
+if (coursesBtn && coursePanel) {
+    const syncCoursesBtn = () => coursesBtn.classList.toggle("active", coursePanel.style.display !== "none" && coursePanel.style.display !== "");
+    coursesBtn.addEventListener("click", () => { toggleEl("course-panel"); syncCoursesBtn(); saveUI(); });
+    new MutationObserver(syncCoursesBtn).observe(coursePanel, { attributes: true, attributeFilter: ["style"] });
+    syncCoursesBtn();
+}
+document.querySelectorAll("[data-ctab]").forEach(btn => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll("[data-ctab]").forEach(b => b.classList.toggle("active", b === btn));
+        document.querySelectorAll(".course-tab").forEach(t => t.style.display = "none");
+        const tab = document.getElementById("course-tab-" + btn.getAttribute("data-ctab"));
+        if (tab) tab.style.display = "block";
+        if (btn.getAttribute("data-ctab") === "templates") loadCourseTemplates();
+        if (btn.getAttribute("data-ctab") === "courses") loadMyCourses();
+        if (btn.getAttribute("data-ctab") === "sessions") loadSessions();
+    });
+});
+
+let courseTemplatesCache = null;
+async function loadCourseTemplates() {
+    const el = document.getElementById("course-tab-templates");
+    try {
+        if (!courseTemplatesCache) {
+            const res = await fetch("/courses/templates");
+            courseTemplatesCache = await res.json();
+        }
+        el.innerHTML = `<div class="device-meta" style="margin-bottom:6px">Wind-frame presets — placed + rotated on the day.</div>
+        <div class="template-grid">` + courseTemplatesCache.map(t => `
+            <div class="template-card" data-tpl="${escHtml(t.key)}">
+                <b>${escHtml(t.name)}</b>
+                <span class="device-meta">${escHtml(t.desc)} · ${t.marks.length} marks</span>
+            </div>`).join("") + `</div>`;
+        el.querySelectorAll("[data-tpl]").forEach(card => {
+            card.addEventListener("click", () => {
+                const t = courseTemplatesCache.find(x => x.key === card.getAttribute("data-tpl"));
+                if (t) openBuilder({ name: t.name, marks: t.marks.map(m => ({ ...m })) });
+            });
+        });
+    } catch (e) {
+        el.innerHTML = '<div class="boat-info-err">Failed to load templates.</div>';
+    }
+}
+
+let myCoursesCache = [];
+async function loadMyCourses() {
+    const el = document.getElementById("course-tab-courses");
+    try {
+        const res = await fetch("/courses");
+        myCoursesCache = await res.json();
+        if (!myCoursesCache.length) {
+            el.innerHTML = `<div class="device-meta">No saved courses yet.</div>
+                <div class="builder-row"><button id="newCourseBtn">New course</button></div>`;
+        } else {
+            el.innerHTML = myCoursesCache.map(c => `
+                <div class="device-item" data-course="${c.id}" style="cursor:pointer">
+                    <div style="overflow:hidden;flex:1">
+                        <span class="device-name">${escHtml(c.name)}</span>
+                        <div class="device-meta">${c.marks.length} marks · v${c.version}${c.is_template ? " · template" : ""}</div>
+                    </div>
+                    <div style="text-align:right">
+                        <button class="mini-del" data-del-course="${c.id}" title="Delete course" style="border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer">×</button>
+                    </div>
+                </div>`).join("") + `
+                <div class="builder-row"><button id="newCourseBtn">New course</button></div>`;
+        }
+        document.getElementById("newCourseBtn")?.addEventListener("click", () => openBuilder({ name: "", marks: [] }));
+        el.querySelectorAll("[data-course]").forEach(row => {
+            row.addEventListener("click", e => {
+                if (e.target.closest("[data-del-course]")) return;
+                const c = myCoursesCache.find(x => String(x.id) === row.getAttribute("data-course"));
+                if (c) openBuilder({ courseId: c.id, name: c.name, marks: c.marks.map(m => ({ ...m })) });
+            });
+        });
+        el.querySelectorAll("[data-del-course]").forEach(btn => {
+            btn.addEventListener("click", async e => {
+                e.stopPropagation();
+                if (!confirm("Delete this course? Sessions already frozen keep their copy.")) return;
+                await fetch(`/courses/${btn.getAttribute("data-del-course")}`, { method: "DELETE" });
+                loadMyCourses();
+            });
+        });
+    } catch (e) {
+        el.innerHTML = '<div class="boat-info-err">Failed to load courses.</div>';
+    }
+}
+
+// --- Builder state + preview layers ---
+const CB = {
+    open: false, courseId: null, name: "", marks: [],
+    origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'origin' | null
+};
+let coursePreview = null; // L.layerGroup for resolved preview
+let adoptPins = null;     // L.layerGroup for waypoint pins
+let adoptFlags = [];      // flagged points loaded for adoption
+const BUILDER_DRAFT_KEY = "indietrotutta:builder";
+
+function builderInst() {
+    return { originLat: CB.origin?.lat, originLon: CB.origin?.lon, windDir: CB.windDir, scale: CB.scale };
+}
+function builderResolved() {
+    if (!CB.origin) return [];
+    try { return resolveMarksJS(CB.marks, builderInst()); } catch { return []; }
+}
+const MARK_COLORS = { start: "#16a34a", finish: "#dc2626", gate: "#984ea3", mark: "#f59e0b" };
+
+function openBuilder(init = {}) {
+    CB.courseId = init.courseId ?? null;
+    CB.name = init.name || "";
+    CB.marks = (init.marks || []).map(m => ({ ...m }));
+    CB.origin = init.origin || null;
+    CB.windDir = init.windDir ?? 315;
+    CB.scale = init.scale || 1;
+    CB.placing = null;
+    CB.open = true;
+    document.getElementById("builder-panel").style.display = "block";
+    document.getElementById("builder-name").value = CB.name;
+    document.getElementById("builder-wind").value = CB.windDir;
+    document.getElementById("builder-wind-val").textContent = CB.windDir;
+    document.getElementById("builder-scale").value = CB.scale;
+    document.getElementById("builder-msg").textContent = "";
+    document.getElementById("builder-wind-src").textContent = "";
+    document.getElementById("freeze-date").value = new Date().toISOString().slice(0, 10);
+    renderBuilderMarks();
+    updateBuilderPreview();
+    saveBuilderDraft();
+    loadAdoptBoats();
+    refreshFreezeBoats();
+}
+function closeBuilder() {
+    CB.open = false;
+    CB.placing = null;
+    document.getElementById("builder-panel").style.display = "none";
+    if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
+    if (adoptPins) { map.removeLayer(adoptPins); adoptPins = null; }
+    adoptFlags = [];
+    syncBuilderArmButtons();
+}
+document.getElementById("builderClose")?.addEventListener("click", closeBuilder);
+document.getElementById("builder-name")?.addEventListener("input", e => { CB.name = e.target.value; saveBuilderDraft(); });
+document.getElementById("builder-scale")?.addEventListener("change", e => {
+    CB.scale = Math.min(5, Math.max(0.1, Number(e.target.value) || 1));
+    e.target.value = CB.scale;
+    updateBuilderPreview(); saveBuilderDraft();
+});
+document.getElementById("builder-wind")?.addEventListener("input", e => {
+    CB.windDir = Number(e.target.value);
+    document.getElementById("builder-wind-val").textContent = CB.windDir;
+    updateBuilderPreview(); saveBuilderDraft();
+});
+function syncBuilderArmButtons() {
+    document.getElementById("builderAddMarks")?.classList.toggle("arming", CB.placing === "marks");
+    document.getElementById("builderSetOrigin")?.classList.toggle("arming", CB.placing === "origin");
+}
+document.getElementById("builderAddMarks")?.addEventListener("click", () => {
+    CB.placing = CB.placing === "marks" ? null : "marks";
+    syncBuilderArmButtons();
+});
+document.getElementById("builderSetOrigin")?.addEventListener("click", () => {
+    CB.placing = CB.placing === "origin" ? null : "origin";
+    syncBuilderArmButtons();
+});
+// Consumed by the map click handler (registered earlier): true = handled.
+function builderMapClick(e) {
+    if (!CB.open || !CB.placing) return false;
+    if (CB.placing === "origin") {
+        CB.origin = { lat: e.latlng.lat, lon: e.latlng.lng };
+        document.getElementById("builder-origin-label").textContent =
+            `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`;
+        CB.placing = null;
+        updateBuilderPreview(); saveBuilderDraft();
+    } else if (CB.placing === "marks") {
+        if (!CB.origin) {
+            CB.origin = { lat: e.latlng.lat, lon: e.latlng.lng };
+            document.getElementById("builder-origin-label").textContent =
+                `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)} (from first mark)`;
+        }
+        const off = offsetsFromLatLon(e.latlng.lat, e.latlng.lng, builderInst());
+        CB.marks.push({
+            x: Math.round(off.x * 10) / 10, y: Math.round(off.y * 10) / 10,
+            r: 30, side: "P", type: CB.marks.length === 0 ? "start" : "mark",
+        });
+        renderBuilderMarks();
+        updateBuilderPreview(); saveBuilderDraft();
+        // stay armed for the next mark
+    }
+    syncBuilderArmButtons();
+    return true;
+}
+
+function renderBuilderMarks() {
+    const el = document.getElementById("builder-marks");
+    if (!CB.marks.length) {
+        el.innerHTML = '<div class="device-meta">No marks — click "+ Add marks" then click the map, or adopt waypoints below.</div>';
+        return;
+    }
+    el.innerHTML = CB.marks.map((m, i) => `
+        <div class="mark-row" data-mark="${i}">
+            <div class="mark-head">
+                <b>#${i + 1}</b>
+                <select data-f="type" title="Mark type">
+                    ${["start", "mark", "gate", "finish"].map(t => `<option ${m.type === t ? "selected" : ""}>${t}</option>`).join("")}
+                </select>
+                <select data-f="side" title="Required side">
+                    ${["P", "S", "G"].map(s => `<option ${m.side === s ? "selected" : ""}>${s}</option>`).join("")}
+                </select>
+                <input data-f="r" type="number" min="5" max="200" value="${m.r}" title="Radius (m)">
+                <button class="mini" data-up title="Move earlier">↑</button>
+                <button class="mini" data-down title="Move later">↓</button>
+                <button class="mini" data-del title="Delete mark">×</button>
+            </div>
+            <div class="device-meta">${Math.round(m.x)}m E, ${Math.round(m.y)}m N (wind frame)${m.sourceUid ? ` · from ${escHtml(m.sourceUid)}` : ""}${m.gate ? ` · gate ${escHtml(m.gate)}` : ""}</div>
+        </div>`).join("");
+    el.querySelectorAll("[data-mark]").forEach(row => {
+        const i = Number(row.getAttribute("data-mark"));
+        row.querySelector("[data-f=type]").addEventListener("change", e => { CB.marks[i].type = e.target.value; updateBuilderPreview(); saveBuilderDraft(); });
+        row.querySelector("[data-f=side]").addEventListener("change", e => { CB.marks[i].side = e.target.value; updateBuilderPreview(); saveBuilderDraft(); });
+        row.querySelector("[data-f=r]").addEventListener("change", e => {
+            CB.marks[i].r = Math.min(200, Math.max(5, Number(e.target.value) || 30));
+            e.target.value = CB.marks[i].r;
+            updateBuilderPreview(); saveBuilderDraft();
+        });
+        row.querySelector("[data-up]").addEventListener("click", () => {
+            if (i > 0) { [CB.marks[i - 1], CB.marks[i]] = [CB.marks[i], CB.marks[i - 1]]; renderBuilderMarks(); updateBuilderPreview(); saveBuilderDraft(); }
+        });
+        row.querySelector("[data-down]").addEventListener("click", () => {
+            if (i < CB.marks.length - 1) { [CB.marks[i + 1], CB.marks[i]] = [CB.marks[i], CB.marks[i + 1]]; renderBuilderMarks(); updateBuilderPreview(); saveBuilderDraft(); }
+        });
+        row.querySelector("[data-del]").addEventListener("click", () => {
+            CB.marks.splice(i, 1); renderBuilderMarks(); updateBuilderPreview(); saveBuilderDraft();
+        });
+    });
+}
+
+function updateBuilderPreview() {
+    if (!CB.open) return;
+    if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
+    if (!CB.origin || !CB.marks.length) return;
+    coursePreview = L.layerGroup().addTo(map);
+    const resolved = builderResolved();
+    const latlngs = resolved.map(m => [m.lat, m.lon]);
+    L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(coursePreview);
+    resolved.forEach((m, i) => {
+        L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(coursePreview);
+        const marker = L.marker([m.lat, m.lon], {
+            draggable: true,
+            icon: L.divIcon({
+                html: `<div class="builder-mark-label" style="background:${MARK_COLORS[m.type] || "#f59e0b"}">${i + 1}</div>`,
+                className: "", iconSize: [22, 22], iconAnchor: [11, 11],
+            }),
+        }).addTo(coursePreview);
+        marker.on("dragend", () => {
+            const ll = marker.getLatLng();
+            const off = offsetsFromLatLon(ll.lat, ll.lng, builderInst());
+            CB.marks[i].x = Math.round(off.x * 10) / 10;
+            CB.marks[i].y = Math.round(off.y * 10) / 10;
+            renderBuilderMarks();
+            updateBuilderPreview(); saveBuilderDraft();
+        });
+    });
+    // wind arrow at origin (points where the wind comes FROM)
+    const t = (CB.windDir * Math.PI) / 180;
+    const ax = Math.sin(t), ay = Math.cos(t); // unit vector toward wind source (E,N)
+    const o = CB.origin;
+    const tip = [o.lat + ay * 120 / 111320, o.lon + ax * 120 / (111320 * Math.cos(o.lat * Math.PI / 180))];
+    L.polyline([[o.lat, o.lon], tip], { color: "#94a3b8", weight: 3 }).addTo(coursePreview)
+        .bindTooltip(`wind ${CB.windDir}°`, { permanent: false });
+}
+
+// --- Waypoint adopter ---
+async function loadAdoptBoats() {
+    const sel = document.getElementById("adopt-boat");
+    if (!lastDevices.length) await refreshDevices();
+    sel.innerHTML = lastDevices.map(d => `<option value="${escHtml(d.deviceId)}">${escHtml(d.username || d.deviceId.slice(-5))}</option>`).join("");
+    if (!document.getElementById("adopt-date").value) {
+        document.getElementById("adopt-date").value = new Date().toISOString().slice(0, 10);
+    }
+}
+document.getElementById("adopt-load")?.addEventListener("click", async () => {
+    const deviceId = document.getElementById("adopt-boat").value;
+    const date = document.getElementById("adopt-date").value;
+    const msg = document.getElementById("builder-msg");
+    if (!deviceId || !date) { msg.textContent = "Pick a boat and a day first."; return; }
+    msg.textContent = "";
+    try {
+        const res = await fetch(`/gps?deviceId=${encodeURIComponent(deviceId)}&date=${encodeURIComponent(date)}&flagged=true`);
+        adoptFlags = await res.json();
+        if (adoptPins) { map.removeLayer(adoptPins); adoptPins = null; }
+        if (!adoptFlags.length) { msg.textContent = "No flagged waypoints that day."; return; }
+        adoptPins = L.layerGroup().addTo(map);
+        adoptFlags.forEach((p, i) => {
+            const mk = L.marker([p.lat, p.lon], {
+                icon: L.divIcon({ html: `<div class="adopt-pin-label">F${i + 1}</div>`, className: "", iconSize: [20, 20], iconAnchor: [10, 10] }),
+            }).addTo(adoptPins);
+            mk.bindTooltip(`F${i + 1} · ${new Date(p.timestamp || p.receivedAt).toLocaleTimeString()} · ${escHtml(p.uid || "")}`);
+            mk.on("click", () => adoptFlag(i));
+        });
+        map.fitBounds(adoptFlags.map(p => [p.lat, p.lon]), { padding: [30, 30] });
+    } catch (e) {
+        msg.textContent = "Failed to load waypoints.";
+    }
+});
+function adoptFlag(i) {
+    const p = adoptFlags[i];
+    if (!p) return;
+    if (!CB.origin) {
+        CB.origin = { lat: p.lat, lon: p.lon };
+        document.getElementById("builder-origin-label").textContent =
+            `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)} (from ${p.uid || "flag"})`;
+    }
+    const off = offsetsFromLatLon(p.lat, p.lon, builderInst());
+    CB.marks.push({
+        x: Math.round(off.x * 10) / 10, y: Math.round(off.y * 10) / 10,
+        r: 30, side: "P", type: CB.marks.length === 0 ? "start" : "mark",
+        sourceUid: p.uid || undefined,
+    });
+    renderBuilderMarks();
+    updateBuilderPreview(); saveBuilderDraft();
+}
+document.getElementById("adopt-wind")?.addEventListener("click", () => {
+    const msg = document.getElementById("builder-msg");
+    if (adoptFlags.length < 2) { msg.textContent = "Load flags first (need at least two)."; return; }
+    const b = bearingBetween(adoptFlags[0], adoptFlags[1]);
+    CB.windDir = Math.round(b) % 360;
+    document.getElementById("builder-wind").value = CB.windDir;
+    document.getElementById("builder-wind-val").textContent = CB.windDir;
+    msg.textContent = "";
+    updateBuilderPreview(); saveBuilderDraft();
+});
+document.getElementById("builderWindSuggest")?.addEventListener("click", async () => {
+    const src = document.getElementById("builder-wind-src");
+    if (!CB.origin) { src.textContent = "Set the origin first."; return; }
+    src.textContent = "asking…";
+    try {
+        const res = await fetch(`/wind?lat=${CB.origin.lat}&lon=${CB.origin.lon}`);
+        if (!res.ok) throw new Error();
+        const w = await res.json();
+        CB.windDir = ((Math.round(w.dir) % 360) + 360) % 360;
+        document.getElementById("builder-wind").value = CB.windDir;
+        document.getElementById("builder-wind-val").textContent = CB.windDir;
+        src.textContent = `${escHtml(w.source)} · ${w.distKm != null ? w.distKm + "km" : "model"} · ${w.ageMin}min ago · ${w.speedKn}kn`;
+        updateBuilderPreview(); saveBuilderDraft();
+    } catch {
+        src.textContent = "no wind source available";
+    }
+});
+
+// --- Save template / freeze to session ---
+async function builderSaveCourse() {
+    const msg = document.getElementById("builder-msg");
+    const name = document.getElementById("builder-name").value.trim() || "Untitled course";
+    try {
+        let res;
+        if (CB.courseId) {
+            res = await fetch(`/courses/${CB.courseId}`, {
+                method: "PUT", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, marks: CB.marks }),
+            });
+        } else {
+            res = await fetch("/courses", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, marks: CB.marks, is_template: true }),
+            });
+        }
+        const j = await res.json();
+        if (!res.ok) { msg.textContent = j.error || "Save failed."; return null; }
+        CB.courseId = j.id;
+        CB.name = j.name;
+        document.getElementById("builder-name").value = j.name;
+        msg.textContent = "";
+        loadMyCourses();
+        return j;
+    } catch {
+        msg.textContent = "Network error.";
+        return null;
+    }
+}
+document.getElementById("builderSave")?.addEventListener("click", builderSaveCourse);
+document.getElementById("builderFreeze")?.addEventListener("click", async () => {
+    const msg = document.getElementById("builder-msg");
+    const course = await builderSaveCourse();
+    if (!course) return;
+    const date = document.getElementById("freeze-date").value;
+    const mode = document.getElementById("freeze-mode").value;
+    if (!date) { msg.textContent = "Pick a session date first."; return; }
+    if (!CB.origin) { msg.textContent = "Set the origin first."; return; }
+    try {
+        const res = await fetch("/sessions", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                courseId: course.id, name: `${course.name} — ${date}`,
+                date, mode,
+                originLat: CB.origin.lat, originLon: CB.origin.lon,
+                windDir: CB.windDir, scale: CB.scale,
+            }),
+        });
+        const j = await res.json();
+        if (!res.ok) { msg.textContent = j.error || "Freeze failed."; return; }
+        msg.textContent = "";
+        // auto-assign selected freeze boats
+        const ids = [...document.querySelectorAll("#freeze-boats input[data-fb]:checked")].map(c => c.getAttribute("data-fb"));
+        for (const id of ids) {
+            await fetch(`/sessions/${j.id}/boats`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ deviceId: id }),
+            });
+        }
+        closeBuilder();
+        switchCourseTab("sessions");
+        loadSessions(j.id);
+    } catch {
+        msg.textContent = "Network error.";
+    }
+});
+async function refreshFreezeBoats() {
+    if (!lastDevices.length) await refreshDevices();
+    document.getElementById("freeze-boats").innerHTML =
+        lastDevices.map(d => `<label style="display:inline-block;margin-right:8px;font-weight:normal">
+            <input type="checkbox" data-fb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
+}
+function saveBuilderDraft() {
+    try {
+        localStorage.setItem(BUILDER_DRAFT_KEY, JSON.stringify({
+            courseId: CB.courseId, name: document.getElementById("builder-name")?.value || "",
+            marks: CB.marks, origin: CB.origin, windDir: CB.windDir, scale: CB.scale,
+        }));
+    } catch {}
+}
+function switchCourseTab(name) {
+    document.querySelectorAll("[data-ctab]").forEach(b => b.classList.toggle("active", b.getAttribute("data-ctab") === name));
+    document.querySelectorAll(".course-tab").forEach(t => t.style.display = "none");
+    const tab = document.getElementById("course-tab-" + name);
+    if (tab) tab.style.display = "block";
+}
+
+// --- Sessions tab: list + create + committee controls ---
+let sessionsCache = [];
+let selectedSessionId = null;
+
+async function loadSessions(selectId) {
+    const el = document.getElementById("course-tab-sessions");
+    try {
+        const [sessRes, courseRes] = await Promise.all([fetch("/sessions"), fetch("/courses")]);
+        sessionsCache = await sessRes.json();
+        const courses = await courseRes.json();
+        if (!lastDevices.length) await refreshDevices();
+        if (selectId) selectedSessionId = selectId;
+        const boatChecks = lastDevices.map(d => `<label style="display:inline-block;margin-right:8px;font-weight:normal;font-size:12px">
+            <input type="checkbox" data-sb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
+        el.innerHTML = `
+            <div class="device-meta" style="margin-bottom:6px"><b>New session</b> (freeze a course onto a day)</div>
+            <div class="builder-row"><select id="sess-course">${courses.map(c => `<option value="${c.id}">${escHtml(c.name)} (${c.marks.length})</option>`).join("")}</select></div>
+            <div class="builder-row">
+                <input id="sess-date" type="date" value="${new Date().toISOString().slice(0, 10)}">
+                <select id="sess-mode"><option value="practice">Practice</option><option value="race">Race</option></select>
+            </div>
+            <div class="builder-row"><input id="sess-start" type="datetime-local" title="Start time (optional)"></div>
+            <div style="margin:4px 0">${boatChecks || '<span class="device-meta">No boats known yet.</span>'}</div>
+            <div class="builder-row"><button id="sess-create" class="primary">Create session</button></div>
+            <div id="sess-create-err" class="boat-info-err"></div>
+            <div class="device-meta" style="margin:6px 0 4px 0"><b>Sessions</b> (origin/wind set in builder when freezing; editable below pre-start)</div>
+            <div id="sess-list">` + (sessionsCache.length ? sessionsCache.map(s => `
+                <div class="device-item ${String(s.id) === String(selectedSessionId) ? "active" : ""}" data-sess="${s.id}" style="cursor:pointer">
+                    <div style="overflow:hidden;flex:1">
+                        <span class="device-name">${escHtml(s.name || ("Session " + s.id))}</span>
+                        <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boats · v${s.courseVersion}</div>
+                    </div>
+                    <div style="text-align:right">
+                        <div><span class="mode-badge ${s.mode}">${s.mode}</span></div>
+                        <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
+                    </div>
+                </div>`).join("") : '<div class="device-meta">No sessions yet.</div>') + `</div>
+            <div id="sess-detail"></div>`;
+        document.getElementById("sess-create").addEventListener("click", async () => {
+            const errEl = document.getElementById("sess-create-err");
+            const courseId = Number(document.getElementById("sess-course").value);
+            const date = document.getElementById("sess-date").value;
+            const mode = document.getElementById("sess-mode").value;
+            const startVal = document.getElementById("sess-start").value;
+            const c = courses.find(x => x.id === courseId);
+            if (!c) { errEl.textContent = "Pick a course first."; return; }
+            // sessions need placement: reuse course as-is around a default origin
+            // (refine origin/wind in detail view) — default: map center, wind 315
+            const center = map.getCenter();
+            try {
+                const res = await fetch("/sessions", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        courseId, name: `${c.name} — ${date}`, date, mode,
+                        originLat: Math.round(center.lat * 1e5) / 1e5, originLon: Math.round(center.lng * 1e5) / 1e5,
+                        windDir: 315,
+                        startTime: startVal ? new Date(startVal).toISOString() : null,
+                    }),
+                });
+                const j = await res.json();
+                if (!res.ok) { errEl.textContent = j.error || "Create failed."; return; }
+                const ids = [...document.querySelectorAll("#course-tab-sessions input[data-sb]:checked")].map(x => x.getAttribute("data-sb"));
+                for (const id of ids) {
+                    await fetch(`/sessions/${j.id}/boats`, {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ deviceId: id }),
+                    });
+                }
+                loadSessions(j.id);
+            } catch { errEl.textContent = "Network error."; }
+        });
+        el.querySelectorAll("[data-sess]").forEach(row => {
+            row.addEventListener("click", () => {
+                selectedSessionId = Number(row.getAttribute("data-sess"));
+                loadSessions();
+            });
+        });
+        if (selectedSessionId) renderSessionDetail();
+    } catch (e) {
+        el.innerHTML = '<div class="boat-info-err">Failed to load sessions.</div>';
+    }
+}
+
+async function renderSessionDetail() {
+    const el = document.getElementById("sess-detail");
+    if (!el) return;
+    try {
+        const res = await fetch(`/sessions/${selectedSessionId}`);
+        if (!res.ok) { el.innerHTML = ""; return; }
+        const s = await res.json();
+        el.innerHTML = `
+            <div class="sess-detail">
+                <b>${escHtml(s.name || ("Session " + s.id))}</b>
+                <table>
+                    <tr><td>Date</td><td>${escHtml(s.date)}</td></tr>
+                    <tr><td>Mode</td><td><span class="mode-badge ${s.mode}">${s.mode}</span></td></tr>
+                    <tr><td>Status</td><td><span class="status-badge ${s.status}">${s.status}</span></td></tr>
+                    <tr><td>Course</td><td>v${s.courseVersion} · ${s.marks.length} marks · wind ${Math.round(s.windDir)}° · scale ${s.scale}</td></tr>
+                    <tr><td>Start</td><td>${s.startTime ? escHtml(new Date(s.startTime).toLocaleString()) : "—"}</td></tr>
+                    <tr><td>Boats</td><td>${s.boats.length ? s.boats.map(b => `${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))}${b.startOffsetSec ? ` (+${b.startOffsetSec}s)` : ""} <a href="#" data-unboat="${escHtml(b.deviceId)}" style="color:#dc2626">×</a>`).join(", ") : "—"}</td></tr>
+                </table>
+                <div class="builder-row">
+                    <button data-sstatus="scheduled">Scheduled</button>
+                    <button data-sstatus="live">Live</button>
+                    <button data-sstatus="finished">Finished</button>
+                    <button data-sstatus="abandoned">Abandon</button>
+                </div>
+                <div class="builder-row">
+                    <button id="sess-seq" title="Start sequence: gun in 5 minutes">Start +5:00</button>
+                    <button id="sess-post" title="Postpone 5 minutes">+5:00</button>
+                </div>
+                <div class="builder-row">
+                    <input id="sess-start-custom" type="datetime-local" value="${s.startTime ? toLocalDatetimeValue(new Date(s.startTime)) : ""}">
+                    <button id="sess-start-apply">Set start</button>
+                </div>
+                <div class="builder-row">
+                    <select id="sess-add-boat">${lastDevices.map(d => `<option value="${escHtml(d.deviceId)}">${escHtml(d.username || d.deviceId.slice(-5))}</option>`).join("")}</select>
+                    <input id="sess-add-off" type="number" value="0" title="Pursuit offset (s)" style="max-width:70px">
+                    <button id="sess-add-btn">Add</button>
+                </div>
+                <div class="builder-row">
+                    <button id="sess-del" style="color:#dc2626">Delete session</button>
+                </div>
+                <div id="sess-detail-err" class="boat-info-err"></div>
+            </div>`;
+        const put = async body => {
+            const r = await fetch(`/sessions/${s.id}`, {
+                method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+            });
+            const j = await r.json();
+            if (!r.ok) document.getElementById("sess-detail-err").textContent = j.error || "Update failed.";
+            else loadSessions(s.id);
+        };
+        el.querySelectorAll("[data-sstatus]").forEach(b => b.addEventListener("click", () => put({ status: b.getAttribute("data-sstatus") })));
+        document.getElementById("sess-seq").addEventListener("click", () =>
+            put({ startTime: new Date(Date.now() + 5 * 60 * 1000).toISOString(), status: "scheduled" }));
+        document.getElementById("sess-post").addEventListener("click", () => {
+            const base = s.startTime ? new Date(s.startTime).getTime() : Date.now() + 5 * 60 * 1000;
+            put({ startTime: new Date(base + 5 * 60 * 1000).toISOString() });
+        });
+        document.getElementById("sess-start-apply").addEventListener("click", () => {
+            const v = document.getElementById("sess-start-custom").value;
+            if (!v) return;
+            put({ startTime: new Date(v).toISOString() });
+        });
+        document.getElementById("sess-add-btn").addEventListener("click", async () => {
+            const id = document.getElementById("sess-add-boat").value;
+            const off = Number(document.getElementById("sess-add-off").value) || 0;
+            if (!id) return;
+            await fetch(`/sessions/${s.id}/boats`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ deviceId: id, startOffsetSec: off }),
+            });
+            loadSessions(s.id);
+        });
+        el.querySelectorAll("[data-unboat]").forEach(a => a.addEventListener("click", async e => {
+            e.preventDefault();
+            await fetch(`/sessions/${s.id}/boats/${encodeURIComponent(a.getAttribute("data-unboat"))}`, { method: "DELETE" });
+            loadSessions(s.id);
+        }));
+        document.getElementById("sess-del").addEventListener("click", async () => {
+            if (!confirm("Delete this session?")) return;
+            await fetch(`/sessions/${s.id}`, { method: "DELETE" });
+            selectedSessionId = null;
+            loadSessions();
+        });
+    } catch {
+        el.innerHTML = '<div class="boat-info-err">Failed to load session.</div>';
+    }
+}
