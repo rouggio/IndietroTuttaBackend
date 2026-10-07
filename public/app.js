@@ -1449,13 +1449,6 @@ function offsetsFromLatLon(lat, lon, o) {
     const scale = o.scale || 1;
     return { x: (E * Math.cos(t) - N * Math.sin(t)) / scale, y: (E * Math.sin(t) + N * Math.cos(t)) / scale };
 }
-function bearingBetween(a, b) {
-    const r = Math.PI / 180;
-    const dLon = (b.lon - a.lon) * r;
-    const y = Math.sin(dLon) * Math.cos(b.lat * r);
-    const x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos(dLon);
-    return ((Math.atan2(y, x) / r) + 360) % 360;
-}
 
 const racesDropdown = document.getElementById("racesDropdown");
 const racesToggleBtn = document.getElementById("racesToggleBtn");
@@ -2082,13 +2075,6 @@ function adoptFlag(i) {
     renderBuilderMarks();
     updateBuilderPreview(); saveBuilderDraft();
 }
-document.getElementById("adopt-wind")?.addEventListener("click", () => {
-    const msg = document.getElementById("builder-msg");
-    if (adoptFlags.length < 2) { msg.textContent = "Load flags first (need at least two)."; return; }
-    const b = bearingBetween(adoptFlags[0], adoptFlags[1]);
-    msg.textContent = "";
-    setBuilderWind(b);
-});
 document.getElementById("builderWindSuggest")?.addEventListener("click", async () => {
     const src = document.getElementById("builder-wind-src");
     if (!CB.origin) { src.textContent = "Set the origin first."; return; }
