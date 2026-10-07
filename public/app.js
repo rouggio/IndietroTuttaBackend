@@ -1705,19 +1705,25 @@ if (typeof map !== "undefined" && map.getContainer) {
         e.preventDefault();
         if (map.dragging) map.dragging.disable();
         const p = map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
-        courseMove = { startLat: p.lat, startLon: p.lng, oLat: CB.origin.lat, oLon: CB.origin.lon };
+        courseMove = { lastLat: p.lat, lastLon: p.lng };
         try { box.setPointerCapture(e.pointerId); } catch {}
     });
     box.addEventListener("pointermove", e => {
-        if (!courseMove) return;
+        if (!courseMove || !coursePreview) return;
         const p = map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
-        CB.origin = {
-            lat: courseMove.oLat + (p.lat - courseMove.startLat),
-            lon: courseMove.oLon + (p.lng - courseMove.startLon),
-        };
+        const dy = p.lat - courseMove.lastLat, dx = p.lng - courseMove.lastLon;
+        if (!dy && !dx) return;
+        courseMove.lastLat = p.lat; courseMove.lastLon = p.lng;
+        CB.origin = { lat: CB.origin.lat + dy, lon: CB.origin.lon + dx };
+        // shift every preview layer in place — no rebuild, labels don't bump
+        const sh = ll => [ll[0] + dy, ll[1] + dx];
+        const shDeep = lls => lls.map(q => (Array.isArray(q[0]) ? shDeep(q) : sh(q)));
+        coursePreview.eachLayer(l => {
+            if (l.setLatLngs && l.getLatLngs) { try { l.setLatLngs(shDeep(l.getLatLngs())); } catch {} }
+            else if (l.setLatLng && l.getLatLng) { const q = l.getLatLng(); l.setLatLng([q.lat + dy, q.lng + dx]); }
+        });
         document.getElementById("builder-origin-label").textContent =
             `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`;
-        updateBuilderPreview();
     });
     const upMove = () => { if (courseMove) endCourseMove(); };
     box.addEventListener("pointerup", upMove);
@@ -1968,7 +1974,7 @@ function refreshRouteLive() {
         startLen = Math.round(map.distance(a, b)) + " m";
         if (PV.startSeg) PV.startSeg.setLatLngs([a, b]);
         if (PV.startMove) PV.startMove.setLatLng(startC);
-        if (PV.startLenTip) PV.startLenTip.setLatLng(legLabelPos(a, b, 14)).setContent(legSpan(a, b, startLen, "#16a34a"));
+        if (PV.startLenTip) PV.startLenTip.setLatLng(legLabelPos(a, b)).setContent(legSpan(a, b, startLen, "#16a34a"));
     }
     PV.marks.forEach((m, i) => { if (PV.circles[i]) PV.circles[i].setLatLng(m.getLatLng()); });
     let finishC = null;
@@ -1979,28 +1985,28 @@ function refreshRouteLive() {
         }
         if (PV.finishLenTip && PV.startDots.length === 2) {
             const a = P(PV.startDots[0]), b = P(PV.startDots[1]);
-            PV.finishLenTip.setLatLng(legLabelPos(a, b, 14)).setContent(legSpan(a, b, startLen, "#dc2626"));
+            PV.finishLenTip.setLatLng(legLabelPos(a, b)).setContent(legSpan(a, b, startLen, "#dc2626"));
         }
     } else if (PV.finishDots.length === 2) {
         const a = P(PV.finishDots[0]), b = P(PV.finishDots[1]);
         finishC = mid(a, b);
         if (PV.finishSeg) PV.finishSeg.setLatLngs([a, b]);
         if (PV.finishMove) PV.finishMove.setLatLng(finishC);
-        if (PV.finishLenTip) PV.finishLenTip.setLatLng(legLabelPos(a, b, 14)).setContent(legSpan(a, b, Math.round(map.distance(a, b)) + " m", "#dc2626"));
+        if (PV.finishLenTip) PV.finishLenTip.setLatLng(legLabelPos(a, b)).setContent(legSpan(a, b, Math.round(map.distance(a, b)) + " m", "#dc2626"));
     }
     const pts = [...(startC ? [startC] : []),
         ...PV.marks.map(m => { const p = m.getLatLng(); return [p.lat, p.lng]; }),
         ...(finishC ? [finishC] : [])];
     if (PV.route) PV.route.setLatLngs(pts);
-    (PV.legs || []).forEach((tip, i) => {
-        if (pts[i + 1]) tip.setLatLng(legLabelPos(pts[i], pts[i + 1])).setContent(dist(pts[i], pts[i + 1], "#3b82f6"));
+    (PV.legs || []).forEach(L => {
+        if (pts[L.a] && pts[L.b]) L.tip.setLatLng(legLabelPos(pts[L.a], pts[L.b])).setContent(dist(pts[L.a], pts[L.b], "#3b82f6"));
     });
     (PV.gateSegs || []).forEach(g => {
         if (!PV.marks[g.i] || !PV.marks[g.j]) return;
         const pa = PV.marks[g.i].getLatLng(), pb = PV.marks[g.j].getLatLng();
         const A = [pa.lat, pa.lng], B = [pb.lat, pb.lng];
         g.seg.setLatLngs([A, B]);
-        if (g.tip) g.tip.setLatLng(legLabelPos(A, B, 14)).setContent(legSpan(A, B, Math.round(map.distance(A, B)) + " m", "#984ea3"));
+        if (g.tip) g.tip.setLatLng(legLabelPos(A, B)).setContent(legSpan(A, B, Math.round(map.distance(A, B)) + " m", "#984ea3"));
     });
 }
 function updateBuilderPreview() {
@@ -2018,18 +2024,27 @@ function updateBuilderPreview() {
         return [(r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2];
     };
     const latlngs = resolved.map(m => [m.lat, m.lon]);
-    if (CB.startLine) latlngs.unshift(segCenter(CB.startLine));
+    // route point sources (mark index or -1 for line centers) — legs inside
+    // one gate pair get no leg label (the gate connector already labels them)
+    const routeSrc = resolved.map((m, i) => i);
+    if (CB.startLine) { latlngs.unshift(segCenter(CB.startLine)); routeSrc.unshift(-1); }
     const effFinish = CB.finishLine === "start" ? CB.startLine : CB.finishLine;
-    if (effFinish && typeof effFinish === "object") latlngs.push(segCenter(effFinish));
+    if (effFinish && typeof effFinish === "object") { latlngs.push(segCenter(effFinish)); routeSrc.push(-1); }
     PV.route = L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(coursePreview);
     // per-leg distance labels (alongside the leg, live-updated)
     const legMid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const gateOf = mi => (mi >= 0 && CB.marks[mi] && CB.marks[mi].type === "gate" && CB.marks[mi].gate) || null;
     if (CB.showLabels) {
         for (let li = 0; li + 1 < latlngs.length; li++) {
-            PV.legs.push(L.tooltip({ permanent: true, direction: "center", className: "dist-label" })
-                .setLatLng(legLabelPos(latlngs[li], latlngs[li + 1]))
-                .setContent(legSpan(latlngs[li], latlngs[li + 1], Math.round(map.distance(latlngs[li], latlngs[li + 1])) + " m", "#3b82f6"))
-                .addTo(coursePreview));
+            const gA = gateOf(routeSrc[li]), gB = gateOf(routeSrc[li + 1]);
+            if (gA && gA === gB) continue;
+            PV.legs.push({
+                tip: L.tooltip({ permanent: true, direction: "center", className: "dist-label" })
+                    .setLatLng(legLabelPos(latlngs[li], latlngs[li + 1]))
+                    .setContent(legSpan(latlngs[li], latlngs[li + 1], Math.round(map.distance(latlngs[li], latlngs[li + 1])) + " m", "#3b82f6"))
+                    .addTo(coursePreview),
+                a: li, b: li + 1,
+            });
         }
     }
     // relaxed stacking: any marks whose radius circles collide belong to one
@@ -2140,7 +2155,7 @@ function updateBuilderPreview() {
     const lenTip = (a, b, text, color) => {
         if (!CB.showLabels) return null;
         return L.tooltip({ permanent: true, direction: "center", className: "dist-label" })
-            .setLatLng(legLabelPos(a, b, 14))
+            .setLatLng(legLabelPos(a, b))
             .setContent(legSpan(a, b, text + Math.round(map.distance(a, b)) + " m", color))
             .addTo(coursePreview);
     };
@@ -2180,13 +2195,12 @@ function updateBuilderPreview() {
         const A = [resolved[g[0]].lat, resolved[g[0]].lon], B = [resolved[g[1]].lat, resolved[g[1]].lon];
         const seg = L.polyline([A, B], { color: "#984ea3", weight: 2, dashArray: "6 4" }).addTo(coursePreview);
         const tip = CB.showLabels ? L.tooltip({ permanent: true, direction: "center", className: "dist-label" })
-            .setLatLng(legLabelPos(A, B, 14))
+            .setLatLng(legLabelPos(A, B))
             .setContent(legSpan(A, B, Math.round(map.distance(A, B)) + " m", "#984ea3"))
             .addTo(coursePreview) : null;
         PV.gateSegs.push({ seg, tip, i: g[0], j: g[1] });
     });
-    // pending first endpoint while defining a line
-    if (CB.lineA) {
+    // pending first endpoint while defining a line    if (CB.lineA) {
         L.circleMarker([CB.lineA.lat, CB.lineA.lon], { radius: 6, color: "#0f172a", fillOpacity: 1 }).addTo(coursePreview)
             .bindTooltip(`line ${CB.lineTarget}: click second end`);
     }
