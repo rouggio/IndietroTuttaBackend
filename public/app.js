@@ -1514,12 +1514,15 @@ async function loadCourseTemplates() {
                 <span class="device-meta">Start from scratch</span>
             </div></div>` + (myTpls.length ? `
             <div class="device-meta" style="margin:8px 0 4px 0"><b>My templates</b></div>
-            <div class="template-grid">` + myTpls.map(c => `
+            <div class="template-grid">` + myTpls.map(c => {
+                const gates = new Set((c.marks || []).filter(m => m.type === "gate" && m.gate).map(m => m.gate)).size;
+                const lineLen = c.startLine ? Math.round(Math.hypot(c.startLine.bx - c.startLine.ax, c.startLine.by - c.startLine.ay)) + "m line" : "no lines";
+                return `
             <div class="template-card" data-course-tpl="${c.id}">
                 <b>${escHtml(c.name)}</b>
-                <span class="device-meta">${c.marks.length} marks · v${c.version}</span>
+                <span class="device-meta">${c.marks.length} marks · ${lineLen}${gates ? ` · ${gates} gate${gates > 1 ? "s" : ""}` : ""} · v${c.version}</span>
                 <button data-del-tpl="${c.id}" title="Delete template" style="float:right;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;font-size:11px">×</button>
-            </div>`).join("") + `</div>` : "");
+            </div>`; }).join("") + `</div>` : "");
         el.querySelectorAll("[data-tpl]").forEach(card => {
             card.addEventListener("click", () => {
                 const t = courseTemplatesCache.find(x => x.key === card.getAttribute("data-tpl"));
