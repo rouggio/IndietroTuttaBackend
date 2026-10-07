@@ -1488,7 +1488,7 @@ if (sessionsBtn && sessionPanel) {
         sessionsBtn.classList.toggle("active", open);
         syncRacesBtn();
     };
-    sessionsBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncSessionsBtn(); saveUI(); loadSessions(); if (racesDropdown) racesDropdown.classList.remove("active"); });
+    sessionsBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncSessionsBtn(); saveUI(); loadSessions(); if (racesDropdown) racesDropdown.classList.remove("active"); if (!panelVisible(sessionPanel)) clearSessPreview(); });
     new MutationObserver(syncSessionsBtn).observe(sessionPanel, { attributes: true, attributeFilter: ["style"] });
     syncSessionsBtn();
 }
@@ -2009,8 +2009,8 @@ function refreshRouteLive() {
         ...PV.marks.map(m => { const p = m.getLatLng(); return [p.lat, p.lng]; }),
         ...(finishC ? [finishC] : [])];
     if (PV.route) PV.route.setLatLngs(pts);
-    (PV.legs || []).forEach(L => {
-        if (pts[L.a] && pts[L.b]) L.tip.setLatLng(legLabelPos(pts[L.a], pts[L.b])).setContent(dist(pts[L.a], pts[L.b], "#3b82f6"));
+    (PV.legs || []).forEach(leg => {
+        if (pts[leg.a] && pts[leg.b]) leg.tip.setLatLng(legLabelPos(pts[leg.a], pts[leg.b])).setContent(dist(pts[leg.a], pts[leg.b], "#3b82f6"));
     });
     (PV.gateSegs || []).forEach(g => {
         if (!PV.marks[g.i] || !PV.marks[g.j]) return;
@@ -2401,6 +2401,82 @@ function openSessionsPanel(selectId) {
 let sessionsCache = [];
 let selectedSessionId = null;
 
+// --- Session creation draft: template + placement previewed on the chart ---
+const SESSDRAFT = { template: null, origin: null, windDir: 315, scale: 1 };
+let sessPreview = null;
+function clearSessPreview() {
+    if (sessPreview) { map.removeLayer(sessPreview); sessPreview = null; }
+}
+function sessDraftInst() {
+    return { originLat: SESSDRAFT.origin.lat, originLon: SESSDRAFT.origin.lon, windDir: SESSDRAFT.windDir, scale: SESSDRAFT.scale };
+}
+function renderSessPreview() {
+    clearSessPreview();
+    const t = SESSDRAFT.template;
+    if (!t || !SESSDRFT.origin) return;
+    const o = sessDraftInst();
+    sessPreview = L.layerGroup().addTo(map);
+    const marks = resolveMarksJS(t.marks, o);
+    const latlngs = marks.map(m => [m.lat, m.lon]);
+    if (t.startLine) {
+        const r = resolveSegJS(t.startLine, o);
+        latlngs.unshift([(r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2]);
+        L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], { color: "#16a34a", weight: 5 }).addTo(sessPreview);
+    }
+    const effFinish = t.finishLine === "start" ? t.startLine : t.finishLine;
+    if (effFinish && typeof effFinish === "object") {
+        const r = resolveSegJS(effFinish, o);
+        latlngs.push([(r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2]);
+        const same = t.finishLine === "start";
+        L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], same
+            ? { color: "#dc2626", weight: 2, dashArray: "6 4" }
+            : { color: "#dc2626", weight: 5 }).addTo(sessPreview);
+    }
+    L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(sessPreview);
+    marks.forEach((m, i) => {
+        L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(sessPreview);
+        L.marker([m.lat, m.lon], {
+            icon: L.divIcon({
+                html: `<div class="builder-mark-label" style="background:${MARK_COLORS[m.type] || "#f59e0b"}">${i + 1}</div>`,
+                className: "", iconSize: [22, 22], iconAnchor: [11, 11],
+            }),
+        }).addTo(sessPreview);
+    });
+    // gate connectors
+    const gg = {};
+    marks.forEach((m, i) => {
+        const src = t.marks[i];
+        if (src && src.type === "gate" && src.gate) { (gg[src.gate] = gg[src.gate] || []).push(i); }
+    });
+    Object.values(gg).forEach(g => {
+        if (g.length !== 2) return;
+        L.polyline([[marks[g[0]].lat, marks[g[0]].lon], [marks[g[1]].lat, marks[g[1]].lon]],
+            { color: "#984ea3", weight: 2, dashArray: "6 4" }).addTo(sessPreview);
+    });
+}
+async function pickSessTemplate(id) {
+    try {
+        const res = await fetch(`/courses/${id}`);
+        const c = await res.json();
+        if (!c || !c.marks) return;
+        SESSDRAFT.template = c;
+        if (!SESSDRFT.origin) {
+            const m = map.getCenter();
+            SESSDRAFT.origin = { lat: Math.round(m.lat * 1e5) / 1e5, lon: Math.round(m.lng * 1e5) / 1e5 };
+        }
+        syncSessForm();
+        renderSessPreview();
+    } catch {}
+}
+function syncSessForm() {
+    const w = document.getElementById("sess-wind");
+    if (w) w.value = SESSDRAFT.windDir;
+    const sc = document.getElementById("sess-scale");
+    if (sc) sc.value = SESSDRAFT.scale;
+    const o = document.getElementById("sess-origin");
+    if (o) o.textContent = "Origin: " + (SESSDRFT.origin
+        ? `${SESSDRFT.origin.lat.toFixed(5)}, ${SESSDRFT.origin.lon.toFixed(5)}` : "—");
+}
 async function loadSessions(selectId) {
     const el = document.getElementById("course-tab-sessions");
     try {
@@ -2412,8 +2488,18 @@ async function loadSessions(selectId) {
         const boatChecks = lastDevices.map(d => `<label style="display:inline-block;margin-right:8px;font-weight:normal;font-size:12px">
             <input type="checkbox" data-sb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
         el.innerHTML = `
-            <div class="device-meta" style="margin-bottom:6px"><b>New session</b> (template + day; origin/wind default to map center)</div>
+            <div class="device-meta" style="margin-bottom:6px"><b>New session</b> — pick a template, place it on the chart, set the wind</div>
             <div class="builder-row"><select id="sess-course">${courses.map(c => `<option value="${c.id}">${escHtml(c.name)} (${c.marks.length})</option>`).join("")}</select></div>
+            <div class="builder-row">
+                <span id="sess-origin" class="device-meta" style="flex:2">Origin: —</span>
+                <button id="sess-center" title="Place origin at map center">Center here</button>
+            </div>
+            <div class="builder-row">
+                <label class="device-meta" style="flex:1">Wind <input id="sess-wind" type="number" min="0" max="359" step="1" style="max-width:64px" title="Wind from (deg)"></label>
+                <label class="device-meta" style="flex:1">Scale <input id="sess-scale" type="number" min="0.1" max="5" step="0.1" style="max-width:64px"></label>
+                <button id="sess-wind-suggest" title="Suggest wind from nearby stations">Suggest</button>
+            </div>
+            <div class="device-meta" id="sess-wind-src"></div>
             <div class="builder-row">
                 <input id="sess-date" type="date" value="${new Date().toISOString().slice(0, 10)}">
                 <select id="sess-mode"><option value="practice">Practice</option><option value="race">Race</option></select>
@@ -2422,7 +2508,7 @@ async function loadSessions(selectId) {
             <div style="margin:4px 0">${boatChecks || '<span class="device-meta">No boats known yet.</span>'}</div>
             <div class="builder-row"><button id="sess-create" class="primary">Create session</button></div>
             <div id="sess-create-err" class="boat-info-err"></div>
-            <div class="device-meta" style="margin:6px 0 4px 0"><b>Sessions</b> (origin/wind set in builder when freezing; editable below pre-start)</div>
+            <div class="device-meta" style="margin:6px 0 4px 0"><b>Sessions</b> (wind/origin editable pre-start in detail view)</div>
             <div id="sess-list">` + (sessionsCache.length ? sessionsCache.map(s => `
                 <div class="device-item ${String(s.id) === String(selectedSessionId) ? "active" : ""}" data-sess="${s.id}" style="cursor:pointer">
                     <div style="overflow:hidden;flex:1">
@@ -2435,24 +2521,60 @@ async function loadSessions(selectId) {
                     </div>
                 </div>`).join("") : '<div class="device-meta">No sessions yet.</div>') + `</div>
             <div id="sess-detail"></div>`;
+        document.getElementById("sess-course").addEventListener("change", e => pickSessTemplate(e.target.value));
+        const sessSel = document.getElementById("sess-course");
+        if (SESSDRFT.template && courses.some(c => String(c.id) === String(SESSDRFT.template.id))) {
+            sessSel.value = SESSDRFT.template.id;
+        }
+        pickSessTemplate(sessSel.value);
+        document.getElementById("sess-wind").addEventListener("change", e => {
+            SESSDRAFT.windDir = Math.min(359, Math.max(0, Math.round(Number(e.target.value) || 0)));
+            e.target.value = SESSDRAFT.windDir;
+            renderSessPreview();
+        });
+        document.getElementById("sess-scale").addEventListener("change", e => {
+            SESSDRAFT.scale = Math.min(5, Math.max(0.1, Number(e.target.value) || 1));
+            e.target.value = SESSDRAFT.scale;
+            renderSessPreview();
+        });
+        document.getElementById("sess-center").addEventListener("click", () => {
+            const m = map.getCenter();
+            SESSDRAFT.origin = { lat: Math.round(m.lat * 1e5) / 1e5, lon: Math.round(m.lng * 1e5) / 1e5 };
+            syncSessForm();
+            renderSessPreview();
+        });
+        document.getElementById("sess-wind-suggest").addEventListener("click", async () => {
+            const src = document.getElementById("sess-wind-src");
+            const at = SESSDRAFT.origin || (() => { const m = map.getCenter(); return { lat: m.lat, lon: m.lng }; })();
+            src.textContent = "asking…";
+            try {
+                const res = await fetch(`/wind?lat=${at.lat}&lon=${at.lon}`);
+                if (!res.ok) throw new Error();
+                const w = await res.json();
+                SESSDRAFT.windDir = ((Math.round(w.dir) % 360) + 360) % 360;
+                syncSessForm();
+                src.textContent = `${escHtml(w.source)} · ${w.distKm != null ? w.distKm + "km" : "model"} · ${w.ageMin}min ago · ${w.speedKn}kn`;
+                renderSessPreview();
+            } catch {
+                src.textContent = "no wind source available";
+            }
+        });
         document.getElementById("sess-create").addEventListener("click", async () => {
             const errEl = document.getElementById("sess-create-err");
-            const courseId = Number(document.getElementById("sess-course").value);
             const date = document.getElementById("sess-date").value;
             const mode = document.getElementById("sess-mode").value;
             const startVal = document.getElementById("sess-start").value;
-            const c = courses.find(x => x.id === courseId);
-            if (!c) { errEl.textContent = "Pick a course first."; return; }
-            // sessions need placement: reuse course as-is around a default origin
-            // (refine origin/wind in detail view) — default: map center, wind 315
-            const center = map.getCenter();
+            const t = SESSDRAFT.template;
+            if (!t) { errEl.textContent = "Pick a template first."; return; }
+            if (!SESSDRFT.origin) { errEl.textContent = "Place the origin first (Center here)."; return; }
+            if (!date) { errEl.textContent = "Pick a session date."; return; }
             try {
                 const res = await fetch("/sessions", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        courseId, name: `${c.name} — ${date}`, date, mode,
-                        originLat: Math.round(center.lat * 1e5) / 1e5, originLon: Math.round(center.lng * 1e5) / 1e5,
-                        windDir: 315,
+                        courseId: t.id, name: `${t.name} — ${date}`, date, mode,
+                        originLat: SESSDRAFT.origin.lat, originLon: SESSDRAFT.origin.lon,
+                        windDir: SESSDRAFT.windDir, scale: SESSDRAFT.scale,
                         startTime: startVal ? new Date(startVal).toISOString() : null,
                     }),
                 });
