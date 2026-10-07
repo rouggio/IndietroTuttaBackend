@@ -1654,7 +1654,6 @@ function openBuilder(init = {}) {
     document.getElementById("builder-msg").textContent = "";
     document.getElementById("builder-wind-src").textContent = "";
     document.getElementById("builderLabels")?.classList.toggle("arming", CB.showLabels);
-    document.getElementById("freeze-date").value = new Date().toISOString().slice(0, 10);
     document.getElementById("builder-origin-label").textContent = CB.origin
         ? `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`
         : "Origin: not set (added automatically)";
@@ -1663,8 +1662,6 @@ function openBuilder(init = {}) {
     updateBuilderPreview();
     saveBuilderDraft();
     loadAdoptBoats();
-    refreshFreezeBoats();
-    if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("builder-panel"));
 }
 function closeBuilder() {
     CB.open = false;
@@ -2332,7 +2329,7 @@ document.getElementById("builderWindSuggest")?.addEventListener("click", async (
     }
 });
 
-// --- Save template / freeze to session ---
+// --- Save template (shape library only; sessions are born in Sessions) ---
 // Save as template (the only shape library — sessions freeze from here).
 async function builderSaveTemplate() {
     const msg = document.getElementById("builder-msg");
@@ -2365,47 +2362,6 @@ async function builderSaveTemplate() {
     }
 }
 document.getElementById("builderSave")?.addEventListener("click", () => builderSaveTemplate());
-document.getElementById("builderFreeze")?.addEventListener("click", async () => {
-    const msg = document.getElementById("builder-msg");
-    const course = await builderSaveTemplate();
-    if (!course) return;
-    const date = document.getElementById("freeze-date").value;
-    const mode = document.getElementById("freeze-mode").value;
-    if (!date) { msg.textContent = "Pick a session date first."; return; }
-    if (!CB.origin) { msg.textContent = "Set the origin first."; return; }
-    try {
-        const res = await fetch("/sessions", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                courseId: course.id, name: `${course.name} — ${date}`,
-                date, mode,
-                originLat: CB.origin.lat, originLon: CB.origin.lon,
-                windDir: CB.windDir, scale: CB.scale,
-            }),
-        });
-        const j = await res.json();
-        if (!res.ok) { msg.textContent = j.error || "Freeze failed."; return; }
-        msg.textContent = "";
-        // auto-assign selected freeze boats
-        const ids = [...document.querySelectorAll("#freeze-boats input[data-fb]:checked")].map(c => c.getAttribute("data-fb"));
-        for (const id of ids) {
-            await fetch(`/sessions/${j.id}/boats`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ deviceId: id }),
-            });
-        }
-        closeBuilder();
-        openSessionsPanel(j.id);
-    } catch {
-        msg.textContent = "Network error.";
-    }
-});
-async function refreshFreezeBoats() {
-    if (!lastDevices.length) await refreshDevices();
-    document.getElementById("freeze-boats").innerHTML =
-        lastDevices.map(d => `<label style="display:inline-block;margin-right:8px;font-weight:normal">
-            <input type="checkbox" data-fb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
-}
 function saveBuilderDraft() {
     try {
         localStorage.setItem(BUILDER_DRAFT_KEY, JSON.stringify({

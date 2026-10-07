@@ -76,7 +76,7 @@
         <button id="builderMoveCourse" title="Drag the whole course on the map">Move course</button>
         <button id="builderLabels" class="arming" title="Toggle distance labels">Labels</button>
     </div>
-    <div id="builder-origin-label" class="device-meta">Origin: not set (click Set origin)</div>
+    <div id="builder-origin-label" class="device-meta">Origin: not set (added automatically)</div>
     <div class="builder-wind">
         <div class="device-meta">Wind from <b id="builder-wind-val">315</b>° — drag the bottom-left dial</div>
         <div class="builder-row">
@@ -102,13 +102,7 @@
     </div>
     <div class="builder-freeze">
         <div class="builder-row">
-            <input id="freeze-date" type="date">
-            <select id="freeze-mode"><option value="practice">Practice</option><option value="race">Race</option></select>
-        </div>
-        <div id="freeze-boats" class="device-meta"></div>
-        <div class="builder-row">
             <button id="builderSave">Save template</button>
-            <button id="builderFreeze" class="primary">Freeze to session</button>
         </div>
     </div>
     <div id="builder-msg" class="boat-info-err"></div>
