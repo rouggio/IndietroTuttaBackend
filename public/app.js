@@ -1573,13 +1573,13 @@ function legSpan(a, b, text, color) {
     const ang = legAngle(a, b);
     return `<span style="display:inline-block;transform:rotate(${ang.toFixed(1)}deg);color:${color};font-weight:bold">${text}</span>`;
 }
-// Label anchor: midpoint pushed ~12px to the side so text runs alongside
+// Label anchor: midpoint pushed a few px to the side so text runs alongside
 // the line instead of covering it.
-function legLabelPos(a, b) {
+function legLabelPos(a, b, px = 10) {
     const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
     const p = map.latLngToContainerPoint(mid);
     const r = ((legAngle(a, b) + 90) * Math.PI) / 180;
-    return map.containerPointToLatLng([p.x + Math.cos(r) * 5, p.y + Math.sin(r) * 5]);
+    return map.containerPointToLatLng([p.x + Math.cos(r) * px, p.y + Math.sin(r) * px]);
 }
 // JS mirror of the backend segment resolve (incl. square-to-wind + bias).
 function resolveSegJS(seg, o) {
@@ -1968,7 +1968,7 @@ function refreshRouteLive() {
         startLen = Math.round(map.distance(a, b)) + " m";
         if (PV.startSeg) PV.startSeg.setLatLngs([a, b]);
         if (PV.startMove) PV.startMove.setLatLng(startC);
-        if (PV.startLenTip) PV.startLenTip.setLatLng(legLabelPos(a, b)).setContent(legSpan(a, b, "start · " + startLen, "#16a34a"));
+        if (PV.startLenTip) PV.startLenTip.setLatLng(legLabelPos(a, b, 14)).setContent(legSpan(a, b, startLen, "#16a34a"));
     }
     PV.marks.forEach((m, i) => { if (PV.circles[i]) PV.circles[i].setLatLng(m.getLatLng()); });
     let finishC = null;
@@ -1979,14 +1979,14 @@ function refreshRouteLive() {
         }
         if (PV.finishLenTip && PV.startDots.length === 2) {
             const a = P(PV.startDots[0]), b = P(PV.startDots[1]);
-            PV.finishLenTip.setLatLng(legLabelPos(a, b)).setContent(legSpan(a, b, "finish = start · " + startLen, "#dc2626"));
+            PV.finishLenTip.setLatLng(legLabelPos(a, b, 14)).setContent(legSpan(a, b, startLen, "#dc2626"));
         }
     } else if (PV.finishDots.length === 2) {
         const a = P(PV.finishDots[0]), b = P(PV.finishDots[1]);
         finishC = mid(a, b);
         if (PV.finishSeg) PV.finishSeg.setLatLngs([a, b]);
         if (PV.finishMove) PV.finishMove.setLatLng(finishC);
-        if (PV.finishLenTip) PV.finishLenTip.setLatLng(legLabelPos(a, b)).setContent(legSpan(a, b, "finish · " + Math.round(map.distance(a, b)) + " m", "#dc2626"));
+        if (PV.finishLenTip) PV.finishLenTip.setLatLng(legLabelPos(a, b, 14)).setContent(legSpan(a, b, Math.round(map.distance(a, b)) + " m", "#dc2626"));
     }
     const pts = [...(startC ? [startC] : []),
         ...PV.marks.map(m => { const p = m.getLatLng(); return [p.lat, p.lng]; }),
@@ -1994,6 +1994,13 @@ function refreshRouteLive() {
     if (PV.route) PV.route.setLatLngs(pts);
     (PV.legs || []).forEach((tip, i) => {
         if (pts[i + 1]) tip.setLatLng(legLabelPos(pts[i], pts[i + 1])).setContent(dist(pts[i], pts[i + 1], "#3b82f6"));
+    });
+    (PV.gateSegs || []).forEach(g => {
+        if (!PV.marks[g.i] || !PV.marks[g.j]) return;
+        const pa = PV.marks[g.i].getLatLng(), pb = PV.marks[g.j].getLatLng();
+        const A = [pa.lat, pa.lng], B = [pb.lat, pb.lng];
+        g.seg.setLatLngs([A, B]);
+        if (g.tip) g.tip.setLatLng(legLabelPos(A, B, 14)).setContent(legSpan(A, B, Math.round(map.distance(A, B)) + " m", "#984ea3"));
     });
 }
 function updateBuilderPreview() {
@@ -2003,7 +2010,7 @@ function updateBuilderPreview() {
     PV = null;
     if (!CB.origin || (!CB.marks.length && !CB.startLine && !CB.finishLine && !CB.lineA)) return;
     coursePreview = L.layerGroup().addTo(map);
-    PV = { marks: [], circles: [], route: null, legs: [], startSeg: null, finishSeg: null, startDots: [], finishDots: [], startMove: null, finishMove: null, startLenTip: null, finishLenTip: null };
+    PV = { marks: [], circles: [], route: null, legs: [], startSeg: null, finishSeg: null, startDots: [], finishDots: [], startMove: null, finishMove: null, startLenTip: null, finishLenTip: null, gateSegs: [] };
     const resolved = builderResolved();
     // route runs line-center → marks → line-center when lines replace points
     const segCenter = seg => {
@@ -2133,7 +2140,7 @@ function updateBuilderPreview() {
     const lenTip = (a, b, text, color) => {
         if (!CB.showLabels) return null;
         return L.tooltip({ permanent: true, direction: "center", className: "dist-label" })
-            .setLatLng(legLabelPos(a, b))
+            .setLatLng(legLabelPos(a, b, 14))
             .setContent(legSpan(a, b, text + Math.round(map.distance(a, b)) + " m", color))
             .addTo(coursePreview);
     };
@@ -2142,7 +2149,7 @@ function updateBuilderPreview() {
         const A = [resStart.latA, resStart.lonA], B = [resStart.latB, resStart.lonB];
         PV.startSeg = L.polyline([A, B], { color: "#16a34a", weight: 5 }).addTo(coursePreview)
             .bindTooltip("start line", { permanent: false });
-        PV.startLenTip = lenTip(A, B, "start · ", "#16a34a");
+        PV.startLenTip = lenTip(A, B, "", "#16a34a");
         endDot(resStart.latA, resStart.lonA, "#16a34a", "start", "A", PV.startDots);
         endDot(resStart.latB, resStart.lonB, "#16a34a", "start", "B", PV.startDots);
         PV.startMove = moveDot((resStart.latA + resStart.latB) / 2, (resStart.lonA + resStart.lonB) / 2, "#16a34a", "start", CB.startLine);
@@ -2151,17 +2158,33 @@ function updateBuilderPreview() {
         const A = [resStart.latA, resStart.lonA], B = [resStart.latB, resStart.lonB];
         PV.finishSeg = L.polyline([A, B], { color: "#dc2626", weight: 2, dashArray: "6 4" }).addTo(coursePreview)
             .bindTooltip("finish = start line", { permanent: false });
-        PV.finishLenTip = lenTip(A, B, "finish = start · ", "#dc2626");
+        PV.finishLenTip = lenTip(A, B, "", "#dc2626");
     } else if (CB.finishLine && typeof CB.finishLine === "object") {
         const r = resolveSegJS(CB.finishLine, builderInst());
         const A = [r.latA, r.lonA], B = [r.latB, r.lonB];
         PV.finishSeg = L.polyline([A, B], { color: "#dc2626", weight: 5 }).addTo(coursePreview)
             .bindTooltip("finish line", { permanent: false });
-        PV.finishLenTip = lenTip(A, B, "finish · ", "#dc2626");
+        PV.finishLenTip = lenTip(A, B, "", "#dc2626");
         endDot(r.latA, r.lonA, "#dc2626", "finish", "A", PV.finishDots);
         endDot(r.latB, r.lonB, "#dc2626", "finish", "B", PV.finishDots);
         PV.finishMove = moveDot((r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2, "#dc2626", "finish", CB.finishLine);
     }
+    // gate connectors: dashed purple segment between paired buoys + short label
+    const gateGroups = {};
+    resolved.forEach((m, i) => {
+        const src = CB.marks[i];
+        if (src && src.type === "gate" && src.gate) { (gateGroups[src.gate] = gateGroups[src.gate] || []).push(i); }
+    });
+    Object.values(gateGroups).forEach(g => {
+        if (g.length !== 2) return;
+        const A = [resolved[g[0]].lat, resolved[g[0]].lon], B = [resolved[g[1]].lat, resolved[g[1]].lon];
+        const seg = L.polyline([A, B], { color: "#984ea3", weight: 2, dashArray: "6 4" }).addTo(coursePreview);
+        const tip = CB.showLabels ? L.tooltip({ permanent: true, direction: "center", className: "dist-label" })
+            .setLatLng(legLabelPos(A, B, 14))
+            .setContent(legSpan(A, B, Math.round(map.distance(A, B)) + " m", "#984ea3"))
+            .addTo(coursePreview) : null;
+        PV.gateSegs.push({ seg, tip, i: g[0], j: g[1] });
+    });
     // pending first endpoint while defining a line
     if (CB.lineA) {
         L.circleMarker([CB.lineA.lat, CB.lineA.lon], { radius: 6, color: "#0f172a", fillOpacity: 1 }).addTo(coursePreview)
