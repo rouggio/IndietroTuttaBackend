@@ -8,6 +8,22 @@ L.tileLayer(
     }
 ).addTo(map);
 
+// Remember last map position across reloads
+let restoredMapView = false;
+try {
+    const saved = JSON.parse(localStorage.getItem("indietrotutta:map") || "null");
+    if (saved && isFinite(saved.lat) && isFinite(saved.lon)) {
+        map.setView([saved.lat, saved.lon], isFinite(saved.zoom) ? saved.zoom : map.getZoom());
+        restoredMapView = true;
+    }
+} catch {}
+map.on("moveend", () => {
+    try {
+        const c = map.getCenter();
+        localStorage.setItem("indietrotutta:map", JSON.stringify({ lat: c.lat, lon: c.lng, zoom: map.getZoom() }));
+    } catch {}
+});
+
 let selectedDeviceIds = new Set();
 // compat: keep selectedDeviceId getter for old code paths that expect single
 let selectedDeviceId = null;
@@ -719,7 +735,7 @@ async function refreshDevices() {
     }
 }
 
-let firstFit = true; // viewport moves only on explicit recenter or first load
+let firstFit = !restoredMapView; // viewport moves only on explicit recenter or first load (skipped when restoring last position)
 async function refresh(recenter = false) {
 
     let points = [];
