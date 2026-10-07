@@ -1667,6 +1667,8 @@ function updateLineInfo() {
     }
     if (CB.finishLine === "start") parts.push("Finish = start line");
     else if (CB.finishLine) parts.push("Finish line set");
+    if (CB.startLine && CB.marks.length && CB.marks[0].type === "start") parts.push("start point redundant — deletable");
+    if ((CB.finishLine === "start" || CB.finishLine) && CB.marks.length && CB.marks[CB.marks.length - 1].type === "finish") parts.push("finish point redundant — deletable");
     el.textContent = parts.length ? parts.join(" · ") : "No start line — start/finish fall back to radius circles.";
     document.getElementById("builderLineStart")?.classList.toggle("arming", CB.placing === "lineA" && CB.lineTarget === "start" || CB.placing === "lineB" && CB.lineTarget === "start");
     document.getElementById("builderLineFinish")?.classList.toggle("arming", CB.placing === "lineA" && CB.lineTarget === "finish" || CB.placing === "lineB" && CB.lineTarget === "finish");
@@ -1797,7 +1799,15 @@ function updateBuilderPreview() {
     if (!CB.origin || (!CB.marks.length && !CB.startLine && !CB.finishLine && !CB.lineA)) return;
     coursePreview = L.layerGroup().addTo(map);
     const resolved = builderResolved();
+    // route runs line-center → marks → line-center when lines replace points
+    const segCenter = seg => {
+        const r = resolveSegJS(seg, builderInst());
+        return [(r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2];
+    };
     const latlngs = resolved.map(m => [m.lat, m.lon]);
+    if (CB.startLine) latlngs.unshift(segCenter(CB.startLine));
+    const effFinish = CB.finishLine === "start" ? CB.startLine : CB.finishLine;
+    if (effFinish && typeof effFinish === "object") latlngs.push(segCenter(effFinish));
     L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(coursePreview);
     // relaxed stacking: any marks whose radius circles collide belong to one
     // pile (union-find over pairwise circle overlap) — catches exact stacks

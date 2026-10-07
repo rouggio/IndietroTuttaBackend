@@ -91,9 +91,11 @@ const SIDES = ["P", "S", "G"];
 const TYPES = ["start", "mark", "gate", "finish"];
 
 // Returns null when valid, otherwise an error string.
-function validateMarks(marks) {
-    if (!Array.isArray(marks) || marks.length < 2 || marks.length > 10) {
-        return "marks must be an array of 2..10 entries";
+// A defined startLine replaces the start point (same for finish);
+// without lines, first/last point marks stay mandatory.
+function validateMarks(marks, startLine = null, finishLine = null) {
+    if (!Array.isArray(marks) || marks.length < 1 || marks.length > 10) {
+        return "marks must be an array of 1..10 entries";
     }
     for (let i = 0; i < marks.length; i++) {
         const m = marks[i] || {};
@@ -115,8 +117,11 @@ function validateMarks(marks) {
             return `marks[${i}].sourceUid must be a string when present`;
         }
     }
-    if (marks[0].type !== "start") return "marks[0] must be type start";
-    if (marks[marks.length - 1].type !== "finish") return "last mark must be type finish";
+    if (marks[0].type !== "start" && !startLine) return "marks[0] must be type start (or define a startLine)";
+    const hasFinishLine = !!finishLine;
+    if (marks[marks.length - 1].type !== "finish" && !hasFinishLine) {
+        return "last mark must be type finish (or define a finishLine)";
+    }
     // gate entries must come in pairs sharing one id
     const gates = {};
     for (const m of marks) {
@@ -182,7 +187,7 @@ async function createCourse({ name, owner = null, marks, startLine = null, finis
     if (typeof name !== "string" || !name.trim() || name.trim().length > 64) {
         throw Object.assign(new Error("name must be 1..64 chars"), { status: 400 });
     }
-    const err = validateMarks(marks) || validateLines(startLine, finishLine);
+    const err = validateMarks(marks, startLine, finishLine) || validateLines(startLine, finishLine);
     if (err) throw Object.assign(new Error(err), { status: 400 });
 
     const client = getClient();
@@ -246,7 +251,7 @@ async function updateCourse(id, { name, marks, startLine, finishLine }) {
     if (typeof next.name !== "string" || !next.name.trim() || next.name.trim().length > 64) {
         throw Object.assign(new Error("name must be 1..64 chars"), { status: 400 });
     }
-    const err = validateMarks(next.marks) || validateLines(next.startLine, next.finishLine);
+    const err = validateMarks(next.marks, next.startLine, next.finishLine) || validateLines(next.startLine, next.finishLine);
     if (err) throw Object.assign(new Error(err), { status: 400 });
 
     const client = getClient();
