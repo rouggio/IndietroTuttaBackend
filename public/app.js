@@ -1886,6 +1886,8 @@ function normalizeGates() {
 }
 function renderBuilderMarks() {
     const el = document.getElementById("builder-marks");
+    const gateCounts = {};
+    CB.marks.forEach(m => { if (m.type === "gate" && m.gate) gateCounts[m.gate] = (gateCounts[m.gate] || 0) + 1; });
     if (!CB.marks.length) {
         el.innerHTML = '<div class="device-meta">No marks — click "+ Add marks" then click the map, or adopt waypoints below.</div>';
         return;
@@ -1905,7 +1907,7 @@ function renderBuilderMarks() {
                 <button class="mini" data-down title="Move later">↓</button>
                 <button class="mini" data-del title="Delete mark">×</button>
             </div>
-            <div class="device-meta">${Math.round(m.x)}m E, ${Math.round(m.y)}m N (wind frame)${m.sourceUid ? ` · from ${escHtml(m.sourceUid)}` : ""}${m.gate ? ` · gate ${escHtml(m.gate)}` : ""}</div>
+            <div class="device-meta">${Math.round(m.x)}m E, ${Math.round(m.y)}m N (wind frame)${m.sourceUid ? ` · from ${escHtml(m.sourceUid)}` : ""}${m.gate ? ` · gate ${escHtml(m.gate)}${gateCounts[m.gate] === 2 ? "" : " (needs partner)"}` : ""}</div>
         </div>`).join("");
     el.querySelectorAll("[data-mark]").forEach(row => {
         const i = Number(row.getAttribute("data-mark"));
@@ -1929,7 +1931,6 @@ function renderBuilderMarks() {
             } else {
                 delete m.gate;
             }
-            normalizeGates();
             renderBuilderMarks(); updateBuilderPreview(); saveBuilderDraft();
         });
         row.querySelector("[data-f=side]").addEventListener("change", e => { CB.marks[i].side = e.target.value; updateBuilderPreview(); saveBuilderDraft(); });
