@@ -2744,6 +2744,10 @@ async function renderSessionDetail() {
                     <button id="sess-repeat" title="Same course, boats and wind on a new day">Repeat</button>
                 </div>
                 <div class="builder-row">
+                    <button id="sess-sim" title="Script a mock-GPS run for all boats (indoor testing)">Simulate</button>
+                </div>
+                <div id="sess-runs" class="device-meta"></div>
+                <div class="builder-row">
                     <button id="sess-del" style="color:#dc2626">Delete session</button>
                 </div>
                 <div id="sess-detail-err" class="boat-info-err"></div>
@@ -2800,6 +2804,35 @@ async function renderSessionDetail() {
             selectedSessionId = null;
             loadSessions();
         });
+        const refreshRuns = async () => {
+            const box = document.getElementById("sess-runs");
+            if (!box) return;
+            try {
+                const runs = await (await fetch(`/sim/runs?sessionId=${s.id}`)).json();
+                const nowMs = Date.now();
+                box.innerHTML = runs.length ? runs.map(r => {
+                    const el = Math.max(0, Math.floor((nowMs - r.startMs) / 1000));
+                    const state = el >= r.durationSec ? "done" : `${el}s / ${r.durationSec}s`;
+                    return `<div>${escHtml(r.deviceId.slice(-5))} · ${r.speedKn}kn · gun T+${r.gunSec}s · ${state} <a href="#" data-stoprun="${escHtml(r.id)}" style="color:#dc2626">stop</a></div>`;
+                }).join("") : "no sim runs";
+                box.querySelectorAll("[data-stoprun]").forEach(a => a.addEventListener("click", async e => {
+                    e.preventDefault();
+                    await fetch(`/sim/runs/${encodeURIComponent(a.getAttribute("data-stoprun"))}`, { method: "DELETE" });
+                    refreshRuns();
+                }));
+            } catch { box.textContent = "runs unavailable"; }
+        };
+        document.getElementById("sess-sim").addEventListener("click", async () => {
+            const r = await fetch("/sim/runs", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sessionId: s.id }),
+            });
+            const j = await r.json();
+            const errBox = document.getElementById("sess-detail-err");
+            if (!r.ok) { if (errBox) errBox.textContent = j.error || "Simulate failed."; return; }
+            refreshRuns();
+        });
+        refreshRuns();
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-panel"));
     } catch {
         el.innerHTML = '<div class="boat-info-err">Failed to load session.</div>';
