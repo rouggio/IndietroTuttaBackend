@@ -1719,11 +1719,18 @@ if (typeof map !== "undefined" && map.getContainer) {
         if (!dy && !dx) return;
         courseMove.lastLat = p.lat; courseMove.lastLon = p.lng;
         CB.origin = { lat: CB.origin.lat + dy, lon: CB.origin.lon + dx };
-        // shift every preview layer in place — no rebuild, labels don't bump
-        const sh = ll => [ll[0] + dy, ll[1] + dx];
-        const shDeep = lls => lls.map(q => (Array.isArray(q[0]) ? shDeep(q) : sh(q)));
+        // shift every preview layer in place — no rebuild, labels don't bump.
+        // (getLatLngs returns LatLng objects, not arrays — handle both)
+        const shiftLL = x => {
+            if (Array.isArray(x)) {
+                if (x.length === 2 && typeof x[0] === "number") return [x[0] + dy, x[1] + dx];
+                return x.map(shiftLL);
+            }
+            if (x && typeof x.lat === "number") return [x.lat + dy, x.lng + dx];
+            return x;
+        };
         coursePreview.eachLayer(l => {
-            if (l.setLatLngs && l.getLatLngs) { try { l.setLatLngs(shDeep(l.getLatLngs())); } catch {} }
+            if (l.setLatLngs && l.getLatLngs) { try { l.setLatLngs(shiftLL(l.getLatLngs())); } catch {} }
             else if (l.setLatLng && l.getLatLng) { const q = l.getLatLng(); l.setLatLng([q.lat + dy, q.lng + dx]); }
         });
         document.getElementById("builder-origin-label").textContent =
