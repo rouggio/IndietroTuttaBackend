@@ -380,7 +380,7 @@ function makePanelDraggable(el) {
 }
 
 // Click on or near a route point → show Details, else close
-function findNearestPoint(latlng, maxMeters = 40) {
+function findNearestPoint(latlng, maxMeters = 15) {
     if (!allPoints.length) return null;
     let best = null, bestDist = Infinity;
     allPoints.forEach(p => {
@@ -432,7 +432,7 @@ map.on("click", e => {
 // Hover anywhere on the map (tight radius — dot shows only when deliberate)
 map.on("mousemove", e => {
     if (typeof CB !== "undefined" && CB.open && CB.placing) return; // builder gesture in progress
-    const n = findNearestPoint(e.latlng, 50);
+    const n = findNearestPoint(e.latlng, 15);
     if (n) showHoverPoint(n);
     else hideHover();
 });
