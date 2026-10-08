@@ -82,8 +82,7 @@ function safeJson(t) {
     catch { return []; }
 }
 
-async function listRuns(sessionId) {
-    const sid = parseInt(sessionId, 10);
+async function listRuns(sessionId) {    const sid = parseInt(sessionId, 10);
     if (!sid) return [];
     const client = getClient();
     if (!client) return memRuns.filter(r => r.sessionId === sid).sort((a, b) => (a.elapsedSec ?? 9e9) - (b.elapsedSec ?? 9e9));
@@ -97,4 +96,19 @@ async function listRuns(sessionId) {
     return res.rows.map(rowToRun);
 }
 
-module.exports = { submitRun, listRuns };
+module.exports = { submitRun, listRuns, uploaders };
+
+// DeviceIds with at least one uploaded run (a run means that boat's race
+// is over — finished, DSQ, DNF or RET). Used to infer session status.
+async function uploaders(sessionId) {
+    const sid = parseInt(sessionId, 10);
+    if (!sid) return [];
+    const client = getClient();
+    if (!client) return memRuns.filter(r => r.sessionId === sid).map(r => r.deviceId);
+    await initDb();
+    const res = await client.execute({
+        sql: `SELECT DISTINCT deviceId FROM runs WHERE sessionId = ?`,
+        args: [sid],
+    });
+    return res.rows.map(r => r.deviceId);
+}

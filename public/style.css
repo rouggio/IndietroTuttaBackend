@@ -2,6 +2,7 @@ html, body {
     margin: 0;
     padding: 0;
     height: 100%;
+    overflow: hidden; /* fullscreen map app: panels scroll internally, never the window */
     font-family: Arial, sans-serif;
 }
 
@@ -500,6 +501,13 @@ html, body {
     margin-top: 6px;
 }
 
+.boat-info-ok {
+    color: #16a34a;
+    font-size: 12px;
+    min-height: 16px;
+    margin-top: 6px;
+}
+
 .boat-info-actions {
     display: flex;
     justify-content: flex-end;
@@ -619,7 +627,8 @@ html, body {
 /* Templates & sessions panels */
 #template-panel,
 #session-panel,
-#session-create-panel {
+#session-create-panel,
+#session-detail-panel {
     position: absolute;
     top: 58px;
     right: 10px;
@@ -636,7 +645,8 @@ html, body {
 
 #template-panel h4,
 #session-panel h4,
-#session-create-panel h4 {
+#session-create-panel h4,
+#session-detail-panel h4 {
     margin: 0 0 8px 0;
     font-size: 14px;
 }
@@ -789,28 +799,14 @@ html, body {
     font-size: 11px;
 }
 
-.builder-adopt, .builder-freeze, .builder-wind, .builder-lines {
+.builder-freeze, .builder-lines {
     border-top: 1px solid #f3f4f6;
     margin-top: 8px;
     padding-top: 6px;
 }
 
-.builder-adopt b, .builder-lines b {
+.builder-lines b {
     font-size: 12px;
-}
-
-.adopt-pin-label {
-    background: #dc2626;
-    color: white;
-    border-radius: 50%;
-    width: 20px;
-    height: 20px;
-    line-height: 20px;
-    text-align: center;
-    font-size: 11px;
-    font-weight: bold;
-    border: 2px solid white;
-    box-shadow: 0 1px 4px rgba(0,0,0,.4);
 }
 
 .builder-mark-label {
@@ -871,46 +867,6 @@ html, body {
 
 .dist-label:before {
     display: none;
-}
-
-/* Wind dial: screen-anchored indicator, bottom-left of the map */
-.wind-dial {
-    width: 76px;
-    height: 76px;
-    border-radius: 50%;
-    background: rgba(255,255,255,.93);
-    border: 1px solid #cbd5e1;
-    box-shadow: 0 1px 6px rgba(0,0,0,.25);
-    position: relative;
-    cursor: grab;
-    touch-action: none;
-}
-
-.wind-dial-rot {
-    position: absolute;
-    inset: 0;
-}
-
-.wind-dial-arrow {
-    position: absolute;
-    top: 8px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    color: #0f172a;
-    font-size: 20px;
-    line-height: 1;
-}
-
-.wind-dial-label {
-    position: absolute;
-    bottom: 5px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 11px;
-    font-weight: bold;
-    color: #0f172a;
 }
 
 .sess-detail {

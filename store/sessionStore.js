@@ -1,5 +1,7 @@
 const { getClient, initDb } = require("./db");
 const { getTemplate, validateMarks, validateLines } = require("./templateStore");
+const { uploaders } = require("./runStore");
+const { terminalBoats } = require("./signalStore");
 
 // ------------------------------------------------------------------
 // Sessions freeze a course onto a day: frozen template copy +
@@ -33,15 +35,11 @@ function resolveSegment(seg, { originLat, originLon, windDir, scale = 1 }) {
         const N = -(x * scale) * Math.sin(t) + (y * scale) * Math.cos(t);
         return { lat: originLat + N / EARTH_M, lon: originLon + E / (EARTH_M * cosLat) };
     };
-    if (seg.square === false) {
-        // fixed geometry: endpoints rotate with the template
-        const a = loc(seg.ax, seg.ay), b = loc(seg.bx, seg.by);
-        return { ...seg, latA: a.lat, lonA: a.lon, latB: b.lat, lonB: b.lon };
-    }
-    // square to wind (default): fixed center + length, bearing follows wind + bias
+    // Lines are always square to the wind (90°): fixed center + length,
+    // bearing follows the wind. Stored square/bias are ignored leftovers.
     const cx = (seg.ax + seg.bx) / 2, cy = (seg.ay + seg.by) / 2;
     const len = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) * scale;
-    const bdeg = ((((windDir + 90 + (seg.bias || 0)) % 360) + 360) % 360);
+    const bdeg = ((((windDir + 90) % 360) + 360) % 360);
     const brad = (bdeg * Math.PI) / 180;
     const c = loc(cx, cy);
     const half = len / 2;
@@ -82,15 +80,13 @@ function effectiveFinishLine(session) {
     return session ? session.finishLine : null;
 }
 const MODES = ["practice", "race"];
-const STATUSES = ["scheduled", "live", "finished", "abandoned"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 function validateSessionInput(b) {
     if (b.date !== undefined && (typeof b.date !== "string" || !DATE_RE.test(b.date))) {
         return "date must be YYYY-MM-DD";
     }
     if (b.mode !== undefined && !MODES.includes(b.mode)) return "mode must be practice or race";
-    if (b.status !== undefined && !STATUSES.includes(b.status)) return "bad status";
+    if (b.status !== undefined && !["abandoned", "scheduled"].includes(b.status)) return "status is inferred (only abandoned, or scheduled to re-open, accepted)";
     if (b.originLat !== undefined && (typeof b.originLat !== "number" || Math.abs(b.originLat) > 90)) {
         return "originLat must be -90..90";
     }
@@ -244,19 +240,48 @@ async function createSession(b) {
     }, []);
 }
 
+// Status is inferred on read, never set by the committee (except abandon):
+// abandoned sticks; finished when every boat uploaded a run; live once the
+// gun passed; scheduled otherwise. Stored column keeps abandoned only.
+async function deriveStatus(s) {
+    if (!s) return s;
+    if (s.status === "abandoned") return "abandoned";
+    try {
+        if (s.boats && s.boats.length) {
+            // A boat's race is over with an uploaded run OR a terminal
+            // committee signal (DSQ/DNF/RET) — session finishes when all are.
+            const done = new Set(await uploaders(s.id));
+            for (const d of await terminalBoats(s.id)) done.add(d);
+            if (s.boats.every(b => done.has(b.deviceId))) return "finished";
+        }
+    } catch {}
+    if (s.startTime && Date.now() >= new Date(s.startTime).getTime()) return "live";
+    return "scheduled";
+}
+
 async function listSessions({ date } = {}) {
     const client = getClient();
     if (!client) {
         let all = [...memSessions.values()];
         if (date) all = all.filter(s => s.date === date);
-        return all.map(s => ({ ...s, boats: memBoats.get(s.id) || [] }));
+        const out = [];
+        for (const s of all) {
+            const full = { ...s, boats: memBoats.get(s.id) || [] };
+            full.status = await deriveStatus(full);
+            out.push(full);
+        }
+        return out;
     }
     await initDb();
     const res = date
         ? await client.execute({ sql: "SELECT * FROM sessions WHERE date = ? ORDER BY id ASC", args: [date] })
         : await client.execute("SELECT * FROM sessions ORDER BY id ASC");
     const out = [];
-    for (const r of res.rows) out.push(rowToSession(r, await getBoats(r.id)));
+    for (const r of res.rows) {
+        const full = rowToSession(r, await getBoats(r.id));
+        full.status = await deriveStatus(full);
+        out.push(full);
+    }
     return out;
 }
 
@@ -264,12 +289,17 @@ async function getSession(id) {
     const client = getClient();
     if (!client) {
         const s = memSessions.get(Number(id));
-        return s ? { ...s, boats: memBoats.get(s.id) || [] } : null;
+        if (!s) return null;
+        const full = { ...s, boats: memBoats.get(s.id) || [] };
+        full.status = await deriveStatus(full);
+        return full;
     }
     await initDb();
     const res = await client.execute({ sql: "SELECT * FROM sessions WHERE id = ?", args: [Number(id)] });
     if (!res.rows.length) return null;
-    return rowToSession(res.rows[0], await getBoats(id));
+    const full = rowToSession(res.rows[0], await getBoats(id));
+    full.status = await deriveStatus(full);
+    return full;
 }
 
 // Pre-start edits (wind/origin/scale/startTime/status) re-resolve + bump version.
@@ -479,6 +509,9 @@ async function getActiveSessionForDevice(deviceId) {
     if (!res.rows.length) return null;
     const boats = await getBoats(res.rows[0].id);
     const full = rowToSession(res.rows[0], boats);
+    // Finished sessions stop pushing (race over); the inferred status
+    // (live once the gun passes) drives the device's fast health poll.
+    if ((await deriveStatus(full)) === "finished") return null;
     const mine = boats.find(b => b.deviceId === deviceId);
     let signals = [];
     try {
@@ -489,7 +522,7 @@ async function getActiveSessionForDevice(deviceId) {
     return {
         id: full.id,
         mode: full.mode,
-        status: full.status,
+        status: await deriveStatus(full),
         startTime: full.startTime,
         startOffsetSec: (mine && mine.startOffsetSec) || 0,
         courseVersion: full.courseVersion,

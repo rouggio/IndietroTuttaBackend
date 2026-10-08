@@ -74,4 +74,23 @@ async function signalsForDevice(sessionId, deviceId) {
     return all.filter(s => !s.deviceId || s.deviceId === deviceId).slice(-20);
 }
 
-module.exports = { raiseSignal, listSignals, signalsForDevice };
+module.exports = { raiseSignal, listSignals, signalsForDevice, terminalBoats };
+
+// Boats with a terminal committee signal (DSQ/DNF/RET): their race is over
+// even without an uploaded run. Used to infer session finish.
+async function terminalBoats(sessionId) {
+    const sid = parseInt(sessionId, 10);
+    if (!sid) return [];
+    const client = getClient();
+    if (!client) {
+        return [...new Set(memSignals
+            .filter(s => s.sessionId === sid && ["DSQ", "DNF", "RET"].includes(s.kind) && s.deviceId)
+            .map(s => s.deviceId))];
+    }
+    await initDb();
+    const res = await client.execute({
+        sql: `SELECT DISTINCT deviceId FROM signals WHERE sessionId = ? AND kind IN ('DSQ','DNF','RET') AND deviceId IS NOT NULL`,
+        args: [sid],
+    });
+    return res.rows.map(r => r.deviceId);
+}

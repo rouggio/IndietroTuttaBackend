@@ -475,8 +475,9 @@ function saveUI() {
                 "template-panel": document.getElementById("template-panel")?.style.display,
                 "session-panel": document.getElementById("session-panel")?.style.display,
                 "session-create-panel": document.getElementById("session-create-panel")?.style.display,
+                "session-detail-panel": document.getElementById("session-detail-panel")?.style.display,
             },
-            panelPos: ["device-panel", "template-panel", "session-panel", "session-create-panel", "builder-panel"].reduce((acc, id) => {
+            panelPos: ["device-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "builder-panel"].reduce((acc, id) => {
                 const el = document.getElementById(id);
                 if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
                 return acc;
@@ -502,7 +503,7 @@ function loadUI() {
         if (d.customEnd) customEnd = d.customEnd;
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => {
-            if (id === "session-panel" || id === "session-create-panel") return; // sessions always start closed
+            if (id === "session-panel" || id === "session-create-panel" || id === "session-detail-panel") return; // sessions always start closed
             const el=document.getElementById(id); if(el && disp) el.style.display=disp;
         });
         if (d.panelPos) Object.entries(d.panelPos).forEach(([id, pos]) => {
@@ -1433,6 +1434,57 @@ document.getElementById("boatFilter")?.addEventListener("input", () => { saveUI(
 function escHtml(s) {
     return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+// Route threading: the sailed route passes THROUGH each gate once — a pair
+// collapses to its midpoint, never buoy-to-buoy (that spike is what made
+// gate courses draw incoherently). items: [{lat,lon,type,gate,src}] →
+// [{pt:[lat,lon], src}]. Orphan gates fall through as singles.
+function routeThread(items) {
+    const seen = new Set();
+    const out = [];
+    items.forEach(it => {
+        if (it.type === "gate" && it.gate) {
+            if (seen.has(it.gate)) return;
+            seen.add(it.gate);
+            const pair = items.filter(q => q.type === "gate" && q.gate === it.gate);
+            if (pair.length === 2) {
+                out.push({ pt: [(pair[0].lat + pair[1].lat) / 2, (pair[0].lon + pair[1].lon) / 2], src: it.src });
+                return;
+            }
+        }
+        out.push({ pt: [it.lat, it.lon], src: it.src });
+    });
+    return out;
+}
+// Rounding-direction arrow inside a mark's circle (P = counter-clockwise,
+// S = clockwise; gates/unsided marks get none). Geographic arc at 0.55r so
+// it stays "within the range" at every zoom. Returns {arc, head} latlngs.
+function roundingArc(lat, lon, rM, side) {
+    if (side !== "P" && side !== "S") return null;
+    const R = Math.max(5, rM * 0.55), D = Math.PI / 180;
+    const cosLat = Math.cos(lat * Math.PI / 180);
+    const at = b => [lat + (R * Math.cos(b * D)) / 111320, lon + (R * Math.sin(b * D)) / (111320 * cosLat)];
+    const step = (distM, brg) => [lat + (distM * Math.cos(brg * D)) / 111320, lon + (distM * Math.sin(brg * D)) / (111320 * cosLat)];
+    const arc = [];
+    for (let k = 0; k <= 12; k++) arc.push(at(side === "S" ? k * 15 : -k * 15));
+    // arrowhead at the arc end, pointing along travel. Half-circle arcs end
+    // at the bottom: clockwise/S heads west, counter-clockwise/P heads east.
+    const end = at(180);
+    const mB = side === "S" ? 270 : 90; // motion compass bearing at the end
+    const h = R * 0.5;
+    const tip = [end[0] + (h * Math.cos(mB * D)) / 111320, end[1] + (h * Math.sin(mB * D)) / (111320 * cosLat)];
+    const bc = [end[0] - (h * 0.4 * Math.cos(mB * D)) / 111320, end[1] - (h * 0.4 * Math.sin(mB * D)) / (111320 * cosLat)];
+    const pB = (mB + 90) % 360, w = h * 0.4;
+    const w1 = [bc[0] + (w * Math.cos(pB * D)) / 111320, bc[1] + (w * Math.sin(pB * D)) / (111320 * cosLat)];
+    const w2 = [bc[0] - (w * Math.cos(pB * D)) / 111320, bc[1] - (w * Math.sin(pB * D)) / (111320 * cosLat)];
+    return { arc, head: [tip, w1, w2] };
+}
+// Arrow sides per mark: oriented marks show their side. Gates show none —
+// a gate is a through-passage with side choice, not a rounding; the route
+// threading between the buoys says it all.
+function arrowSides(m, i, all) {
+    if (m.side === "P" || m.side === "S") return [m.side];
+    return [];
+}
 // JS mirror of the backend wind-frame resolve (rotate + translate).
 function resolveMarksJS(offsetMarks, o) {
     const t = (o.windDir * Math.PI) / 180;
@@ -1455,48 +1507,30 @@ function offsetsFromLatLon(lat, lon, o) {
     return { x: (E * Math.cos(t) - N * Math.sin(t)) / scale, y: (E * Math.sin(t) + N * Math.cos(t)) / scale };
 }
 
-const racesDropdown = document.getElementById("racesDropdown");
-const racesToggleBtn = document.getElementById("racesToggleBtn");
-if (racesToggleBtn && racesDropdown) {
-    // touch support: tap toggles the menu (hover covers desktop)
-    racesToggleBtn.addEventListener("click", e => {
-        e.stopPropagation();
-        racesDropdown.classList.toggle("active");
-    });
-    document.addEventListener("click", e => {
-        if (!e.target.closest("#racesDropdown")) racesDropdown.classList.remove("active");
-    });
-}
-function syncRacesBtn() {
-    const rt = document.getElementById("racesToggleBtn");
-    if (!rt) return;
-    const vis = el => el && el.style.display !== "none" && el.style.display !== "";
-    rt.classList.toggle("active", !!(vis(document.getElementById("template-panel")) || vis(document.getElementById("session-panel")) || vis(document.getElementById("session-create-panel"))));
-}
+// (flat top bar: Boats · Timeline · Sessions · Templates · New session —
+// the old Races ▾ parent menu is gone; each button syncs itself)
 const templatesBtn = document.getElementById("templatesToggleBtn");
 const templatePanel = document.getElementById("template-panel");
 if (templatesBtn && templatePanel) {
     const syncTemplatesBtn = () => {
         const open = templatePanel.style.display !== "none" && templatePanel.style.display !== "";
         templatesBtn.classList.toggle("active", open);
-        syncRacesBtn();
     };
-    templatesBtn.addEventListener("click", () => { toggleEl("template-panel"); avoidPanelOverlap(templatePanel); syncTemplatesBtn(); saveUI(); loadCourseTemplates(); if (racesDropdown) racesDropdown.classList.remove("active"); if (!panelVisible(templatePanel)) closeBuilder(); });
+    templatesBtn.addEventListener("click", () => { toggleEl("template-panel"); avoidPanelOverlap(templatePanel); syncTemplatesBtn(); saveUI(); loadCourseTemplates(); if (!panelVisible(templatePanel)) closeBuilder(); });
     new MutationObserver(syncTemplatesBtn).observe(templatePanel, { attributes: true, attributeFilter: ["style"] });
     syncTemplatesBtn();
 }
 const sessionsBtn = document.getElementById("sessionsToggleBtn");
 const sessionPanel = document.getElementById("session-panel");
 if (sessionsBtn && sessionPanel) {
-    // Races ▾ → New session: opens the creation pane directly (the list
+    // New session: opens the creation pane directly (the list
     // lives under the top-bar Sessions entry).
     const syncSessionsBtn = () => {
         const cp = document.getElementById("session-create-panel");
         const open = cp && cp.style.display !== "none" && cp.style.display !== "";
         sessionsBtn.classList.toggle("active", open);
-        syncRacesBtn();
     };
-    sessionsBtn.addEventListener("click", () => { openSessionCreate(); if (racesDropdown) racesDropdown.classList.remove("active"); });
+    sessionsBtn.addEventListener("click", () => { openSessionCreate(); });
     new MutationObserver(syncSessionsBtn).observe(document.getElementById("session-create-panel"), { attributes: true, attributeFilter: ["style"] });
     syncSessionsBtn();
     document.getElementById("sessionClose")?.addEventListener("click", () => {
@@ -1507,7 +1541,7 @@ if (sessionsBtn && sessionPanel) {
         saveUI();
     });
 }
-// Top-bar Sessions entry: same as the Races ▾ item (opens the list).
+// Top-bar Sessions entry: opens the list.
 const sessionsTopBtn = document.getElementById("sessionsTopBtn");
 if (sessionsTopBtn && sessionPanel) {
     const syncTopBtn = () => {
@@ -1521,6 +1555,11 @@ if (sessionsTopBtn && sessionPanel) {
 // New-session pane (creation form split out of the list panel).
 const sessionCreatePanel = document.getElementById("session-create-panel");
 function openSessionCreate() {
+    // New session owns the map preview: stand down the template library
+    // and the builder so their layers don't fight the draft.
+    const tp = document.getElementById("template-panel");
+    if (tp) tp.style.display = "none";
+    if (typeof closeBuilder === "function") closeBuilder();
     if (sessionCreatePanel && !panelVisible(sessionCreatePanel)) toggleEl("session-create-panel");
     if (sessionCreatePanel) avoidPanelOverlap(sessionCreatePanel);
     saveUI();
@@ -1531,7 +1570,6 @@ if (sessionCreatePanel) {
         sessionCreatePanel.style.display = "none";
         disarmSessMove();
         clearSessPreview();
-        syncRacesBtn();
         saveUI();
     });
 }
@@ -1637,13 +1675,11 @@ function resolveSegJS(seg, o) {
         const N = -x * scale * Math.sin(t) + y * scale * Math.cos(t);
         return { lat: o.originLat + N / 111320, lon: o.originLon + E / (111320 * cosLat) };
     };
-    if (seg.square === false) {
-        const a = pt(seg.ax, seg.ay), b = pt(seg.bx, seg.by);
-        return { ...seg, latA: a.lat, lonA: a.lon, latB: b.lat, lonB: b.lon };
-    }
+    // Lines are always square to the wind (90°): fixed center + length,
+    // bearing follows the wind. Stored square/bias are ignored leftovers.
     const cx = (seg.ax + seg.bx) / 2, cy = (seg.ay + seg.by) / 2;
     const len = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) * scale;
-    const bdeg = ((((o.windDir + 90 + (seg.bias || 0)) % 360) + 360) % 360);
+    const bdeg = ((((o.windDir + 90) % 360) + 360) % 360);
     const brad = (bdeg * Math.PI) / 180;
     const c = pt(cx, cy);
     const half = len / 2;
@@ -1656,9 +1692,6 @@ function segLenM(a, b) {
 }
 let coursePreview = null; // L.layerGroup for resolved preview
 let PV = null; // live refs into the preview (route/segments/dots), for in-drag updates
-let adoptPins = null;     // L.layerGroup for waypoint pins
-let adoptFlags = [];      // flagged points loaded for adoption
-let pileTops = {};        // latlon key -> pile rotation offset (stacked display only)
 const BUILDER_DRAFT_KEY = "indietrotutta:builder";
 
 function builderInst() {
@@ -1676,7 +1709,7 @@ function openBuilder(init = {}) {
     CB.desc = init.desc || "";
     CB.marks = (init.marks || []).map(m => ({ ...m }));
     CB.origin = init.origin || null;
-    CB.windDir = init.windDir ?? 315;
+    CB.windDir = 0; // templates assume N wind — no wind UI in the editor
     CB.scale = init.scale || 1;
     CB.placing = null;
     CB.startLine = init.startLine || null;
@@ -1694,10 +1727,8 @@ function openBuilder(init = {}) {
     document.getElementById("builder-panel").style.display = "block";
     document.getElementById("builder-name").value = CB.name;
     document.getElementById("builder-desc").value = CB.desc;
-    document.getElementById("builder-wind-val").textContent = CB.windDir;
     document.getElementById("builder-scale").value = CB.scale;
     document.getElementById("builder-msg").textContent = "";
-    document.getElementById("builder-wind-src").textContent = "";
     document.getElementById("builderLabels")?.classList.toggle("arming", CB.showLabels);
     document.getElementById("builder-origin-label").textContent = CB.origin
         ? `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`
@@ -1706,25 +1737,34 @@ function openBuilder(init = {}) {
     renderBuilderMarks();
     updateBuilderPreview();
     saveBuilderDraft();
-    loadAdoptBoats();
 }
 function closeBuilder() {
     CB.open = false;
     CB.placing = null;
     if (courseMove) { courseMove = null; if (map.dragging) map.dragging.enable(); }
-    updateWindDial();
     document.getElementById("builder-panel").style.display = "none";
     if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
-    if (adoptPins) { map.removeLayer(adoptPins); adoptPins = null; }
-    adoptFlags = [];
     syncBuilderArmButtons();
 }
 document.getElementById("builderClose")?.addEventListener("click", closeBuilder);
 document.getElementById("builder-name")?.addEventListener("input", e => { CB.name = e.target.value; saveBuilderDraft(); });
 document.getElementById("builder-desc")?.addEventListener("input", e => { CB.desc = e.target.value; saveBuilderDraft(); });
 document.getElementById("builder-scale")?.addEventListener("change", e => {
-    CB.scale = Math.min(5, Math.max(0.1, Number(e.target.value) || 1));
-    e.target.value = CB.scale;
+    // Scale is an editor operation, not template state: bake the factor
+    // into the model (marks + line endpoints) and reset to 1. Radii stay
+    // absolute meters. Sessions keep their own placement-time scale.
+    const f = Math.min(5, Math.max(0.1, Number(e.target.value) || 1));
+    e.target.value = 1;
+    CB.scale = 1;
+    if (f === 1) return;
+    CB.marks.forEach(m => { m.x *= f; m.y *= f; });
+    for (const role of ["startLine", "finishLine"]) {
+        const seg = CB[role];
+        if (seg && typeof seg === "object" && !seg.sameAs) {
+            seg.ax *= f; seg.ay *= f; seg.bx *= f; seg.by *= f;
+        }
+    }
+    renderBuilderMarks();
     updateBuilderPreview(); saveBuilderDraft();
 });
 function syncBuilderArmButtons() {
@@ -1804,50 +1844,32 @@ document.getElementById("builderMoveCourse")?.addEventListener("click", () => {
     CB.placing = "move";
     syncBuilderArmButtons();
 });
-// Lines list (alongside the marks): length, square/bias, same-as, define/clear.
+// Start/finish line rows: rendered as the first/last entries of the course
+// sequence (WS order: start line → marks/gates → finish line), not a side
+// section. renderLinesBox refreshes both ends around the marks list.
 function renderLinesBox() {
-    const el = document.getElementById("builder-lines-list");
+    renderLineRow("start", document.getElementById("seq-start"));
+    renderLineRow("finish", document.getElementById("seq-finish"));
+}
+function renderLineRow(role, el) {
     if (!el) return;
     const segLen = seg => Math.round(Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) * (CB.scale || 1));
-    const squareTxt = seg => seg.square === false ? "fixed" : `⊥ wind${seg.bias ? ((seg.bias > 0 ? "+" : "") + seg.bias + "°") : ""}`;
-    const row = (role, seg, isSame) => `
+    const isSame = role === "finish" && CB.finishLine === "start";
+    const seg = role === "start" ? CB.startLine : (isSame ? null : CB.finishLine);
+    el.innerHTML = `
         <div class="mark-row" data-line="${role}">
             <div class="mark-head">
-                <b>${role === "start" ? "Start" : "Finish"}</b>
-                <span class="device-meta">${isSame ? "same as start" : seg ? `${segLen(seg)}m · ${squareTxt(seg)}` : "radius circle"}</span>
+                <b>${role === "start" ? "🟢 Start line" : "🏁 Finish line"}</b>
+                <span class="device-meta">${isSame ? "same as start" : seg ? `${segLen(seg)}m · ⊥ wind` : "radius circle"}</span>
             </div>
-            ${seg && !isSame ? `<div class="mark-head" style="margin-top:4px">
-                <label class="device-meta">bias <input data-lb="bias" type="number" min="-60" max="60" step="1" value="${seg.bias || 0}" title="Skew vs square (deg)">°</label>
-                <label class="device-meta"><input data-lb="square" type="checkbox" ${seg.square === false ? "" : "checked"}> square</label>
-            </div>` : ""}
             <div class="mark-head" style="margin-top:4px">
                 <button class="mini" data-lact="define">Define</button>
                 ${role === "finish" && !isSame ? `<button class="mini" data-lact="same">Same as start</button>` : ""}
                 ${(seg || isSame) ? `<button class="mini" data-lact="clear">Clear</button>` : ""}
             </div>
         </div>`;
-    el.innerHTML = row("start", CB.startLine, false) +
-        row("finish", CB.finishLine === "start" ? null : CB.finishLine, CB.finishLine === "start");
     el.querySelectorAll("[data-line]").forEach(box => {
-        const role = box.getAttribute("data-line");
-        const cur = () => (role === "start" ? CB.startLine : CB.finishLine);
         const set = seg => { if (role === "start") CB.startLine = seg; else CB.finishLine = seg; };
-        const bias = box.querySelector('[data-lb="bias"]');
-        if (bias) bias.addEventListener("change", () => {
-            const c = cur();
-            if (!c || typeof c !== "object") return;
-            set({ ...c, bias: Math.max(-60, Math.min(60, Number(bias.value) || 0)) });
-            afterLineEdit();
-        });
-        const sq = box.querySelector('[data-lb="square"]');
-        if (sq) sq.addEventListener("change", () => {
-            const c = cur();
-            if (!c || typeof c !== "object") return;
-            const upd = { ...c };
-            if (sq.checked) delete upd.square; else upd.square = false;
-            set(upd);
-            afterLineEdit();
-        });
         box.querySelectorAll("[data-lact]").forEach(btn => btn.addEventListener("click", () => {
             const act = btn.getAttribute("data-lact");
             if (act === "define") {
@@ -1922,7 +1944,7 @@ function builderMapClick(e) {
         const off = offsetsFromLatLon(e.latlng.lat, e.latlng.lng, builderInst());
         CB.marks.push({
             x: Math.round(off.x * 10) / 10, y: Math.round(off.y * 10) / 10,
-            r: 30, side: "P", type: CB.marks.length === 0 ? "start" : "mark",
+            r: 30, side: "P", type: "mark",
         });
         renderBuilderMarks();
         updateBuilderPreview(); saveBuilderDraft();
@@ -1949,15 +1971,20 @@ function renderBuilderMarks() {
     const gateCounts = {};
     CB.marks.forEach(m => { if (m.type === "gate" && m.gate) gateCounts[m.gate] = (gateCounts[m.gate] || 0) + 1; });
     if (!CB.marks.length) {
-        el.innerHTML = '<div class="device-meta">No marks — click "+ Add marks" then click the map, or adopt waypoints below.</div>';
+            el.innerHTML = '<div class="device-meta">No marks — click "+ Add marks" then click the map.</div>';
         return;
     }
-    el.innerHTML = CB.marks.map((m, i) => `
+    el.innerHTML = CB.marks.map((m, i) => {
+        // Ends are lines now: only mark/gate are offered (legacy start/finish
+        // points still render for old templates, just can't be re-picked).
+        const typeOpts = ["mark", "gate"];
+        if (!typeOpts.includes(m.type)) typeOpts.unshift(m.type);
+        return `
         <div class="mark-row" data-mark="${i}">
             <div class="mark-head">
                 <b>#${i + 1}</b>
                 <select data-f="type" title="Mark type">
-                    ${["start", "mark", "gate", "finish"].map(t => `<option ${m.type === t ? "selected" : ""}>${t}</option>`).join("")}
+                    ${typeOpts.map(t => `<option ${m.type === t ? "selected" : ""}>${t}</option>`).join("")}
                 </select>
                 <select data-f="side" title="Required side" ${m.type !== "mark" ? 'style="display:none"' : ""}>
                     ${["P", "S", "G"].map(s => `<option ${m.side === s ? "selected" : ""}>${s}</option>`).join("")}
@@ -1968,7 +1995,8 @@ function renderBuilderMarks() {
                 <button class="mini" data-del title="Delete mark">×</button>
             </div>
             <div class="device-meta">${Math.round(m.x)}m E, ${Math.round(m.y)}m N (wind frame)${m.sourceUid ? ` · from ${escHtml(m.sourceUid)}` : ""}${m.gate ? ` · gate ${escHtml(m.gate)}${gateCounts[m.gate] === 2 ? "" : " (needs partner)"}` : ""}</div>
-        </div>`).join("");
+        </div>`;
+    }).join("");
     el.querySelectorAll("[data-mark]").forEach(row => {
         const i = Number(row.getAttribute("data-mark"));
         row.querySelector("[data-f=type]").addEventListener("change", e => {
@@ -2031,6 +2059,14 @@ function refreshRouteLive() {
         if (PV.startLenTip) PV.startLenTip.setLatLng(legLabelPos(a, b)).setContent(legSpan(a, b, startLen, "#16a34a"));
     }
     PV.marks.forEach((m, i) => { if (PV.circles[i]) PV.circles[i].setLatLng(m.getLatLng()); });
+    (PV.arrows || []).forEach(a => {
+        const p = PV.marks[a.i] ? PV.marks[a.i].getLatLng() : null;
+        const cm = CB.marks[a.i];
+        if (!p || !cm) return;
+        const arr = roundingArc(p.lat, p.lng, cm.r, a.side);
+        if (arr) { a.arc.setLatLngs(arr.arc); a.head.setLatLngs(arr.head); }
+        else { a.arc.setLatLngs([]); a.head.setLatLngs([]); }
+    });
     let finishC = null;
     if (CB.finishLine === "start" && startC) {
         finishC = startC;
@@ -2048,8 +2084,9 @@ function refreshRouteLive() {
         if (PV.finishMove) PV.finishMove.setLatLng(finishC);
         if (PV.finishLenTip) PV.finishLenTip.setLatLng(legLabelPos(a, b)).setContent(legSpan(a, b, Math.round(map.distance(a, b)) + " m", "#dc2626"));
     }
+    const live = PV.marks.map((m, i) => { const p = m.getLatLng(); const cm = CB.marks[i] || {}; return { lat: p.lat, lon: p.lng, type: cm.type, gate: cm.gate, src: i }; });
     const pts = [...(startC ? [startC] : []),
-        ...PV.marks.map(m => { const p = m.getLatLng(); return [p.lat, p.lng]; }),
+        ...routeThread(live).map(r => r.pt),
         ...(finishC ? [finishC] : [])];
     if (PV.route) PV.route.setLatLngs(pts);
     (PV.legs || []).forEach(leg => {
@@ -2064,23 +2101,26 @@ function refreshRouteLive() {
     });
 }
 function updateBuilderPreview() {
-    updateWindDial();
     if (!CB.open) return;
     if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
     PV = null;
     if (!CB.origin || (!CB.marks.length && !CB.startLine && !CB.finishLine && !CB.lineA)) return;
     coursePreview = L.layerGroup().addTo(map);
-    PV = { marks: [], circles: [], route: null, legs: [], startSeg: null, finishSeg: null, startDots: [], finishDots: [], startMove: null, finishMove: null, startLenTip: null, finishLenTip: null, gateSegs: [] };
+    PV = { marks: [], circles: [], arrows: [], route: null, legs: [], startSeg: null, finishSeg: null, startDots: [], finishDots: [], startMove: null, finishMove: null, startLenTip: null, finishLenTip: null, gateSegs: [] };
     const resolved = builderResolved();
     // route runs line-center → marks → line-center when lines replace points
     const segCenter = seg => {
         const r = resolveSegJS(seg, builderInst());
         return [(r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2];
     };
-    const latlngs = resolved.map(m => [m.lat, m.lon]);
+    const latlngs = [];
     // route point sources (mark index or -1 for line centers) — legs inside
     // one gate pair get no leg label (the gate connector already labels them)
-    const routeSrc = resolved.map((m, i) => i);
+    const routeSrc = [];
+    routeThread(resolved.map((m, i) => ({ ...m, src: i }))).forEach(r => {
+        latlngs.push(r.pt);
+        routeSrc.push(r.src);
+    });
     if (CB.startLine) { latlngs.unshift(segCenter(CB.startLine)); routeSrc.unshift(-1); }
     const effFinish = CB.finishLine === "start" ? CB.startLine : CB.finishLine;
     if (effFinish && typeof effFinish === "object") { latlngs.push(segCenter(effFinish)); routeSrc.push(-1); }
@@ -2118,6 +2158,16 @@ function updateBuilderPreview() {
     const pileKeyOf = i => pileOf(i).join(",");
     resolved.forEach((m, i) => {
         PV.circles.push(L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(coursePreview));
+        const col = MARK_COLORS[m.type] || "#f59e0b";
+        arrowSides(m, i, resolved).forEach(sd => {
+            const arr = roundingArc(m.lat, m.lon, m.r, sd);
+            if (!arr) return;
+            PV.arrows.push({
+                i, side: sd,
+                arc: L.polyline(arr.arc, { color: col, weight: 2, opacity: 0.9 }).addTo(coursePreview),
+                head: L.polygon(arr.head, { color: col, fillColor: col, fillOpacity: 0.9, weight: 1 }).addTo(coursePreview),
+            });
+        });
         const pile = pileOf(i);
         const pkey = pileKeyOf(i);
         const topIdx = pile[(pileTops[pkey] || 0) % pile.length];
@@ -2139,12 +2189,63 @@ function updateBuilderPreview() {
         });
         marker.bindTooltip(`#${i + 1} ${m.type} ${m.side}` + (pile.length > 1 ? ` · pile: ${pile.map(x => x + 1).join(", ")} (click cycles)` : ""));
         PV.marks.push(marker);
-        marker.on("drag", refreshRouteLive);
+        // Magnetic stacking while dragging: snap onto another mark within
+        // 12m, hold until dragged 18m away (hysteresis kills jitter), then
+        // release back to the cursor. Already-stacked marks stick on grab.
+        marker.on("dragstart", () => {
+            marker._snapTo = null;
+            marker._snapFrom = null;
+            const p0 = marker.getLatLng();
+            const off0 = offsetsFromLatLon(p0.lat, p0.lng, builderInst());
+            CB.marks.forEach((m, mi) => {
+                if (mi === i) return;
+                if (Math.hypot(m.x - off0.x, m.y - off0.y) < 1) marker._snapFrom = mi;
+            });
+        });
+        marker.on("drag", () => {
+            const p = marker.getLatLng();
+            const off = offsetsFromLatLon(p.lat, p.lng, builderInst());
+            const stick = marker._snapTo != null ? marker._snapTo : marker._snapFrom;
+            let target = null;
+            if (stick != null) {
+                const m = CB.marks[stick];
+                if (m && Math.hypot(m.x - off.x, m.y - off.y) < 18) {
+                    target = m;
+                    marker._snapTo = stick;
+                } else {
+                    marker._snapTo = null;
+                    marker._snapFrom = null;
+                }
+            }
+            if (!target) {
+                let bd = 12;
+                CB.marks.forEach((m, mi) => {
+                    if (mi === i) return;
+                    const d = Math.hypot(m.x - off.x, m.y - off.y);
+                    if (d < bd) { bd = d; target = m; marker._snapTo = mi; }
+                });
+                if (!target) marker._snapTo = null;
+            }
+            if (target) {
+                const r = resolveMarksJS([{ x: target.x, y: target.y }], builderInst())[0];
+                marker.setLatLng([r.lat, r.lon]);
+            }
+            refreshRouteLive();
+        });
         marker.on("dragend", () => {
             const ll = marker.getLatLng();
             const off = offsetsFromLatLon(ll.lat, ll.lng, builderInst());
-            CB.marks[i].x = Math.round(off.x * 10) / 10;
-            CB.marks[i].y = Math.round(off.y * 10) / 10;
+            // snap-to-stack: dropped within 12m of another mark → coincide
+            // exactly (piles: repeated roundings, shared windward mark).
+            let best = null, bd = 12;
+            CB.marks.forEach((m, mi) => {
+                if (mi === i) return;
+                const d = Math.hypot(m.x - off.x, m.y - off.y);
+                if (d < bd) { bd = d; best = m; }
+            });
+            const r1 = v => Math.round(v * 10) / 10;
+            CB.marks[i].x = r1(best ? best.x : off.x);
+            CB.marks[i].y = r1(best ? best.y : off.y);
             renderBuilderMarks();
             updateBuilderPreview(); saveBuilderDraft();
         });
@@ -2262,126 +2363,6 @@ function updateBuilderPreview() {
     // (wind lives in the bottom-left dial, not on the chart)
 }
 
-// --- Wind dial: screen-anchored indicator (bottom-left), tip drags to set wind ---
-let windDialCtl = null;
-function ensureWindDial() {
-    if (windDialCtl) return windDialCtl._container;
-    windDialCtl = L.control({ position: "bottomleft" });
-    windDialCtl.onAdd = function () {
-        const div = L.DomUtil.create("div", "wind-dial");
-        div.innerHTML = `<div class="wind-dial-rot" id="windDialRot"><div class="wind-dial-arrow">▲</div></div><div class="wind-dial-label" id="windDialLabel"></div>`;
-        L.DomEvent.disableClickPropagation(div);
-        L.DomEvent.disableScrollPropagation(div);
-        div.addEventListener("pointerdown", windDialDown);
-        return div;
-    };
-    windDialCtl.addTo(map);
-    return windDialCtl._container;
-}
-function windDialDown(e) {
-    e.stopPropagation();
-    e.preventDefault();
-    const dial = e.currentTarget;
-    try { dial.setPointerCapture(e.pointerId); } catch {}
-    const move = ev => {
-        const r = dial.getBoundingClientRect();
-        const dx = ev.clientX - (r.left + r.width / 2);
-        const dy = ev.clientY - (r.top + r.height / 2);
-        setBuilderWind(Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360));
-    };
-    move(e);
-    const up = () => {
-        dial.removeEventListener("pointermove", move);
-        dial.removeEventListener("pointerup", up);
-        dial.removeEventListener("pointercancel", up);
-    };
-    dial.addEventListener("pointermove", move);
-    dial.addEventListener("pointerup", up);
-    dial.addEventListener("pointercancel", up);
-}
-function setBuilderWind(deg) {
-    CB.windDir = ((Math.round(deg) % 360) + 360) % 360;
-    const wv = document.getElementById("builder-wind-val");
-    if (wv) wv.textContent = CB.windDir;
-    updateWindDial();
-    updateBuilderPreview();
-    saveBuilderDraft();
-}
-function updateWindDial() {
-    const c = ensureWindDial();
-    c.style.display = CB.open ? "block" : "none";
-    if (!CB.open) return;
-    const rot = document.getElementById("windDialRot");
-    const lab = document.getElementById("windDialLabel");
-    if (rot) rot.style.transform = `rotate(${CB.windDir}deg)`;
-    if (lab) lab.textContent = `${CB.windDir}°`;
-}
-
-// --- Waypoint adopter ---
-async function loadAdoptBoats() {
-    const sel = document.getElementById("adopt-boat");
-    if (!lastDevices.length) await refreshDevices();
-    sel.innerHTML = lastDevices.map(d => `<option value="${escHtml(d.deviceId)}">${escHtml(d.username || d.deviceId.slice(-5))}</option>`).join("");
-    if (!document.getElementById("adopt-date").value) {
-        document.getElementById("adopt-date").value = new Date().toISOString().slice(0, 10);
-    }
-}
-document.getElementById("adopt-load")?.addEventListener("click", async () => {
-    const deviceId = document.getElementById("adopt-boat").value;
-    const date = document.getElementById("adopt-date").value;
-    const msg = document.getElementById("builder-msg");
-    if (!deviceId || !date) { msg.textContent = "Pick a boat and a day first."; return; }
-    msg.textContent = "";
-    try {
-        const res = await fetch(`/gps?deviceId=${encodeURIComponent(deviceId)}&date=${encodeURIComponent(date)}&flagged=true`);
-        adoptFlags = await res.json();
-        if (adoptPins) { map.removeLayer(adoptPins); adoptPins = null; }
-        if (!adoptFlags.length) { msg.textContent = "No flagged waypoints that day."; return; }
-        adoptPins = L.layerGroup().addTo(map);
-        adoptFlags.forEach((p, i) => {
-            const mk = L.marker([p.lat, p.lon], {
-                icon: L.divIcon({ html: `<div class="adopt-pin-label">F${i + 1}</div>`, className: "", iconSize: [20, 20], iconAnchor: [10, 10] }),
-            }).addTo(adoptPins);
-            mk.bindTooltip(`F${i + 1} · ${new Date(p.timestamp || p.receivedAt).toLocaleTimeString()} · ${escHtml(p.uid || "")}`);
-            mk.on("click", () => adoptFlag(i));
-        });
-        map.fitBounds(adoptFlags.map(p => [p.lat, p.lon]), { padding: [30, 30] });
-    } catch (e) {
-        msg.textContent = "Failed to load waypoints.";
-    }
-});
-function adoptFlag(i) {
-    const p = adoptFlags[i];
-    if (!p) return;
-    if (!CB.origin) {
-        CB.origin = { lat: p.lat, lon: p.lon };
-        document.getElementById("builder-origin-label").textContent =
-            `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)} (from ${p.uid || "flag"})`;
-    }
-    const off = offsetsFromLatLon(p.lat, p.lon, builderInst());
-    CB.marks.push({
-        x: Math.round(off.x * 10) / 10, y: Math.round(off.y * 10) / 10,
-        r: 30, side: "P", type: CB.marks.length === 0 ? "start" : "mark",
-        sourceUid: p.uid || undefined,
-    });
-    renderBuilderMarks();
-    updateBuilderPreview(); saveBuilderDraft();
-}
-document.getElementById("builderWindSuggest")?.addEventListener("click", async () => {
-    const src = document.getElementById("builder-wind-src");
-    if (!CB.origin) { src.textContent = "Set the origin first."; return; }
-    src.textContent = "asking…";
-    try {
-        const res = await fetch(`/wind?lat=${CB.origin.lat}&lon=${CB.origin.lon}`);
-        if (!res.ok) throw new Error();
-        const w = await res.json();
-        setBuilderWind(w.dir);
-        src.textContent = `${escHtml(w.source)} · ${w.distKm != null ? w.distKm + "km" : "model"} · ${w.ageMin}min ago · ${w.speedKn}kn`;
-    } catch {
-        src.textContent = "no wind source available";
-    }
-});
-
 // --- Save template (shape library only; sessions are born in Sessions) ---
 // Save as template (the only shape library — sessions freeze from here).
 async function builderSaveTemplate() {
@@ -2404,20 +2385,25 @@ async function builderSaveTemplate() {
             });
         }
         const j = await res.json();
-        if (!res.ok) { msg.textContent = j.error || "Save failed."; return null; }
+        if (!res.ok) { msg.textContent = j.error || "Save failed."; msg.className = "boat-info-err"; return null; }
         CB.templateId = j.id;
         CB.name = j.name;
         CB.desc = j.desc || "";
         document.getElementById("builder-name").value = j.name;
         document.getElementById("builder-desc").value = CB.desc;
-        msg.textContent = "";
+        msg.textContent = "Course template saved.";
+        msg.className = "boat-info-ok";
         return j;
     } catch {
         msg.textContent = "Network error.";
+        msg.className = "boat-info-err";
         return null;
     }
 }
-document.getElementById("builderSave")?.addEventListener("click", () => builderSaveTemplate());
+document.getElementById("builderSave")?.addEventListener("click", async () => {
+    const j = await builderSaveTemplate();
+    if (j && panelVisible(document.getElementById("template-panel"))) loadCourseTemplates();
+});
 function saveBuilderDraft() {
     try {
         localStorage.setItem(BUILDER_DRAFT_KEY, JSON.stringify({
@@ -2433,11 +2419,25 @@ function openSessionsPanel(selectId) {
     const panel = document.getElementById("session-panel");
     if (panel && !panelVisible(panel)) toggleEl("session-panel");
     if (panel) avoidPanelOverlap(panel);
-    const sb = document.getElementById("sessionsToggleBtn");
-    if (sb && panel) sb.classList.toggle("active", panelVisible(panel) || panelVisible(document.getElementById("session-create-panel")));
-    syncRacesBtn();
+    const sb = document.getElementById("sessionsTopBtn");
+    if (sb && panel) sb.classList.toggle("active", panelVisible(panel));
     saveUI();
     loadSessions(selectId);
+}
+
+// Session editor pane (detail for the selected session, split from the list).
+const sessionDetailPanel = document.getElementById("session-detail-panel");
+function openSessionDetail() {
+    if (sessionDetailPanel && !panelVisible(sessionDetailPanel)) toggleEl("session-detail-panel");
+    if (sessionDetailPanel) avoidPanelOverlap(sessionDetailPanel);
+    saveUI();
+    renderSessionDetail();
+}
+if (sessionDetailPanel) {
+    document.getElementById("sessionDetailClose")?.addEventListener("click", () => {
+        sessionDetailPanel.style.display = "none";
+        saveUI();
+    });
 }
 
 // --- Sessions tab: list + create + committee controls ---
@@ -2445,7 +2445,9 @@ let sessionsCache = [];
 let selectedSessionId = null;
 
 // --- Session creation draft: template + placement previewed on the chart ---
-const SESSDRAFT = { template: null, sel: null, origin: null, windDir: 315, scale: 1, placing: null };
+// Templates are N-wind shapes (+y = upwind = north at windDir 0), so the
+// draft also assumes 0° until Suggest (or the hand) sets the day's wind.
+const SESSDRAFT = { template: null, sel: null, origin: null, windDir: 0, scale: 1, placing: null };
 let sessPreview = null;
 let sessMove = null;
 let sessSuppressClick = false;
@@ -2510,7 +2512,7 @@ function renderSelectedPreview(s) {
         L.polyline([[s.startLine.latA, s.startLine.lonA], [s.startLine.latB, s.startLine.lonB]], { color: "#16a34a", weight: 5 }).addTo(selPreview);
     }
     const effFinish = s.finishLine && s.finishLine.sameAs === "start" ? s.startLine : s.finishLine;
-    s.marks.forEach(m => latlngs.push([m.lat, m.lon]));
+    routeThread(s.marks.map((m, i) => ({ ...m, src: i }))).forEach(r => latlngs.push(r.pt));
     if (effFinish && effFinish.latA !== undefined) {
         latlngs.push(segCenter(effFinish));
         const same = effFinish === s.startLine;
@@ -2521,6 +2523,13 @@ function renderSelectedPreview(s) {
     L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(selPreview);
     s.marks.forEach((m, i) => {
         L.circle([m.lat, m.lon], { radius: m.r || 30, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(selPreview);
+        const col = MARK_COLORS[m.type] || "#f59e0b";
+        arrowSides(m, i, s.marks).forEach(sd => {
+            const arr = roundingArc(m.lat, m.lon, m.r || 30, sd);
+            if (!arr) return;
+            L.polyline(arr.arc, { color: col, weight: 2, opacity: 0.9 }).addTo(selPreview);
+            L.polygon(arr.head, { color: col, fillColor: col, fillOpacity: 0.9, weight: 1 }).addTo(selPreview);
+        });
         L.marker([m.lat, m.lon], {
             icon: L.divIcon({
                 html: `<div class="builder-mark-label" style="background:${MARK_COLORS[m.type] || "#f59e0b"}">${i + 1}</div>`,
@@ -2548,7 +2557,7 @@ function renderSessPreview() {
     const o = sessDraftInst();
     sessPreview = L.layerGroup().addTo(map);
     const marks = resolveMarksJS(t.marks, o);
-    const latlngs = marks.map(m => [m.lat, m.lon]);
+    const latlngs = routeThread(marks.map((m, i) => ({ ...m, src: i }))).map(r => r.pt);
     if (t.startLine) {
         const r = resolveSegJS(t.startLine, o);
         latlngs.unshift([(r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2]);
@@ -2571,6 +2580,13 @@ function renderSessPreview() {
     L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(sessPreview);
     marks.forEach((m, i) => {
         L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(sessPreview);
+        const col = MARK_COLORS[m.type] || "#f59e0b";
+        arrowSides(m, i, marks).forEach(sd => {
+            const arr = roundingArc(m.lat, m.lon, m.r, sd);
+            if (!arr) return;
+            L.polyline(arr.arc, { color: col, weight: 2, opacity: 0.9 }).addTo(sessPreview);
+            L.polygon(arr.head, { color: col, fillColor: col, fillOpacity: 0.9, weight: 1 }).addTo(sessPreview);
+        });
         L.marker([m.lat, m.lon], {
             icon: L.divIcon({
                 html: `<div class="builder-mark-label" style="background:${MARK_COLORS[m.type] || "#f59e0b"}">${i + 1}</div>`,
@@ -2769,18 +2785,36 @@ async function loadSessions(selectId) {
                         <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boats · v${s.courseVersion}</div>
                     </div>
                     <div style="text-align:right">
-                        <div><span class="mode-badge ${s.mode}">${s.mode}</span></div>
+                        <div><a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">⚙</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
                         <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
                     </div>
-                </div>`).join("") : '<div class="device-meta">No sessions yet.</div>') + `</div>
-            <div id="sess-detail"></div>`;
+                </div>`).join("") : '<div class="device-meta">No sessions yet.</div>') + `</div>`;
         el.querySelectorAll("[data-sess]").forEach(row => {
             row.addEventListener("click", () => {
-                selectedSessionId = Number(row.getAttribute("data-sess"));
+                const id = Number(row.getAttribute("data-sess"));
+                if (id === selectedSessionId) {
+                    // toggle off: hide course + editor
+                    selectedSessionId = null;
+                    clearSelPreview();
+                    clearSimOverlay();
+                    clearSessDetailTimers();
+                    document.getElementById("tab-session-detail").innerHTML = "";
+                    document.getElementById("session-detail-panel").style.display = "none";
+                } else {
+                    selectedSessionId = id;
+                }
                 loadSessions();
             });
         });
-        if (selectedSessionId) renderSessionDetail();
+        el.querySelectorAll("[data-sedit]").forEach(a => {
+            a.addEventListener("click", e => {
+                e.preventDefault();
+                e.stopPropagation();
+                selectedSessionId = Number(a.getAttribute("data-sedit"));
+                loadSessions();
+            });
+        });
+        if (selectedSessionId) openSessionDetail();
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-panel"));
     } catch (e) {
         el.innerHTML = '<div class="boat-info-err">Failed to load sessions.</div>';
@@ -2813,11 +2847,11 @@ function clearSimOverlay() {
 // Newest sim run for a session, drawn as dashed preview + wall-clock dot.
 async function renderSimOverlay(fit) {
     clearSimOverlay();
-    const box = document.getElementById("sess-detail");
+    const box = document.getElementById("tab-session-detail");
     if (!box || !selectedSessionId) return;
     let runs = [];
     try { runs = await (await fetch(`/sim/runs?sessionId=${selectedSessionId}`)).json(); } catch { return; }
-    if (!runs.length || !document.getElementById("sess-detail")) return;
+    if (!runs.length || !document.getElementById("tab-session-detail")) return;
     const run = runs[0];
     let pts;
     try {
@@ -2845,8 +2879,11 @@ async function renderSimOverlay(fit) {
     moveDot();
     sessDetailTimers.push(setInterval(moveDot, 2000));
 }
+// Last repeat-day pick (survives detail re-renders, which would reset the
+// date input to today and silently land repeats on the wrong day).
+let sessRepeatDate = "";
 async function renderSessionDetail() {
-    const el = document.getElementById("sess-detail");
+    const el = document.getElementById("tab-session-detail");
     if (!el) return;    clearSessDetailTimers();
     clearSimOverlay();
     try {
@@ -2868,10 +2905,9 @@ async function renderSessionDetail() {
                     <tr><td>Boats</td><td>${s.boats.length ? s.boats.map(b => `${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))}${b.startOffsetSec ? ` (+${b.startOffsetSec}s)` : ""} <a href="#" data-unboat="${escHtml(b.deviceId)}" style="color:#dc2626">×</a>`).join(", ") : "—"}</td></tr>
                 </table>
                 <div class="builder-row">
-                    <button data-sstatus="scheduled">Scheduled</button>
-                    <button data-sstatus="live">Live</button>
-                    <button data-sstatus="finished">Finished</button>
-                    <button data-sstatus="abandoned">Abandon</button>
+                    ${s.status === "abandoned"
+                        ? `<button id="sess-reopen" title="Clear abandon, back to inferred status">Re-open</button>`
+                        : `<button id="sess-abandon" title="Void the race AND tell the fleet now" style="color:#dc2626">Abandon race</button>`}
                 </div>
                 <div class="builder-row">
                     <button id="sess-seq" title="Set the gun 5 minutes from now">Gun in 5:00</button>
@@ -2887,7 +2923,7 @@ async function renderSessionDetail() {
                     <button id="sess-add-btn">Add</button>
                 </div>
                 <div class="builder-row">
-                    <input id="sess-repeat-date" type="date" value="${new Date().toISOString().slice(0, 10)}" title="Repeat this session on a new day">
+                    <input id="sess-repeat-date" type="date" value="${sessRepeatDate || new Date().toISOString().slice(0, 10)}" title="Repeat this session on a new day">
                     <button id="sess-repeat" title="Same course, boats and wind on a new day">Repeat</button>
                 </div>
                 <div class="builder-row">
@@ -2908,7 +2944,6 @@ async function renderSessionDetail() {
                     <input id="sess-sig-scp" type="number" value="120" title="SCP seconds" style="max-width:70px">
                     <button data-sig="SCP" title="Scoring penalty: add seconds">SCP</button>
                     <button data-sig="RECALL" title="General recall (fleet)">Recall</button>
-                    <button data-sig="ABANDON" title="Abandon race (fleet)">Abandon</button>
                 </div>
                 <div id="sess-signals" class="device-meta"></div>
                 <div class="builder-row">
@@ -2924,7 +2959,19 @@ async function renderSessionDetail() {
             if (!r.ok) document.getElementById("sess-detail-err").textContent = j.error || "Update failed.";
             else loadSessions(s.id);
         };
-        el.querySelectorAll("[data-sstatus]").forEach(b => b.addEventListener("click", () => put({ status: b.getAttribute("data-sstatus") })));
+        document.getElementById("sess-abandon")?.addEventListener("click", async () => {
+            // One action: void the record + broadcast to the fleet now.
+            await fetch(`/sessions/${s.id}`, {
+                method: "PUT", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ status: "abandoned" }),
+            });
+            await fetch(`/sessions/${s.id}/signals`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ kind: "ABANDON" }),
+            });
+            loadSessions(s.id);
+        });
+        document.getElementById("sess-reopen")?.addEventListener("click", () => put({ status: "scheduled" }));
         document.getElementById("sess-seq").addEventListener("click", () =>
             put({ startTime: new Date(Date.now() + 5 * 60 * 1000).toISOString(), status: "scheduled" }));
         document.getElementById("sess-post").addEventListener("click", () => {
@@ -2951,9 +2998,11 @@ async function renderSessionDetail() {
             await fetch(`/sessions/${s.id}/boats/${encodeURIComponent(a.getAttribute("data-unboat"))}`, { method: "DELETE" });
             loadSessions(s.id);
         }));
+        document.getElementById("sess-repeat-date").addEventListener("change", e => { sessRepeatDate = e.target.value; });
         document.getElementById("sess-repeat").addEventListener("click", async () => {
             const date = document.getElementById("sess-repeat-date").value;
             if (!date) return;
+            sessRepeatDate = date;
             const r = await fetch(`/sessions/${s.id}/repeat`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ date }),
@@ -2967,6 +3016,12 @@ async function renderSessionDetail() {
             await fetch(`/sessions/${s.id}`, { method: "DELETE" });
             selectedSessionId = null;
             clearSelPreview();
+            clearSimOverlay();
+            clearSessPreview();
+            disarmSessMove();
+            clearSessDetailTimers();
+            document.getElementById("tab-session-detail").innerHTML = "";
+            document.getElementById("session-detail-panel").style.display = "none";
             loadSessions();
         });
         const refreshRuns = async () => {
@@ -3062,6 +3117,19 @@ async function renderSessionDetail() {
         };
         tickCountdown();
         sessDetailTimers.push(setInterval(tickCountdown, 1000));
+        // Status is inferred server-side (gun passed → live, all boats in →
+        // finished): refresh just the badge so the committee sees flips.
+        const tickStatus = async () => {
+            try {
+                const sj = await (await fetch(`/sessions/${s.id}`)).json();
+                if (sj && sj.status && sj.status !== s.status) {
+                    s.status = sj.status;
+                    const badge = el.querySelector(".status-badge");
+                    if (badge) { badge.textContent = sj.status; badge.className = `status-badge ${sj.status}`; }
+                }
+            } catch {}
+        };
+        sessDetailTimers.push(setInterval(tickStatus, 15000));
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-panel"));
     } catch {
         el.innerHTML = '<div class="boat-info-err">Failed to load session.</div>';
@@ -3114,7 +3182,7 @@ function rectsOverlap(a, b) {
 // Panels the user dragged themselves are never auto-moved.
 function avoidPanelOverlap(el) {
     if (!panelVisible(el) || el.dataset.moved) return;
-    const others = ["device-panel", "template-panel", "session-panel", "session-create-panel", "builder-panel"]
+    const others = ["device-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "builder-panel"]
         .map(id => document.getElementById(id))
         .filter(o => o && o !== el && panelVisible(o));
     let moved = false;
@@ -3136,11 +3204,13 @@ makeFloatingDraggable(document.getElementById("device-panel"));
 makeFloatingDraggable(document.getElementById("template-panel"));
 makeFloatingDraggable(document.getElementById("session-panel"));
 makeFloatingDraggable(document.getElementById("session-create-panel"));
+makeFloatingDraggable(document.getElementById("session-detail-panel"));
 makeFloatingDraggable(document.getElementById("builder-panel"));
 // fix any overlap restored from a previous session
 avoidPanelOverlap(document.getElementById("template-panel"));
 avoidPanelOverlap(document.getElementById("session-panel"));
 avoidPanelOverlap(document.getElementById("session-create-panel"));
+avoidPanelOverlap(document.getElementById("session-detail-panel"));
 avoidPanelOverlap(document.getElementById("device-panel"));
 // populate panels restored visible (their content loads on toggle otherwise)
 if (panelVisible(document.getElementById("template-panel"))) loadCourseTemplates();
