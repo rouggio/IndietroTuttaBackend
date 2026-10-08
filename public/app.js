@@ -838,21 +838,42 @@ async function refresh(recenter = false) {
     fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
     hideHover();
 
-    // multi-select: one polyline per boat, each with its route color
+    // multi-select: one polyline per boat, each with its route color.
+    // Simulated stretches (mock GPS) render dashed: split each boat's
+    // points into same-flag runs, overlapping by one point so there is
+    // no visual gap at real/sim transitions.
     const byDevice = new Map();
     points.forEach(p => {
         const id = p.deviceId || "unknown";
         if (!byDevice.has(id)) byDevice.set(id, []);
-        byDevice.get(id).push([p.lat, p.lon]);
+        byDevice.get(id).push(p);
     });
-    byDevice.forEach((latlngs, id) => {
-        const line = L.polyline(latlngs, { color: colorForDevice(id), weight: 2, opacity: 0.6 }).addTo(map);
-        line.on("click", e => { const n = findNearestPoint(e.latlng); if (n) { openBoatPanel(n.deviceId, n); jumpTimelineTo(n); L.DomEvent.stop(e); } });
-        if (selectedDeviceIds.size === 1 && id === [...selectedDeviceIds][0]) {
-            polyline = line;
-        } else {
-            polylines.push(line);
+    byDevice.forEach((pts, id) => {
+        const runs = [];
+        let cur = [];
+        for (const p of pts) {
+            if (cur.length && Boolean(cur[cur.length - 1].simulated) !== Boolean(p.simulated)) {
+                runs.push(cur);
+                cur = [cur[cur.length - 1]];
+            }
+            cur.push(p);
         }
+        if (cur.length) runs.push(cur);
+        const color = colorForDevice(id);
+        runs.forEach((run, ri) => {
+            const latlngs = run.map(p => [p.lat, p.lon]);
+            const opts = { color, weight: 2, opacity: 0.6 };
+            // last point carries the run's own flag (first may be the
+            // overlap point from the previous run)
+            if (run[run.length - 1].simulated) opts.dashArray = "7 5";
+            const line = L.polyline(latlngs, opts).addTo(map);
+            line.on("click", e => { const n = findNearestPoint(e.latlng); if (n) { openBoatPanel(n.deviceId, n); jumpTimelineTo(n); L.DomEvent.stop(e); } });
+            if (selectedDeviceIds.size === 1 && id === [...selectedDeviceIds][0] && ri === 0) {
+                polyline = line;
+            } else {
+                polylines.push(line);
+            }
+        });
     });
     // keep single polyline reference for fitBounds when single selection
     if (selectedDeviceIds.size === 1 && polyline) {
