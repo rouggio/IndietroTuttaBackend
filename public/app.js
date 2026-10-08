@@ -528,6 +528,7 @@ function loadUI() {
             if (el && pos && isFinite(parseFloat(pos.left)) && isFinite(parseFloat(pos.top))) {
                 el.style.left = Math.max(0, Math.min(parseFloat(pos.left), window.innerWidth - 60)) + "px";
                 el.style.top = Math.max(0, parseFloat(pos.top)) + "px";
+                el.style.right = "auto"; // restored left wins over CSS right dock
                 el.dataset.moved = "1"; // restored = user-owned, cascade leaves it alone
             }
         });
@@ -3250,12 +3251,15 @@ function makeFloatingDraggable(el) {
         el.style.zIndex = String(++floatZ);
         const r = el.getBoundingClientRect();
         drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+        // CSS docks panels with right:10px — with both left+right set the
+        // browser squeezes the width to satisfy both. Left wins on drag.
+        el.style.right = "auto";
         try { header.setPointerCapture(e.pointerId); } catch {}
         e.preventDefault();
     });
     header.addEventListener("pointermove", e => {
         if (!drag) return;
-        el.style.left = Math.max(0, e.clientX - drag.dx) + "px";
+        el.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - 60)) + "px";
         el.style.top = Math.max(0, e.clientY - drag.dy) + "px";
         el.dataset.moved = "1"; // user owns the position from here on
     });
@@ -3287,6 +3291,7 @@ function avoidPanelOverlap(el) {
         if (!rectsOverlap(r, q)) continue;
         const below = q.bottom + 8;
         if (below + Math.min(r.height, 300) > window.innerHeight) {
+            el.style.right = "auto"; // left wins over CSS right dock
             el.style.left = Math.min(q.right + 8, Math.max(0, window.innerWidth - r.width - 8)) + "px";
             el.style.top = "58px";
         } else {
