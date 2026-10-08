@@ -35,6 +35,7 @@ router.post("/gps", async (req, res) => {
         flagged = false,
         username = null,
         uid = null,
+        simulated = false,
         fw = null,
         firmware: bodyFirmware = null,
         timestamp = new Date().toISOString()
@@ -82,6 +83,7 @@ router.post("/gps", async (req, res) => {
         sats,
         flagged,
         uid,
+        simulated,
         timestamp,
         receivedAt: new Date().toISOString(),
         deviceId,

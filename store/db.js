@@ -79,6 +79,7 @@ async function initDb() {
                 sats INTEGER,
                 flagged INTEGER NOT NULL DEFAULT 0,
                 uid TEXT,
+                simulated INTEGER NOT NULL DEFAULT 0,
                 timestamp TEXT,
                 receivedAt TEXT NOT NULL
             )
@@ -86,6 +87,13 @@ async function initDb() {
         // Migration for DBs created before the uid column existed
         try {
             await c.execute(`ALTER TABLE gps_points ADD COLUMN uid TEXT`);
+        } catch (e) {
+            if (!/duplicate column/i.test(e.message || "")) throw e;
+        }
+        // Mock-GPS uploads are tagged simulated=1 (shown on the map like
+        // normal points; filterable via the flag)
+        try {
+            await c.execute(`ALTER TABLE gps_points ADD COLUMN simulated INTEGER NOT NULL DEFAULT 0`);
         } catch (e) {
             if (!/duplicate column/i.test(e.message || "")) throw e;
         }

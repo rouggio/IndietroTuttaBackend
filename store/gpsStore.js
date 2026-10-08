@@ -14,7 +14,9 @@ function sanitizeUid(value) {
 async function addPoint(point) {
     const client = getClient();
     const cleanUid = sanitizeUid(point.uid);
-    const stored = { ...point, uid: cleanUid };
+    // Normalize: device sends JSON true/false; legacy/odd values → 0/1
+    const simInt = Number(point.simulated) ? 1 : 0;
+    const stored = { ...point, uid: cleanUid, simulated: simInt };
     if (!client) {
         memPoints.push(stored);
         return stored;
@@ -25,8 +27,8 @@ async function addPoint(point) {
     const flaggedInt = stored.flagged ? 1 : 0;
 
     await client.execute({
-        sql: `INSERT INTO gps_points (deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, timestamp, receivedAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sql: `INSERT INTO gps_points (deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, simulated, timestamp, receivedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
             stored.deviceId || null,
             stored.username || null,
@@ -38,6 +40,7 @@ async function addPoint(point) {
             stored.sats,
             flaggedInt,
             cleanUid,
+            simInt,
             stored.timestamp || new Date().toISOString(),
             stored.receivedAt || new Date().toISOString(),
         ],
@@ -68,7 +71,7 @@ async function getPoints(filter = {}) {
 
     await initDb();
 
-    let sql = "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, timestamp, receivedAt FROM gps_points WHERE 1=1";
+    let sql = "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, simulated, timestamp, receivedAt FROM gps_points WHERE 1=1";
     const args = [];
 
     if (start) {
@@ -95,7 +98,7 @@ async function getPoints(filter = {}) {
     sql += " ORDER BY id ASC";
 
     const res = await client.execute({ sql, args });
-    return res.rows.map(r => ({ ...r, flagged: !!r.flagged }));
+    return res.rows.map(r => ({ ...r, flagged: !!r.flagged, simulated: Number(r.simulated) ? 1 : 0 }));
 }
 
 // Backward compat: getPoints() with no filter returns all
@@ -116,15 +119,15 @@ async function getLatestPoint(deviceId = null) {
 
     await initDb();
     if (deviceId) {
-        const res = await client.execute({ sql: "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, timestamp, receivedAt FROM gps_points WHERE deviceId = ? ORDER BY id DESC LIMIT 1", args: [deviceId] });
+        const res = await client.execute({ sql: "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, simulated, timestamp, receivedAt FROM gps_points WHERE deviceId = ? ORDER BY id DESC LIMIT 1", args: [deviceId] });
         if (res.rows.length === 0) return null;
         const r = res.rows[0];
-        return { ...r, flagged: !!r.flagged };
+        return { ...r, flagged: !!r.flagged, simulated: Number(r.simulated) ? 1 : 0 };
     } else {
-        const res = await client.execute("SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, timestamp, receivedAt FROM gps_points ORDER BY id DESC LIMIT 1");
+        const res = await client.execute("SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, flagged, uid, simulated, timestamp, receivedAt FROM gps_points ORDER BY id DESC LIMIT 1");
         if (res.rows.length === 0) return null;
         const r = res.rows[0];
-        return { ...r, flagged: !!r.flagged };
+        return { ...r, flagged: !!r.flagged, simulated: Number(r.simulated) ? 1 : 0 };
     }
 }
 
