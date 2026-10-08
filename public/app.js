@@ -353,7 +353,6 @@ function drawLiveSim(id) {
     const st = liveSim.get(id);
     if (!st) return;
     if (st.line) { liveSimLayer.removeLayer(st.line); st.line = null; }
-    if (st.dot) { liveSimLayer.removeLayer(st.dot); st.dot = null; }
     if (st.arrow) { liveSimLayer.removeLayer(st.arrow); st.arrow = null; }
     if (st.pts.length < 1) return;
     const color = colorForDevice(id);
@@ -362,8 +361,6 @@ function drawLiveSim(id) {
             { color, weight: 2, opacity: 0.85, dashArray: "7 5" }).addTo(liveSimLayer);
     }
     const last = st.pts[st.pts.length - 1];
-    st.dot = L.circleMarker([last.lat, last.lon],
-        { color: "#ffffff", weight: 2, fillColor: color, fillOpacity: 1, radius: 5 }).addTo(liveSimLayer);
     // boat symbol: triangle at the newest sim fix, like the DB-driven arrow
     st.arrow = L.marker([last.lat, last.lon], { icon: boatTriangleIcon(id, last.course) }).addTo(liveSimLayer);
 }
