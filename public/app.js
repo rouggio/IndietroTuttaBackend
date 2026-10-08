@@ -2747,6 +2747,23 @@ async function renderSessionDetail() {
                     <button id="sess-sim" title="Script a mock-GPS run for all boats (indoor testing)">Simulate</button>
                 </div>
                 <div id="sess-runs" class="device-meta"></div>
+                <div class="builder-row"><b>Results</b><button id="sess-res-refresh" title="Reload results">↻</button></div>
+                <div id="sess-results" class="device-meta">no runs yet</div>
+                <div class="builder-row"><b>Committee</b></div>
+                <div class="builder-row">
+                    <select id="sess-sig-boat">${s.boats.length ? s.boats.map(b => `<option value="${escHtml(b.deviceId)}">${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))}</option>`).join("") : ""}</select>
+                    <button data-sig="OCS" title="Confirm OCS for this boat">OCS</button>
+                    <button data-sig="DSQ" title="Disqualify this boat">DSQ</button>
+                    <button data-sig="DNF" title="Did not finish">DNF</button>
+                    <button data-sig="RET" title="Retired">RET</button>
+                </div>
+                <div class="builder-row">
+                    <input id="sess-sig-scp" type="number" value="120" title="SCP seconds" style="max-width:70px">
+                    <button data-sig="SCP" title="Scoring penalty: add seconds">SCP</button>
+                    <button data-sig="RECALL" title="General recall (fleet)">Recall</button>
+                    <button data-sig="ABANDON" title="Abandon race (fleet)">Abandon</button>
+                </div>
+                <div id="sess-signals" class="device-meta"></div>
                 <div class="builder-row">
                     <button id="sess-del" style="color:#dc2626">Delete session</button>
                 </div>
@@ -2819,7 +2836,51 @@ async function renderSessionDetail() {
                 box.querySelectorAll("[data-stoprun]").forEach(a => a.addEventListener("click", async e => {
                     e.preventDefault();
                     await fetch(`/sim/runs/${encodeURIComponent(a.getAttribute("data-stoprun"))}`, { method: "DELETE" });
-                    refreshRuns();
+        refreshRuns();
+        const boatName = id => escHtml((lastDevices.find(d => d.deviceId === id) || {}).username || id.slice(-5));
+        const fmtEl = sec => sec == null ? "—" : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+        const refreshResults = async () => {
+            const box = document.getElementById("sess-results");
+            if (!box) return;
+            try {
+                const runs = await (await fetch(`/sessions/${s.id}/runs`)).json();
+                box.innerHTML = runs.length ? `<table>${runs.map((r, i) => {
+                    const pens = r.events.filter(e => ["OCS", "WRONG", "SIG"].includes(e.e))
+                        .map(e => e.e + (e.v ? `:${escHtml(e.v)}` : "")).join(" ");
+                    const splits = r.splits.length ? r.splits.map(fmtEl).join(" ") : "—";
+                    return `<tr><td>${r.result === "FINISHED" ? i + 1 : "–"}</td><td>${boatName(r.deviceId)}</td><td>${fmtEl(r.elapsedSec)}</td><td>${splits}</td><td>${r.result}${pens ? ` (${pens})` : ""}</td></tr>`;
+                }).join("")}</table>` : "no runs yet";
+            } catch { box.textContent = "results unavailable"; }
+        };
+        document.getElementById("sess-res-refresh").addEventListener("click", refreshResults);
+        refreshResults();
+        const refreshSignals = async () => {
+            const box = document.getElementById("sess-signals");
+            if (!box) return;
+            try {
+                const sigs = await (await fetch(`/sessions/${s.id}/signals`)).json();
+                box.innerHTML = sigs.length ? sigs.map(g =>
+                    `<div>${escHtml(g.kind)}${g.deviceId ? ` → ${boatName(g.deviceId)}` : " (fleet)"}${g.detail ? ` ${escHtml(g.detail)}` : ""}</div>`
+                ).join("") : "no signals";
+            } catch { box.textContent = "signals unavailable"; }
+        };
+        el.querySelectorAll("[data-sig]").forEach(b => b.addEventListener("click", async () => {
+            const kind = b.getAttribute("data-sig");
+            const body = { kind };
+            if (!["RECALL", "ABANDON"].includes(kind)) {
+                const sel = document.getElementById("sess-sig-boat");
+                if (!sel || !sel.value) return;
+                body.deviceId = sel.value;
+            }
+            if (kind === "SCP") body.detail = String(Number(document.getElementById("sess-sig-scp").value) || 0);
+            const r = await fetch(`/sessions/${s.id}/signals`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+            });
+            const j = await r.json();
+            if (!r.ok) document.getElementById("sess-detail-err").textContent = j.error || "Signal failed.";
+            else refreshSignals();
+        }));
+        refreshSignals();
                 }));
             } catch { box.textContent = "runs unavailable"; }
         };
