@@ -5,6 +5,7 @@ const {
     getPoints,
     getLatestPoint,
     getActiveDays,
+    getPointCount,
     deleteFlaggedByUid
 } = require("../store/gpsStore");
 
@@ -96,7 +97,9 @@ router.post("/gps", async (req, res) => {
     // Response
     // --------------------------------------------------
 
-    const count = (await getPoints()).length;
+    // Response: cheap COUNT(*) — never fetch all points per upload
+    // (getPoints() here cost a full table scan every ~2s per device).
+    const count = await getPointCount();
     res.json({
         status: "ok",
         stored: count

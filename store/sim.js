@@ -428,20 +428,43 @@ module.exports = {
 
 // ------------------------------------------------------------------
 // Server-driven wander: mock GPS with no scripted run. Per-device
-// random-walk state (6kn, ±15° helm, 150m leash around an anchor) that
+// random-walk state (6kn, ±15° helm, 500m leash around an anchor) that
 // advances on every poll, so the committee can later steer it.
-// Anchor = assigned session's start-line center (certain open water),
-// else the device's last real track point. Null anchor = nowhere wet:
-// the caller 404s and the device wanders locally instead.
+// Anchor = centroid of the assigned session's resolved course marks —
+// every mark was placed on water by the committee, so the middle of the
+// course is the wettest single point; start-line center is the fallback,
+// then the device's last track point. Null anchor = nowhere wet: the
+// caller 404s and the device wanders locally instead. Past the leash the
+// walk steers home, so fixes stay inside a ~500m water circle (residual
+// assumption: open water around the course middle; shoreline polygons
+// would be needed for a hard guarantee).
 // In-memory like the runs (lost on restart, by design).
 // ------------------------------------------------------------------
 
 const WANDER_KN = 6;
-const WANDER_LEASH_M = 150;
-const wanders = new Map(); // deviceId -> { aLat,aLon,lat,lon,head,t }
+const WANDER_LEASH_M = 500;
+const WANDER_RESEED_M = 750; // anchor moved further than this → fresh walk
+const WANDER_MIN_KN = 4; // wander speed breathes around 6 ± 2kn
+const WANDER_MAX_KN = 8;
+const wanders = new Map(); // deviceId -> { aLat,aLon,lat,lon,head,spd,t }
 
 async function wanderAnchorFor(deviceId) {
     if (!deviceId) return null;
+    // Anchor lookups hit Turso (session + latest track ≈ 800ms) — cache
+    // per device so the 1Hz poll stays fast. Session re-assignment or
+    // geometry edits propagate within the TTL; restart clears all.
+    const hit = anchorCache.get(deviceId);
+    if (hit && Date.now() - hit.at < ANCHOR_TTL_MS) return hit.anchor;
+    const fresh = await resolveWanderAnchor(deviceId);
+    if (fresh) anchorCache.set(deviceId, { anchor: fresh, at: Date.now() });
+    else anchorCache.delete(deviceId);
+    return fresh;
+}
+
+const anchorCache = new Map(); // deviceId -> { anchor, at }
+const ANCHOR_TTL_MS = 60000;
+
+async function resolveWanderAnchor(deviceId) {
     try {
         const s = await getSessionForWander(deviceId);
         if (s) return s;
@@ -458,14 +481,22 @@ async function wanderAnchorFor(deviceId) {
 async function getSessionForWander(deviceId) {
     const s = await getActiveSessionForDevice(deviceId);
     if (!s) return null;
+    // Course centroid first: average of all resolved marks.
+    if (Array.isArray(s.marks) && s.marks.length) {
+        let lat = 0, lon = 0, n = 0;
+        for (const m of s.marks) {
+            if (m && typeof m.lat === "number" && typeof m.lon === "number"
+                && (m.lat !== 0 || m.lon !== 0)) {
+                lat += m.lat; lon += m.lon; n++;
+            }
+        }
+        if (n > 0) return { lat: lat / n, lon: lon / n };
+    }
     if (s.startLine && typeof s.startLine.latA === "number") {
         return {
             lat: (s.startLine.latA + s.startLine.latB) / 2,
             lon: (s.startLine.lonA + s.startLine.lonB) / 2,
         };
-    }
-    if (s.marks && s.marks.length && typeof s.marks[0].lat === "number") {
-        return { lat: s.marks[0].lat, lon: s.marks[0].lon };
     }
     return null;
 }
@@ -477,11 +508,11 @@ function getActiveSessionForDevice(deviceId) {
 
 function wanderSample(deviceId, anchor, nowMs = Date.now()) {
     let s = wanders.get(deviceId);
-    if (!s || distM(s, anchor) > 500) {
+    if (!s || distM(s, anchor) > WANDER_RESEED_M) {
         s = {
             aLat: anchor.lat, aLon: anchor.lon,
             lat: anchor.lat, lon: anchor.lon,
-            head: Math.random() * 360, t: nowMs,
+            head: Math.random() * 360, spd: WANDER_KN, t: nowMs,
         };
         wanders.set(deviceId, s);
     }
@@ -495,7 +526,10 @@ function wanderSample(deviceId, anchor, nowMs = Date.now()) {
     } else {
         s.head = (s.head + (Math.random() * 30 - 15) + 360) % 360;
     }
-    const step = WANDER_KN * KN_TO_MS * dt;
+    // Speed breathes: smooth random walk around 6kn, clamped to 4..8.
+    s.spd = Math.min(WANDER_MAX_KN, Math.max(WANDER_MIN_KN,
+        (s.spd ?? WANDER_KN) + (Math.random() - 0.5)));
+    const step = s.spd * KN_TO_MS * dt;
     const hr = (s.head * Math.PI) / 180;
     s.lat += (step * Math.cos(hr)) / DEG_M;
     s.lon += (step * Math.sin(hr)) / (DEG_M * cosLat);
@@ -505,7 +539,7 @@ function wanderSample(deviceId, anchor, nowMs = Date.now()) {
         serverTime: new Date(nowMs).toISOString(),
         lat: +s.lat.toFixed(7),
         lon: +s.lon.toFixed(7),
-        speed: WANDER_KN,
+        speed: +s.spd.toFixed(1),
         course: Math.round(s.head),
         anchor: { lat: +s.aLat.toFixed(7), lon: +s.aLon.toFixed(7) },
     };
