@@ -25,6 +25,13 @@ function sanitizeBoat(value) {
     return BOAT_PATTERN.test(cleaned) ? cleaned : null;
 }
 
+// Turso may hand back mock as "1.0"/"0.0" strings (legacy TEXT-affinity
+// column) — a nonzero-looking "0.0" is truthy in JS, so normalize every
+// read to a real 0/1 flag. Number(null/undefined) → 0, Number("1.0") → 1.
+function mockFlag(value) {
+    return Number(value) ? 1 : 0;
+}
+
 function cleanIp(value) {
     if (typeof value !== "string") return null;
     // Express req.ip: "::ffff:192.168.0.106" → "192.168.0.106"
@@ -79,7 +86,7 @@ async function upsertDevice(deviceId, { username = null, firmware = null, ip = n
             sql: "UPDATE devices SET username = ?, firmware = ?, ip = ?, lastSeen = ? WHERE deviceId = ?",
             args: [newUsername, newFirmware, newIp, now, deviceId],
         });
-        return { deviceId, username: newUsername, firmware: newFirmware, boat: row.boat || null, ip: newIp, mock: row.mock ? 1 : 0, firstSeen, lastSeen: now };
+        return { deviceId, username: newUsername, firmware: newFirmware, boat: row.boat || null, ip: newIp, mock: mockFlag(row.mock), firstSeen, lastSeen: now };
     }
 }
 
@@ -129,7 +136,7 @@ async function renameDevice(deviceId, { username, boat } = {}) {
         sql: "UPDATE devices SET username = ?, boat = ? WHERE deviceId = ?",
         args: [newUsername, newBoat, deviceId],
     });
-    return { ...row, username: newUsername, boat: newBoat };
+    return { ...row, username: newUsername, boat: newBoat, mock: mockFlag(row.mock) };
 }
 
 async function getDevice(deviceId) {
@@ -141,7 +148,8 @@ async function getDevice(deviceId) {
         sql: "SELECT deviceId, username, firmware, boat, ip, mock, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
         args: [deviceId],
     });
-    return res.rows[0] || null;
+    const row = res.rows[0];
+    return row ? { ...row, mock: mockFlag(row.mock) } : null;
 }
 
 function computeStatus(lastSeen) {
@@ -160,7 +168,7 @@ async function getDevices() {
 
     await initDb();
     const res = await client.execute("SELECT deviceId, username, firmware, boat, ip, mock, firstSeen, lastSeen FROM devices ORDER BY lastSeen DESC");
-    return res.rows.map(r => ({ ...r, status: computeStatus(r.lastSeen) }));
+    return res.rows.map(r => ({ ...r, mock: mockFlag(r.mock), status: computeStatus(r.lastSeen) }));
 }
 
 async function deleteDevice(deviceId) {
