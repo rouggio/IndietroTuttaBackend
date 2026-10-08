@@ -392,7 +392,7 @@ async function pollLiveSim() {
         let st = liveSim.get(id);
         if (!st) { st = { pts: [], cursor: liveSimLoadMs, line: null, dot: null }; liveSim.set(id, st); }
         try {
-            const res = await fetch(`/gps/sim-live?deviceId=${encodeURIComponent(id)}&since=${st.cursor}`);
+            const res = await fetch(`/gps/sim-live?deviceId=${encodeURIComponent(id)}`);
             if (!res.ok) continue;
             const pts = await res.json();
             if (!Array.isArray(pts) || !pts.length) continue;

@@ -123,18 +123,18 @@ router.post("/gps", async (req, res) => {
 });
 
 // --------------------------------------------------
-// GET /gps/sim-live?deviceId=&since= — ephemeral sim points newer than
-// `since` (ms epoch) for one boat. Powers the live sim overlay; the
-// frontend starts `since` at page load, so a refresh begins empty.
+// GET /gps/sim-live?deviceId= — the single latest sim point for one
+// boat (or [] when none). No history by design: the frontend keeps
+// only points newer than its own load, so a refresh picks up
+// upcoming fixes exclusively.
 // --------------------------------------------------
 
 router.get("/gps/sim-live", async (req, res) => {
-    const { deviceId, since } = req.query;
+    const { deviceId } = req.query;
     if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
         return res.status(400).json({ error: "deviceId query param required" });
     }
-    const sinceMs = since ? Number(since) : 0;
-    res.json(getSimSince(deviceId.trim(), sinceMs));
+    res.json(getSimSince(deviceId.trim()));
 });
 
 // --------------------------------------------------

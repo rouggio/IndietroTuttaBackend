@@ -189,27 +189,22 @@ async function deleteFlaggedByUid(deviceId, uid) {
 }
 
 // ------------------------------------------------------------------
-// Ephemeral sim buffer: mock uploads live here ONLY (never Turso).
-// Survives page refresh server-side, but the frontend only displays
-// points newer than its own load time — so a reload starts empty and
-// old sim data effectively vanishes. Restart wipes everything.
+// Ephemeral sim slot: mock uploads live here ONLY (never Turso).
+// One latest point per boat — no history anywhere, so a refresh can
+// only ever pick up upcoming fixes. Lost on restart.
 // ------------------------------------------------------------------
-const memSim = new Map(); // deviceId -> array of points (cap each)
-const MEM_SIM_CAP = 500;
+const memSim = new Map(); // deviceId -> latest point
 
 function pushSimPoint(point) {
     const id = point.deviceId || "unknown";
-    if (!memSim.has(id)) memSim.set(id, []);
-    const arr = memSim.get(id);
-    arr.push({ ...point, simulated: 1, receivedAt: point.receivedAt || new Date().toISOString() });
-    while (arr.length > MEM_SIM_CAP) arr.shift();
-    return arr[arr.length - 1];
+    const stored = { ...point, simulated: 1, receivedAt: point.receivedAt || new Date().toISOString() };
+    memSim.set(id, stored);
+    return stored;
 }
 
-function getSimSince(deviceId, sinceMs) {
-    const arr = memSim.get(deviceId) || [];
-    if (!sinceMs || isNaN(sinceMs)) return arr.slice(-100);
-    return arr.filter(p => new Date(p.receivedAt || 0).getTime() > sinceMs);
+function getSimSince(deviceId) {
+    const p = memSim.get(deviceId);
+    return p ? [p] : [];
 }
 
 module.exports = { addPoint, getPoints, getLatestPoint, getPointCount, getActiveDays, deleteFlaggedByUid, pushSimPoint, getSimSince };
