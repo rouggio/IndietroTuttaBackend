@@ -1,0 +1,14 @@
+meta {
+  name: Sim run script points
+  type: http
+  seq: 31
+}
+
+get {
+  url: {{baseUrl}}/sim/runs/:id/points
+  auth: none
+}
+
+params:path {
+  id: sim-1
+}

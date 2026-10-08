@@ -2702,9 +2702,59 @@ function sessLinesText(s) {
     return parts.length ? parts.join(" · ") : "radius circles";
 }
 
+// Session-detail live timers (gun countdown) + sim map overlay (scripted
+// boat preview + moving dot for indoor testing). Timers die on re-render.
+let sessDetailTimers = [];
+function clearSessDetailTimers() {
+    sessDetailTimers.forEach(t => clearInterval(t));
+    sessDetailTimers = [];
+}
+let simOverlay = null;
+let simOverlayRun = null;
+function clearSimOverlay() {
+    if (simOverlay) { map.removeLayer(simOverlay); simOverlay = null; }
+    simOverlayRun = null;
+}
+// Newest sim run for a session, drawn as dashed preview + wall-clock dot.
+async function renderSimOverlay(fit) {
+    clearSimOverlay();
+    const box = document.getElementById("sess-detail");
+    if (!box || !selectedSessionId) return;
+    let runs = [];
+    try { runs = await (await fetch(`/sim/runs?sessionId=${selectedSessionId}`)).json(); } catch { return; }
+    if (!runs.length || !document.getElementById("sess-detail")) return;
+    const run = runs[0];
+    let pts;
+    try {
+        pts = await (await fetch(`/sim/runs/${encodeURIComponent(run.id)}/points`)).json();
+        if (!pts.points || !pts.points.length) return;
+    } catch { return; }
+    simOverlay = L.layerGroup().addTo(map);
+    simOverlayRun = run.id;
+    const latlngs = pts.points.map(p => [p.lat, p.lon]);
+    L.polyline(latlngs, { color: "#f97316", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(simOverlay);
+    const dot = L.circleMarker(latlngs[0], {
+        radius: 7, color: colorForDevice(run.deviceId),
+        fillColor: colorForDevice(run.deviceId), fillOpacity: 1,
+    }).addTo(simOverlay);
+    if (fit) map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
+    const moveDot = () => {
+        if (!simOverlay || simOverlayRun !== run.id) return;
+        const el = (Date.now() - pts.startMs) / 1000;
+        let bi = 0;
+        while (bi + 1 < pts.points.length && pts.points[bi + 1].t <= el) bi++;
+        const p = pts.points[bi];
+        if (p) dot.setLatLng([p.lat, p.lon]);
+        if (el > pts.durationSec + 30) clearSimOverlay();
+    };
+    moveDot();
+    sessDetailTimers.push(setInterval(moveDot, 2000));
+}
 async function renderSessionDetail() {
     const el = document.getElementById("sess-detail");
-    if (!el) return;    try {
+    if (!el) return;    clearSessDetailTimers();
+    clearSimOverlay();
+    try {
         const res = await fetch(`/sessions/${selectedSessionId}`);
         if (!res.ok) { el.innerHTML = ""; return; }
         const s = await res.json();
@@ -2718,6 +2768,7 @@ async function renderSessionDetail() {
                     <tr><td>Course</td><td>v${s.courseVersion} · ${s.marks.length} marks · wind ${Math.round(s.windDir)}° · scale ${s.scale}</td></tr>
                     <tr><td>Lines</td><td>${sessLinesText(s)}</td></tr>
                     <tr><td>Start</td><td>${s.startTime ? escHtml(new Date(s.startTime).toLocaleString()) : "—"}</td></tr>
+                    <tr><td>Gun</td><td id="sess-countdown">—</td></tr>
                     <tr><td>Boats</td><td>${s.boats.length ? s.boats.map(b => `${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))}${b.startOffsetSec ? ` (+${b.startOffsetSec}s)` : ""} <a href="#" data-unboat="${escHtml(b.deviceId)}" style="color:#dc2626">×</a>`).join(", ") : "—"}</td></tr>
                 </table>
                 <div class="builder-row">
@@ -2727,8 +2778,8 @@ async function renderSessionDetail() {
                     <button data-sstatus="abandoned">Abandon</button>
                 </div>
                 <div class="builder-row">
-                    <button id="sess-seq" title="Start sequence: gun in 5 minutes">Start +5:00</button>
-                    <button id="sess-post" title="Postpone 5 minutes">+5:00</button>
+                    <button id="sess-seq" title="Set the gun 5 minutes from now">Gun in 5:00</button>
+                    <button id="sess-post" title="Push the existing gun 5 minutes later">Postpone +5:00</button>
                 </div>
                 <div class="builder-row">
                     <input id="sess-start-custom" type="time" value="${s.startTime ? toLocalDatetimeValue(new Date(s.startTime)).slice(11, 16) : ""}" title="Start time on ${escHtml(s.date)}">
@@ -2836,7 +2887,11 @@ async function renderSessionDetail() {
                 box.querySelectorAll("[data-stoprun]").forEach(a => a.addEventListener("click", async e => {
                     e.preventDefault();
                     await fetch(`/sim/runs/${encodeURIComponent(a.getAttribute("data-stoprun"))}`, { method: "DELETE" });
-        refreshRuns();
+                    refreshRuns();
+                    renderSimOverlay(false);
+                }));
+            } catch { box.textContent = "runs unavailable"; }
+        };
         const boatName = id => escHtml((lastDevices.find(d => d.deviceId === id) || {}).username || id.slice(-5));
         const fmtEl = sec => sec == null ? "—" : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
         const refreshResults = async () => {
@@ -2880,21 +2935,36 @@ async function renderSessionDetail() {
             if (!r.ok) document.getElementById("sess-detail-err").textContent = j.error || "Signal failed.";
             else refreshSignals();
         }));
-        refreshSignals();
-                }));
-            } catch { box.textContent = "runs unavailable"; }
-        };
         document.getElementById("sess-sim").addEventListener("click", async () => {
+            const errBox = document.getElementById("sess-detail-err");
+            try {
+                const existing = await (await fetch(`/sim/runs?sessionId=${s.id}`)).json();
+                for (const r of existing) {
+                    try { await fetch(`/sim/runs/${encodeURIComponent(r.id)}`, { method: "DELETE" }); } catch {}
+                }
+            } catch {}
             const r = await fetch("/sim/runs", {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ sessionId: s.id }),
             });
             const j = await r.json();
-            const errBox = document.getElementById("sess-detail-err");
             if (!r.ok) { if (errBox) errBox.textContent = j.error || "Simulate failed."; return; }
             refreshRuns();
+            renderSimOverlay(true);
         });
         refreshRuns();
+        renderSimOverlay(false);
+        const gunMs = s.startTime ? new Date(s.startTime).getTime() : 0;
+        const tickCountdown = () => {
+            const box = document.getElementById("sess-countdown");
+            if (!box) return;
+            if (!gunMs || ["finished", "abandoned"].includes(s.status)) { box.textContent = "—"; return; }
+            const d = Math.floor((gunMs - Date.now()) / 1000);
+            const mmss = `${Math.floor(Math.abs(d) / 60)}:${String(Math.abs(d) % 60).padStart(2, "0")}`;
+            box.innerHTML = d >= 0 ? `Gun in <b>${mmss}</b>` : `<b style="color:#16a34a">LIVE +${mmss}</b>`;
+        };
+        tickCountdown();
+        sessDetailTimers.push(setInterval(tickCountdown, 1000));
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-panel"));
     } catch {
         el.innerHTML = '<div class="boat-info-err">Failed to load session.</div>';

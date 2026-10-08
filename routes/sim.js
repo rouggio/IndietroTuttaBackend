@@ -98,6 +98,28 @@ router.post("/sim/echo", async (req, res) => {
 });
 
 // --------------------------------------------------
+// GET /sim/runs/:id/points — scripted route preview for the map
+// (downsampled 1:5 + every leg joint kept). Lets the indoor tester see
+// the mock boat move without touching the gps_points track store.
+// --------------------------------------------------
+
+router.get("/sim/runs/:id/points", async (req, res) => {
+    try {
+        const run = getRun(req.params.id);
+        if (!run) return res.status(404).json({ error: "run not found" });
+        const pts = run.samples.filter((s, i) => i % 5 === 0 || i === run.samples.length - 1)
+            .map(s => ({ t: s.t, lat: +s.lat.toFixed(7), lon: +s.lon.toFixed(7) }));
+        res.json({
+            id: run.id, sessionId: run.sessionId, deviceId: run.deviceId,
+            startMs: run.startMs, gunMs: run.gunMs, durationSec: run.durationSec,
+            points: pts,
+        });
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
 // DELETE /sim/runs/:id — stop a run
 // --------------------------------------------------
 
