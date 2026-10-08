@@ -429,46 +429,29 @@ module.exports = {
 // ------------------------------------------------------------------
 // Server-driven wander: mock GPS with no scripted run. Per-device
 // random-walk state (6kn ± 2, ±15° helm) that advances on every poll,
-// so the committee can later steer it.
-// Anchor = centroid of the assigned session's resolved course marks —
-// every mark was placed on water by the committee — plus a water box
-// (marks bbox + 100m pad) that the walk hard-clamps into; start-line
-// center is the fallback (500m steer-home leash), then the device's
-// last track point. Null anchor = nowhere wet: the caller 404s and the
-// device holds instead. Past the leash / on a box wall the walk steers
-// home, so fixes stay on water (residual assumption: open water around
-// the course; shoreline polygons would be needed for a hard guarantee).
+// so the committee can later steer it. The walk is NEVER session- or
+// track-bound (it's not in a race):
+// - pushed viewport anchor fresh → walk around it (500m steer-home leash);
+// - no pushed anchor → totally random walk from the last position
+//   (no leash, no box, no recentering);
+// - no walk state yet and no anchor → null (caller 404s, device holds).
 // In-memory like the runs (lost on restart, by design).
 // ------------------------------------------------------------------
 
 const WANDER_KN = 6;
 const WANDER_LEASH_M = 500;
-const WANDER_RESEED_M = 750; // anchor moved further than this → fresh walk
-const WATER_BOX_PAD_M = 100; // water box = marks bbox + this pad per side
+const WANDER_RESEED_M = 750; // pushed anchor jumped further → fresh walk
 const WANDER_MIN_KN = 4; // wander speed breathes around 6 ± 2kn
 const WANDER_MAX_KN = 8;
-const wanders = new Map(); // deviceId -> { aLat,aLon,lat,lon,head,spd,t }
+const wanders = new Map(); // deviceId -> { aLat,aLon,lat,lon,head,spd,t,free }
 
 async function wanderAnchorFor(deviceId) {
-    // Primary: map center pushed by the frontend (viewport = intent).
-    // Refreshing the page re-pushes the current center, so a reload
-    // re-anchors the walk where the user is looking.
-    const pushed = pushedAnchor();
-    if (pushed) return pushed;
+    // Map center pushed by the frontend (viewport = intent). Refreshing
+    // the page re-pushes the current center. Null when the browser is
+    // gone — the walk then goes free (see wanderSample).
     if (!deviceId) return null;
-    // Anchor lookups hit Turso (session + latest track ≈ 800ms) — cache
-    // per device so the 1Hz poll stays fast. Session re-assignment or
-    // geometry edits propagate within the TTL; restart clears all.
-    const hit = anchorCache.get(deviceId);
-    if (hit && Date.now() - hit.at < ANCHOR_TTL_MS) return hit.anchor;
-    const fresh = await resolveWanderAnchor(deviceId);
-    if (fresh) anchorCache.set(deviceId, { anchor: fresh, at: Date.now() });
-    else anchorCache.delete(deviceId);
-    return fresh;
+    return pushedAnchor();
 }
-
-const anchorCache = new Map(); // deviceId -> { anchor, at }
-const ANCHOR_TTL_MS = 60000;
 
 // Frontend-pushed viewport anchor (global: the map has one center).
 // Fresh 5 min; the page re-pushes on load, on pan (debounced) and
@@ -487,86 +470,46 @@ function pushedAnchor() {
     return { lat: pushed.lat, lon: pushed.lon };
 }
 
-async function resolveWanderAnchor(deviceId) {
-    try {
-        const s = await getSessionForWander(deviceId);
-        if (s) return s;
-    } catch (e) { /* fall through to tracks */ }
-    try {
-        const { getLatestPoint } = require("./gpsStore");
-        const p = await getLatestPoint(deviceId);
-        if (p && typeof p.lat === "number" && typeof p.lon === "number"
-            && (p.lat !== 0 || p.lon !== 0)) return { lat: p.lat, lon: p.lon };
-    } catch (e) { /* no anchor */ }
-    return null;
-}
-
-async function getSessionForWander(deviceId) {
-    const s = await getActiveSessionForDevice(deviceId);
-    if (!s) return null;
-    // Course centroid + water box: every resolved mark was placed on water
-    // by the committee, so the marks' bounding box (+pad) is the trusted
-    // wet area. The walk clamps into it instead of a blind radius.
-    if (Array.isArray(s.marks) && s.marks.length) {
-        let lat = 0, lon = 0, n = 0;
-        let loLat = 90, hiLat = -90, loLon = 180, hiLon = -180;
-        for (const m of s.marks) {
-            if (m && typeof m.lat === "number" && typeof m.lon === "number"
-                && (m.lat !== 0 || m.lon !== 0)) {
-                lat += m.lat; lon += m.lon; n++;
-                if (m.lat < loLat) loLat = m.lat;
-                if (m.lat > hiLat) hiLat = m.lat;
-                if (m.lon < loLon) loLon = m.lon;
-                if (m.lon > hiLon) hiLon = m.lon;
-            }
-        }
-        if (n > 0) {
-            const cosLat = Math.cos((lat / n) * Math.PI / 180);
-            const padLat = WATER_BOX_PAD_M / DEG_M;
-            const padLon = WATER_BOX_PAD_M / (DEG_M * cosLat);
-            return {
-                lat: lat / n, lon: lon / n,
-                box: {
-                    loLat: loLat - padLat, hiLat: hiLat + padLat,
-                    loLon: loLon - padLon, hiLon: hiLon + padLon,
-                },
-            };
-        }
-    }
-    if (s.startLine && typeof s.startLine.latA === "number") {
-        return {
-            lat: (s.startLine.latA + s.startLine.latB) / 2,
-            lon: (s.startLine.lonA + s.startLine.lonB) / 2,
-        };
-    }
-    return null;
-}
-
-function getActiveSessionForDevice(deviceId) {
-    // Late-bound to avoid a require cycle (sessionStore never needs sim).
-    return require("./sessionStore").getActiveSessionForDevice(deviceId);
-}
-
 function wanderSample(deviceId, anchor, nowMs = Date.now()) {
     let s = wanders.get(deviceId);
-    if (!s || distM(s, anchor) > WANDER_RESEED_M) {
+    if (!s) {
+        // Nothing to walk from: seed at the pushed anchor, else null
+        // (caller 404s, device holds) until the browser pushes one.
+        if (!anchor) return null;
         s = {
             aLat: anchor.lat, aLon: anchor.lon,
             lat: anchor.lat, lon: anchor.lon,
             head: Math.random() * 360, spd: WANDER_KN, t: nowMs,
+            free: false,
         };
         wanders.set(deviceId, s);
+    } else if (anchor && distM(s, anchor) > WANDER_RESEED_M) {
+        // Viewport jumped far: fresh walk at the new center.
+        s.aLat = anchor.lat; s.aLon = anchor.lon;
+        s.lat = anchor.lat; s.lon = anchor.lon;
+        s.head = Math.random() * 360; s.spd = WANDER_KN; s.t = nowMs;
+        s.free = false;
     }
-    // Anchor moved (session edited) → adopt new center + water box.
-    s.aLat = anchor.lat; s.aLon = anchor.lon;
-    s.box = anchor.box || null;
+    if (anchor) {
+        // Anchored mode: adopt the pushed center, steer home past the leash.
+        s.aLat = anchor.lat; s.aLon = anchor.lon;
+        s.free = false;
+    } else {
+        // Browser gone: totally random walk from the last position —
+        // heading and speed keep breathing, nothing recenters or clamps.
+        s.free = true;
+    }
     const dt = Math.min(Math.max((nowMs - s.t) / 1000, 0), 30);
     s.t = nowMs;
-    const cosLat = Math.cos((s.aLat * Math.PI) / 180);
-    const dx = (s.lon - s.aLon) * DEG_M * cosLat;
-    const dy = (s.lat - s.aLat) * DEG_M;
-    if (dx * dx + dy * dy > WANDER_LEASH_M * WANDER_LEASH_M) {
-        s.head = bearing(s, { lat: s.aLat, lon: s.aLon });
+    const cosLat = Math.cos((s.lat * Math.PI) / 180);
+    if (!s.free) {
+        const dx = (s.lon - s.aLon) * DEG_M * cosLat;
+        const dy = (s.lat - s.aLat) * DEG_M;
+        if (dx * dx + dy * dy > WANDER_LEASH_M * WANDER_LEASH_M) {
+            s.head = bearing(s, { lat: s.aLat, lon: s.aLon });
+        } else {
+            s.head = (s.head + (Math.random() * 30 - 15) + 360) % 360;
+        }
     } else {
         s.head = (s.head + (Math.random() * 30 - 15) + 360) % 360;
     }
@@ -577,20 +520,10 @@ function wanderSample(deviceId, anchor, nowMs = Date.now()) {
     const hr = (s.head * Math.PI) / 180;
     s.lat += (step * Math.cos(hr)) / DEG_M;
     s.lon += (step * Math.sin(hr)) / (DEG_M * cosLat);
-    if (s.box) {
-        // Hard clamp into the water box; hitting a wall turns the boat
-        // back toward the middle instead of sliding along the edge.
-        const b = s.box;
-        const cLat = Math.min(b.hiLat, Math.max(b.loLat, s.lat));
-        const cLon = Math.min(b.hiLon, Math.max(b.loLon, s.lon));
-        if (cLat !== s.lat || cLon !== s.lon) {
-            s.lat = cLat; s.lon = cLon;
-            s.head = bearing(s, { lat: s.aLat, lon: s.aLon });
-        }
-    }
     return {
         deviceId,
         wander: true,
+        free: s.free,
         serverTime: new Date(nowMs).toISOString(),
         lat: +s.lat.toFixed(7),
         lon: +s.lon.toFixed(7),

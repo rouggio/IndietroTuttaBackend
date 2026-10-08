@@ -75,8 +75,11 @@ router.get("/sim/next", async (req, res) => {
         }
         if (!deviceId) return res.status(404).json({ error: "no live run" });
         const anchor = await wanderAnchorFor(deviceId);
-        if (!anchor) return res.status(404).json({ error: "no wander anchor" });
-        res.json(wanderSample(deviceId, anchor));
+        const sample = wanderSample(deviceId, anchor);
+        // Null: no walk state yet and browser pushed no anchor — the
+        // device holds until the map is opened somewhere.
+        if (!sample) return res.status(404).json({ error: "no wander anchor" });
+        res.json(sample);
     } catch (e) {
         sendErr(res, e);
     }
@@ -135,10 +138,9 @@ router.get("/sim/runs/:id/points", async (req, res) => {
 
 // --------------------------------------------------
 // GET /sim/wander?deviceId= — server-driven wander fix (mock GPS with
-// no scripted run). Advances per-device random-walk state and returns
-// {wander:true, lat, lon, speed:6, course, serverTime, anchor}.
-// 404 when there is no anchor (no session + no tracks): the device
-// then wanders locally instead.
+// no scripted run). Anchored walk while the browser pushes a viewport,
+// free random walk from the last position when it doesn't, 404 with
+// neither (device holds).
 // --------------------------------------------------
 
 router.get("/sim/wander", async (req, res) => {
@@ -146,8 +148,9 @@ router.get("/sim/wander", async (req, res) => {
         const { deviceId } = req.query;
         if (!deviceId) return res.status(400).json({ error: "deviceId required" });
         const anchor = await wanderAnchorFor(deviceId);
-        if (!anchor) return res.status(404).json({ error: "no wander anchor" });
-        res.json(wanderSample(deviceId, anchor));
+        const sample = wanderSample(deviceId, anchor);
+        if (!sample) return res.status(404).json({ error: "no wander anchor" });
+        res.json(sample);
     } catch (e) {
         sendErr(res, e);
     }
