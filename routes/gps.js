@@ -67,7 +67,7 @@ router.post("/gps", async (req, res) => {
     // Register/update the device identity (keyed by MAC)
     // --------------------------------------------------
 
-    const device = await upsertDevice(deviceId, { username, firmware: firmware || bodyFirmware || fw });
+    const device = await upsertDevice(deviceId, { username, firmware: firmware || bodyFirmware || fw, ip: req.ip });
 
     // --------------------------------------------------
     // Store point

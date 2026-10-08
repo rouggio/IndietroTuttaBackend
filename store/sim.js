@@ -423,4 +423,90 @@ function activeRunForDevice(deviceId, nowMs = Date.now()) {
 module.exports = {
     createRun, getRun, listRuns, deleteRun, echoSample, nextSample, activeRunForDevice, runMeta,
     compileScript, // exported for unit checks
+    wanderSample, wanderAnchorFor,
 };
+
+// ------------------------------------------------------------------
+// Server-driven wander: mock GPS with no scripted run. Per-device
+// random-walk state (6kn, ±15° helm, 150m leash around an anchor) that
+// advances on every poll, so the committee can later steer it.
+// Anchor = assigned session's start-line center (certain open water),
+// else the device's last real track point. Null anchor = nowhere wet:
+// the caller 404s and the device wanders locally instead.
+// In-memory like the runs (lost on restart, by design).
+// ------------------------------------------------------------------
+
+const WANDER_KN = 6;
+const WANDER_LEASH_M = 150;
+const wanders = new Map(); // deviceId -> { aLat,aLon,lat,lon,head,t }
+
+async function wanderAnchorFor(deviceId) {
+    if (!deviceId) return null;
+    try {
+        const s = await getSessionForWander(deviceId);
+        if (s) return s;
+    } catch (e) { /* fall through to tracks */ }
+    try {
+        const { getLatestPoint } = require("./gpsStore");
+        const p = await getLatestPoint(deviceId);
+        if (p && typeof p.lat === "number" && typeof p.lon === "number"
+            && (p.lat !== 0 || p.lon !== 0)) return { lat: p.lat, lon: p.lon };
+    } catch (e) { /* no anchor */ }
+    return null;
+}
+
+async function getSessionForWander(deviceId) {
+    const s = await getActiveSessionForDevice(deviceId);
+    if (!s) return null;
+    if (s.startLine && typeof s.startLine.latA === "number") {
+        return {
+            lat: (s.startLine.latA + s.startLine.latB) / 2,
+            lon: (s.startLine.lonA + s.startLine.lonB) / 2,
+        };
+    }
+    if (s.marks && s.marks.length && typeof s.marks[0].lat === "number") {
+        return { lat: s.marks[0].lat, lon: s.marks[0].lon };
+    }
+    return null;
+}
+
+function getActiveSessionForDevice(deviceId) {
+    // Late-bound to avoid a require cycle (sessionStore never needs sim).
+    return require("./sessionStore").getActiveSessionForDevice(deviceId);
+}
+
+function wanderSample(deviceId, anchor, nowMs = Date.now()) {
+    let s = wanders.get(deviceId);
+    if (!s || distM(s, anchor) > 500) {
+        s = {
+            aLat: anchor.lat, aLon: anchor.lon,
+            lat: anchor.lat, lon: anchor.lon,
+            head: Math.random() * 360, t: nowMs,
+        };
+        wanders.set(deviceId, s);
+    }
+    const dt = Math.min(Math.max((nowMs - s.t) / 1000, 0), 30);
+    s.t = nowMs;
+    const cosLat = Math.cos((s.aLat * Math.PI) / 180);
+    const dx = (s.lon - s.aLon) * DEG_M * cosLat;
+    const dy = (s.lat - s.aLat) * DEG_M;
+    if (dx * dx + dy * dy > WANDER_LEASH_M * WANDER_LEASH_M) {
+        s.head = bearing(s, { lat: s.aLat, lon: s.aLon });
+    } else {
+        s.head = (s.head + (Math.random() * 30 - 15) + 360) % 360;
+    }
+    const step = WANDER_KN * KN_TO_MS * dt;
+    const hr = (s.head * Math.PI) / 180;
+    s.lat += (step * Math.cos(hr)) / DEG_M;
+    s.lon += (step * Math.sin(hr)) / (DEG_M * cosLat);
+    return {
+        deviceId,
+        wander: true,
+        serverTime: new Date(nowMs).toISOString(),
+        lat: +s.lat.toFixed(7),
+        lon: +s.lon.toFixed(7),
+        speed: WANDER_KN,
+        course: Math.round(s.head),
+        anchor: { lat: +s.aLat.toFixed(7), lon: +s.aLon.toFixed(7) },
+    };
+}

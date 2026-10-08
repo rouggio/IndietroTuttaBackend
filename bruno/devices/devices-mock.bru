@@ -1,0 +1,21 @@
+meta {
+  name: Toggle mock GPS
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/devices/:id/mock
+  body: json
+  auth: none
+}
+
+params:path {
+  id: {{deviceId}}
+}
+
+body:json {
+  {
+    "on": true
+  }
+}

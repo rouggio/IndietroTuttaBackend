@@ -1,9 +1,11 @@
 const express = require("express");
+const fetch = require("node-fetch");
 
 const {
     getDevices,
     getDevice,
     renameDevice,
+    setDeviceMock,
     sanitizeUsername,
     sanitizeBoat
 } = require("../store/deviceStore");
@@ -57,12 +59,48 @@ router.delete("/devices/:id", async (req, res) => {
     res.json({ status: "deleted" });
 });
 
+// --------------------------------------------------
+// POST /devices/:id/mock {on:true|false} — toggle mock GPS via the device
+// portal over LAN (uses the last-seen ip from health/gps heartbeats), then
+// records the assumed mock state. Never touches lastSeen (no fake "live").
+// 409 when the device has no known LAN ip (offline or never seen on LAN).
+// --------------------------------------------------
+
+async function handleMock(req, res) {
+    const on = req.body?.on;
+    if (typeof on !== "boolean") {
+        return res.status(400).json({ error: "on must be a boolean" });
+    }
+    const device = await getDevice(req.params.id);
+    if (!device) return res.status(404).json({ error: "Device not found" });
+    if (!device.ip) {
+        return res.status(409).json({ error: "no known LAN ip for device" });
+    }
+    try {
+        const r = await fetch(`http://${device.ip}/mock?on=${on ? 1 : 0}`, {
+            method: "POST",
+            timeout: 8000,
+        });
+        if (!r.ok) {
+            return res.status(502).json({ error: `device portal refused mock (http ${r.status})` });
+        }
+    } catch (e) {
+        return res.status(502).json({ error: "device portal unreachable" });
+    }
+    const updated = await setDeviceMock(req.params.id, on);
+    res.json({ deviceId: req.params.id, mock: on, ip: updated?.ip || device.ip });
+}
+
+router.post("/devices/:id/mock", handleMock);
+
 // Alias: /boats — globally renamed from Devices to Boats (keeps /devices for compat)
 router.get("/boats", async (req, res) => {
     res.json(await getDevices());
 });
 
 router.put("/boats/:id", handleRename);
+
+router.post("/boats/:id/mock", handleMock);
 
 router.delete("/boats/:id", async (req, res) => {
     const { deleteDevice } = require("../store/deviceStore");

@@ -27,7 +27,7 @@ router.get("/health", async (req, res) => {
     const firmware = req.header("Firmware-Version");
 
     if (deviceId) {
-        await upsertDevice(deviceId, { username, firmware });
+        await upsertDevice(deviceId, { username, firmware, ip: req.ip });
     }
 
     const count = await getPointCount();
@@ -56,7 +56,7 @@ router.post("/health", async (req, res) => {
     const deviceId = req.header("DeviceId") || req.body?.deviceId;
     const username = req.header("Username") || req.body?.username;
     const firmware = req.header("Firmware-Version") || req.body?.firmware || req.body?.fw;
-    if (deviceId) await upsertDevice(deviceId, { username, firmware });
+    if (deviceId) await upsertDevice(deviceId, { username, firmware, ip: req.ip });
     const count = await getPointCount();
     res.json({ status: "ok", storedPoints: count, deviceId: deviceId || null, heartbeat: !!deviceId, serverTime: new Date().toISOString() });
 });

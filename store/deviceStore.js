@@ -25,18 +25,27 @@ function sanitizeBoat(value) {
     return BOAT_PATTERN.test(cleaned) ? cleaned : null;
 }
 
-async function upsertDevice(deviceId, { username = null, firmware = null } = {}) {
+function cleanIp(value) {
+    if (typeof value !== "string") return null;
+    // Express req.ip: "::ffff:192.168.0.106" → "192.168.0.106"
+    const v = value.replace(/^::ffff:/, "").trim();
+    return v ? v.slice(0, 64) : null;
+}
+
+async function upsertDevice(deviceId, { username = null, firmware = null, ip = null } = {}) {
     if (!deviceId) return null;
 
     const clean = sanitizeUsername(username);
     const cleanFw = sanitizeFirmware(firmware);
+    const ipAddr = cleanIp(ip);
     const now = new Date().toISOString();
     const client = getClient();
 
     if (!client) {
-        const device = memDevices.get(deviceId) || { deviceId, username: null, firmware: null, boat: null, firstSeen: now };
+        const device = memDevices.get(deviceId) || { deviceId, username: null, firmware: null, boat: null, ip: null, mock: 0, firstSeen: now };
         if (clean) device.username = clean;
         if (cleanFw) device.firmware = cleanFw;
+        if (ipAddr) device.ip = ipAddr;
         device.lastSeen = now;
         memDevices.set(deviceId, device);
         return device;
@@ -46,7 +55,7 @@ async function upsertDevice(deviceId, { username = null, firmware = null } = {})
 
     // Try to fetch existing to preserve firstSeen
     const existing = await client.execute({
-        sql: "SELECT deviceId, username, firmware, boat, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
+        sql: "SELECT deviceId, username, firmware, boat, ip, mock, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
         args: [deviceId],
     });
 
@@ -55,21 +64,42 @@ async function upsertDevice(deviceId, { username = null, firmware = null } = {})
         const lastSeen = now;
         const finalUsername = clean;
         await client.execute({
-            sql: "INSERT INTO devices (deviceId, username, firmware, boat, firstSeen, lastSeen) VALUES (?, ?, ?, ?, ?, ?)",
-            args: [deviceId, finalUsername, cleanFw, null, firstSeen, lastSeen],
+            sql: "INSERT INTO devices (deviceId, username, firmware, boat, ip, mock, firstSeen, lastSeen) VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+            args: [deviceId, finalUsername, cleanFw, null, ipAddr, firstSeen, lastSeen],
         });
-        return { deviceId, username: finalUsername, firmware: cleanFw, boat: null, firstSeen, lastSeen };
+        return { deviceId, username: finalUsername, firmware: cleanFw, boat: null, ip: ipAddr, mock: 0, firstSeen, lastSeen };
     } else {
         const row = existing.rows[0];
         const firstSeen = row.firstSeen;
         const newUsername = clean || row.username;
         const newFirmware = cleanFw || row.firmware || null;
+        const newIp = ipAddr || row.ip || null;
         await client.execute({
-            sql: "UPDATE devices SET username = ?, firmware = ?, lastSeen = ? WHERE deviceId = ?",
-            args: [newUsername, newFirmware, now, deviceId],
+            sql: "UPDATE devices SET username = ?, firmware = ?, ip = ?, lastSeen = ? WHERE deviceId = ?",
+            args: [newUsername, newFirmware, newIp, now, deviceId],
         });
-        return { deviceId, username: newUsername, firmware: newFirmware, boat: row.boat || null, firstSeen, lastSeen: now };
+        return { deviceId, username: newUsername, firmware: newFirmware, boat: row.boat || null, ip: newIp, mock: row.mock ? 1 : 0, firstSeen, lastSeen: now };
     }
+}
+
+// Assumed mock-GPS state, set by POST /devices/:id/mock after proxying to
+// the device portal. Never touches lastSeen (no fake "live" status).
+async function setDeviceMock(deviceId, on) {
+    if (!deviceId) return null;
+    const v = on ? 1 : 0;
+    const client = getClient();
+    if (!client) {
+        const device = memDevices.get(deviceId);
+        if (!device) return null;
+        device.mock = v;
+        return device;
+    }
+    await initDb();
+    await client.execute({
+        sql: "UPDATE devices SET mock = ? WHERE deviceId = ?",
+        args: [v, deviceId],
+    });
+    return getDevice(deviceId);
 }
 
 // Rename/edit boat info without touching lastSeen (no fake "live" status)
@@ -87,7 +117,7 @@ async function renameDevice(deviceId, { username, boat } = {}) {
 
     await initDb();
     const existing = await client.execute({
-        sql: "SELECT deviceId, username, firmware, boat, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
+        sql: "SELECT deviceId, username, firmware, boat, ip, mock, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
         args: [deviceId],
     });
     if (existing.rows.length === 0) return null;
@@ -107,7 +137,7 @@ async function getDevice(deviceId) {
 
     await initDb();
     const res = await client.execute({
-        sql: "SELECT deviceId, username, firmware, boat, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
+        sql: "SELECT deviceId, username, firmware, boat, ip, mock, firstSeen, lastSeen FROM devices WHERE deviceId = ?",
         args: [deviceId],
     });
     return res.rows[0] || null;
@@ -128,7 +158,7 @@ async function getDevices() {
     }
 
     await initDb();
-    const res = await client.execute("SELECT deviceId, username, firmware, boat, firstSeen, lastSeen FROM devices ORDER BY lastSeen DESC");
+    const res = await client.execute("SELECT deviceId, username, firmware, boat, ip, mock, firstSeen, lastSeen FROM devices ORDER BY lastSeen DESC");
     return res.rows.map(r => ({ ...r, status: computeStatus(r.lastSeen) }));
 }
 
@@ -143,4 +173,4 @@ async function deleteDevice(deviceId) {
     return res.rowsAffected > 0;
 }
 
-module.exports = { sanitizeUsername, sanitizeFirmware, sanitizeBoat, upsertDevice, renameDevice, getDevice, getDevices, deleteDevice };
+module.exports = { sanitizeUsername, sanitizeFirmware, sanitizeBoat, upsertDevice, setDeviceMock, renameDevice, getDevice, getDevices, deleteDevice };

@@ -8,6 +8,8 @@ const {
     nextSample,
     activeRunForDevice,
     getRun,
+    wanderSample,
+    wanderAnchorFor,
 } = require("../store/sim");
 
 const router = express.Router();
@@ -114,6 +116,26 @@ router.get("/sim/runs/:id/points", async (req, res) => {
             startMs: run.startMs, gunMs: run.gunMs, durationSec: run.durationSec,
             points: pts,
         });
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
+// GET /sim/wander?deviceId= — server-driven wander fix (mock GPS with
+// no scripted run). Advances per-device random-walk state and returns
+// {wander:true, lat, lon, speed:6, course, serverTime, anchor}.
+// 404 when there is no anchor (no session + no tracks): the device
+// then wanders locally instead.
+// --------------------------------------------------
+
+router.get("/sim/wander", async (req, res) => {
+    try {
+        const { deviceId } = req.query;
+        if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+        const anchor = await wanderAnchorFor(deviceId);
+        if (!anchor) return res.status(404).json({ error: "no wander anchor" });
+        res.json(wanderSample(deviceId, anchor));
     } catch (e) {
         sendErr(res, e);
     }

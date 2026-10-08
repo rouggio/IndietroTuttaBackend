@@ -44,16 +44,26 @@ async function initDb() {
                 firstSeen TEXT NOT NULL,
                 lastSeen TEXT NOT NULL,
                 firmware TEXT,
-                boat TEXT
+                boat TEXT,
+                ip TEXT,
+                mock INTEGER NOT NULL DEFAULT 0
             )
         `);
         // Migrations for DBs created before these columns existed
-        for (const col of ["firmware", "boat"]) {
+        for (const col of ["firmware", "boat", "ip"]) {
             try {
                 await c.execute(`ALTER TABLE devices ADD COLUMN ${col} TEXT`);
             } catch (e) {
                 if (!/duplicate column/i.test(e.message || "")) throw e;
             }
+        }
+        // mock is INTEGER (truthy 1/0); older DBs that got it as TEXT via
+        // the loop above still work — SQLite is dynamically typed and all
+        // reads go through truthiness checks.
+        try {
+            await c.execute(`ALTER TABLE devices ADD COLUMN mock INTEGER NOT NULL DEFAULT 0`);
+        } catch (e) {
+            if (!/duplicate column/i.test(e.message || "")) throw e;
         }
 
         await c.execute(`

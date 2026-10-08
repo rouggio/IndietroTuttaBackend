@@ -8,12 +8,12 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
 - `server.js`: cors + `express.json()` + `public/` static, mounts `gps,health,devices`, then `initDb().then(listen)`. Falls back to in-memory mode if no `TURSO_DATABASE_URL`.
 - Deps: `@libsql/client ^0.17.4`, `express ^5.2.1`, `cors`, `dotenv`, `node-fetch`, `nodemon`.
 - `config.js` only exports PORT. `.env` (gitignored, required): `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `REDPLOY_HOOK_URL` (note typo REDPLOY). Render env mirrors it.
-- `store/db.js`: `getClient()` / `initDb()` creates `devices, gps_points` + 3 gps indexes (`devices` auto-migrates `firmware`, `boat` columns). No row cap. Connection test `SELECT 1` throws on bad token.
+- `store/db.js`: `getClient()` / `initDb()` creates `devices, gps_points` + 3 gps indexes (`devices` auto-migrates `firmware`, `boat`, `ip` TEXT + `mock` INTEGER columns). No row cap. Connection test `SELECT 1` throws on bad token.
 - (Courses/races removed 2026-10-06 — replanning. See root AGENTS.md.)
 
 ## Stores (all have in-memory Map fallback when DB missing)
 
-- `deviceStore.js`: `upsertDevice(deviceId,{username,firmware})` preserves `firstSeen`; username `/^[A-Za-z0-9 ._-]{1,32}$/`, firmware `/^[A-Za-z0-9._-]{1,16}$/`, boat `/^[A-Za-z0-9 ._-]{1,64}$/` (bad values keep old). `renameDevice(deviceId,{username,boat})` edits info without touching `lastSeen` (no fake live). `getDevices()` adds `status: live<90s / idle<10m / offline`. `deleteDevice` also deletes its gps_points.
+- `deviceStore.js`: `upsertDevice(deviceId,{username,firmware,ip})` preserves `firstSeen` (captures LAN `ip` from heartbeats); `setDeviceMock(deviceId,on)` records assumed mock-GPS state without touching `lastSeen` (no fake live). Username `/^[A-Za-z0-9 ._-]{1,32}$/`, firmware `/^[A-Za-z0-9._-]{1,16}$/`, boat `/^[A-Za-z0-9 ._-]{1,64}$/` (bad values keep old). `renameDevice(deviceId,{username,boat})` edits info without touching `lastSeen` (no fake live). `getDevices()` adds `status: live<90s / idle<10m / offline`. `deleteDevice` also deletes its gps_points.
 - `gpsStore.js`: `addPoint({deviceId,username,lat,lon,speed,course,altitude,sats,flagged,timestamp,receivedAt})` flagged→int. `getPoints({date,deviceId,start,end})` — `start/end` ISO range takes precedence over `date` (YYYY-MM-DD on `substr(timestamp,1,10)`), `ORDER BY id ASC`, flagged→bool. `getLatestPoint(deviceId?)`, `getPointCount()`.
 
 ## Routes (every new route needs `bruno/*.bru`)
@@ -23,8 +23,8 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
 - `templates.js`: `GET /templates/presets` (5 wind-frame presets, no DB), `GET /templates`, `POST /templates` (`{name,desc?,marks[,startLine,finishLine]}` or `{name,template:presetKey}`), `GET/PUT/DELETE /templates/:id` (PUT bumps `version`). Optional line segments `{ax,ay,bx,by,square?,bias?}` (≥5m, square-to-wind default); `finishLine` may be `{sameAs:"start"}`.
 - `sessions.js`: sessions encapsulate templates (frozen snapshot, never linked). Status is inferred on read (abandoned sticks; finished when every boat uploaded a run; live once the gun passes; else scheduled) — `PUT` accepts only `abandoned` (or `scheduled` to re-open). `GET /sessions[?date=]`, `POST /sessions` (`{templateId}` or `{snapshot:{marks,startLine?,finishLine?}}` + placement → resolved marks; stamps `templateVersion`), `GET/PUT/DELETE /sessions/:id` (geometry edits re-resolve + bump `courseVersion`), `POST /sessions/:id/repeat` (same frozen shape onto a new day, boats carried over), `POST/DELETE /sessions/:id/boats[/:deviceId]` (participants + pursuit `startOffsetSec`). Run uploads: `POST /sessions/:id/runs` (device finish log `{deviceId,startEpoch,finishEpoch?,splits?,events?,result?}`, re-upload replaces), `GET /sessions/:id/runs` (results, finished first). Committee: `POST /sessions/:id/signals` (`{kind: OCS|DSQ|DNF|RET|SCP|RECALL|ABANDON, deviceId?, detail?}`), `GET /sessions/:id/signals` (log, oldest first).
 - `wind.js`: `GET /wind?lat=&lon=` — suggest-only venue wind (WU PWS `WU_API_KEY` → Weathercloud unofficial → Open-Meteo model), 10-min cache; caller freezes value into session.
-- `sim.js` (in-memory test rig, lost on restart): `POST /sim/runs {sessionId, deviceId?, speedKn?, startInSec?}` compiles a 1Hz scripted route (hold → gun cross → mark/gate centers → finish, seeded noise), `GET /sim/next?deviceId=` wall-clock delivery, `GET /sim/runs[?sessionId=]`, `DELETE /sim/runs/:id`.
-- `devices.js` (+ `/boats` alias): `GET /devices`, `GET /boats`, `PUT /devices/:id` / `PUT /boats/:id` rename `{username, boat}` (no heartbeat side effects), `DELETE /devices/:id` (+ `/boats/:id`).
+- `sim.js` (in-memory test rig, lost on restart): `POST /sim/runs {sessionId, deviceId?, speedKn?, startInSec?}` compiles a 1Hz scripted route (hold → gun cross → mark/gate centers → finish, seeded noise), `GET /sim/next?deviceId=` wall-clock delivery, `GET /sim/runs[?sessionId=]`, `DELETE /sim/runs/:id`, `GET /sim/wander?deviceId=` server-driven wander fix (per-device random walk on session/track anchor; 404 when anchorless).
+- `devices.js` (+ `/boats` alias): `GET /devices`, `GET /boats`, `PUT /devices/:id` / `PUT /boats/:id` rename `{username, boat}` (no heartbeat side effects), `POST /devices/:id/mock` / `POST /boats/:id/mock` `{on:bool}` (proxies to the device portal `/mock` over LAN via stored `ip`, then records `mock`; 409 no known ip, 502 portal unreachable), `DELETE /devices/:id` (+ `/boats/:id`).
 
 ## Frontend (`public/`)
 
@@ -39,7 +39,7 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
 
 ## Bruno / verify / deploy
 
-- `bruno/` mirrors routes: `health/ gps/ devices/` (incl. `devices-rename.bru`), `templates/`, `sessions/` (incl. snapshot + repeat), `wind/` + `environments/local.bru (:3000)` + `production.bru (onrender)`. Rule: new endpoint → new `.bru`, test both envs.
+- `bruno/` mirrors routes: `health/ gps/ devices/` (incl. `devices-rename.bru`, `devices-mock.bru`), `templates/`, `sessions/` (incl. snapshot + repeat), `sim/` (incl. `wander.bru`), `wind/` + `environments/local.bru (:3000)` + `production.bru (onrender)`. Rule: new endpoint → new `.bru`, test both envs.
 - Local check: `node server.js` → `curl localhost:3000/health /devices /boats /gps?date=YYYY-MM-DD`; removed routes return 404 (`/courses/*`, `/races`).
 - Deploy (`sd`): commit + push `main`, then `POST $REDPLOY_HOOK_URL` (push alone does NOT redeploy), verify `/devices`. OTA publish comes from device repo `make dist` which commits firmware into `public/ota/` here.
 - No auth anywhere — identity is `DeviceId` MAC header. Keep validation + username whitelist in sync with firmware.
