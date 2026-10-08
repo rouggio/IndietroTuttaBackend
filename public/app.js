@@ -3048,7 +3048,8 @@ function clearSimOverlay() {
     if (simOverlay) { map.removeLayer(simOverlay); simOverlay = null; }
     simOverlayRun = null;
 }
-// Newest sim run for a session, drawn as dashed preview + wall-clock dot.
+// Newest sim run for a session, drawn as dashed preview only (the live
+// boat triangle already marks the fed position — no second dot).
 async function renderSimOverlay(fit) {
     clearSimOverlay();
     const box = document.getElementById("tab-session-detail");
@@ -3066,22 +3067,7 @@ async function renderSimOverlay(fit) {
     simOverlayRun = run.id;
     const latlngs = pts.points.map(p => [p.lat, p.lon]);
     L.polyline(latlngs, { color: "#f97316", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(simOverlay);
-    const dot = L.circleMarker(latlngs[0], {
-        radius: 7, color: colorForDevice(run.deviceId),
-        fillColor: colorForDevice(run.deviceId), fillOpacity: 1,
-    }).addTo(simOverlay);
     if (fit) map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
-    const moveDot = () => {
-        if (!simOverlay || simOverlayRun !== run.id) return;
-        const el = (Date.now() - pts.startMs) / 1000;
-        let bi = 0;
-        while (bi + 1 < pts.points.length && pts.points[bi + 1].t <= el) bi++;
-        const p = pts.points[bi];
-        if (p) dot.setLatLng([p.lat, p.lon]);
-        if (el > pts.durationSec + 30) clearSimOverlay();
-    };
-    moveDot();
-    sessDetailTimers.push(setInterval(moveDot, 2000));
 }
 // Last repeat-day pick (survives detail re-renders, which would reset the
 // date input to today and silently land repeats on the wrong day).
