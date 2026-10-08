@@ -1488,13 +1488,16 @@ if (templatesBtn && templatePanel) {
 const sessionsBtn = document.getElementById("sessionsToggleBtn");
 const sessionPanel = document.getElementById("session-panel");
 if (sessionsBtn && sessionPanel) {
+    // Races ▾ → New session: opens the creation pane directly (the list
+    // lives under the top-bar Sessions entry).
     const syncSessionsBtn = () => {
-        const open = sessionPanel.style.display !== "none" && sessionPanel.style.display !== "";
+        const cp = document.getElementById("session-create-panel");
+        const open = cp && cp.style.display !== "none" && cp.style.display !== "";
         sessionsBtn.classList.toggle("active", open);
         syncRacesBtn();
     };
-    sessionsBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncSessionsBtn(); saveUI(); loadSessions(); if (racesDropdown) racesDropdown.classList.remove("active"); if (!panelVisible(sessionPanel)) { disarmSessMove(); clearSessPreview(); } });
-    new MutationObserver(syncSessionsBtn).observe(sessionPanel, { attributes: true, attributeFilter: ["style"] });
+    sessionsBtn.addEventListener("click", () => { openSessionCreate(); if (racesDropdown) racesDropdown.classList.remove("active"); });
+    new MutationObserver(syncSessionsBtn).observe(document.getElementById("session-create-panel"), { attributes: true, attributeFilter: ["style"] });
     syncSessionsBtn();
     document.getElementById("sessionClose")?.addEventListener("click", () => {
         sessionPanel.style.display = "none";
@@ -2431,7 +2434,7 @@ function openSessionsPanel(selectId) {
     if (panel && !panelVisible(panel)) toggleEl("session-panel");
     if (panel) avoidPanelOverlap(panel);
     const sb = document.getElementById("sessionsToggleBtn");
-    if (sb && panel) sb.classList.toggle("active", panelVisible(panel));
+    if (sb && panel) sb.classList.toggle("active", panelVisible(panel) || panelVisible(document.getElementById("session-create-panel")));
     syncRacesBtn();
     saveUI();
     loadSessions(selectId);
