@@ -24,7 +24,29 @@ map.on("moveend", () => {
         const c = map.getCenter();
         localStorage.setItem("indietrotutta:map", JSON.stringify({ lat: c.lat, lon: c.lng, zoom: map.getZoom() }));
     } catch {}
+    pushWanderAnchorDebounced();
 });
+// Sim wander anchor = the map viewport (sessions ignored): tell the
+// backend where the user is looking — on load, on pan (debounced) and
+// every minute as keep-alive. A page refresh re-anchors the walk at
+// the restored center.
+let wanderAnchorTimer = null;
+function pushWanderAnchor() {
+    try {
+        const c = map.getCenter();
+        fetch("/sim/anchor", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lat: +c.lat.toFixed(6), lon: +c.lng.toFixed(6) }),
+        }).catch(() => {});
+    } catch {}
+}
+function pushWanderAnchorDebounced() {
+    if (wanderAnchorTimer) clearTimeout(wanderAnchorTimer);
+    wanderAnchorTimer = setTimeout(pushWanderAnchor, 2000);
+}
+pushWanderAnchor();
+setInterval(pushWanderAnchor, 60 * 1000);
 
 let selectedDeviceIds = new Set();
 // compat: keep selectedDeviceId getter for old code paths that expect single

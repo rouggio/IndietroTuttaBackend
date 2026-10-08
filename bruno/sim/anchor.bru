@@ -1,0 +1,18 @@
+meta {
+  name: Push viewport anchor
+  type: http
+  seq: 43
+}
+
+post {
+  url: {{baseUrl}}/sim/anchor
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "lat": 39.915521,
+    "lon": 9.6964336
+  }
+}

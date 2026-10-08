@@ -10,6 +10,7 @@ const {
     getRun,
     wanderSample,
     wanderAnchorFor,
+    setPushedAnchor,
 } = require("../store/sim");
 
 const router = express.Router();
@@ -147,6 +148,25 @@ router.get("/sim/wander", async (req, res) => {
         const anchor = await wanderAnchorFor(deviceId);
         if (!anchor) return res.status(404).json({ error: "no wander anchor" });
         res.json(wanderSample(deviceId, anchor));
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
+// POST /sim/anchor {lat, lon} — viewport anchor pushed by the frontend
+// (map center on load / pan / keep-alive). The walk follows the map;
+// sessions are ignored. Fresh 5 min, then fallbacks apply.
+// --------------------------------------------------
+
+router.post("/sim/anchor", async (req, res) => {
+    try {
+        const { lat, lon } = req.body || {};
+        if (typeof lat !== "number" || typeof lon !== "number"
+            || !(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180)) {
+            return res.status(400).json({ error: "lat/lon must be numbers" });
+        }
+        res.json({ anchor: setPushedAnchor(lat, lon) });
     } catch (e) {
         sendErr(res, e);
     }

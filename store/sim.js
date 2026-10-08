@@ -423,7 +423,7 @@ function activeRunForDevice(deviceId, nowMs = Date.now()) {
 module.exports = {
     createRun, getRun, listRuns, deleteRun, echoSample, nextSample, activeRunForDevice, runMeta,
     compileScript, // exported for unit checks
-    wanderSample, wanderAnchorFor,
+    wanderSample, wanderAnchorFor, setPushedAnchor,
 };
 
 // ------------------------------------------------------------------
@@ -450,6 +450,11 @@ const WANDER_MAX_KN = 8;
 const wanders = new Map(); // deviceId -> { aLat,aLon,lat,lon,head,spd,t }
 
 async function wanderAnchorFor(deviceId) {
+    // Primary: map center pushed by the frontend (viewport = intent).
+    // Refreshing the page re-pushes the current center, so a reload
+    // re-anchors the walk where the user is looking.
+    const pushed = pushedAnchor();
+    if (pushed) return pushed;
     if (!deviceId) return null;
     // Anchor lookups hit Turso (session + latest track ≈ 800ms) — cache
     // per device so the 1Hz poll stays fast. Session re-assignment or
@@ -464,6 +469,23 @@ async function wanderAnchorFor(deviceId) {
 
 const anchorCache = new Map(); // deviceId -> { anchor, at }
 const ANCHOR_TTL_MS = 60000;
+
+// Frontend-pushed viewport anchor (global: the map has one center).
+// Fresh 5 min; the page re-pushes on load, on pan (debounced) and
+// every minute as keep-alive.
+let pushed = null; // { lat, lon, at }
+const PUSHED_TTL_MS = 5 * 60 * 1000;
+
+function setPushedAnchor(lat, lon) {
+    pushed = { lat, lon, at: Date.now() };
+    return pushed;
+}
+
+function pushedAnchor() {
+    if (!pushed) return null;
+    if (Date.now() - pushed.at > PUSHED_TTL_MS) { pushed = null; return null; }
+    return { lat: pushed.lat, lon: pushed.lon };
+}
 
 async function resolveWanderAnchor(deviceId) {
     try {
