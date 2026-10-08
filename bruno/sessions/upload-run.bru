@@ -1,0 +1,30 @@
+meta {
+  name: Upload run result
+  type: http
+  seq: 27
+}
+
+post {
+  url: {{baseUrl}}/sessions/:id/runs
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 15
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "deviceId": "08:D1:F9:C8:4D:24",
+    "startEpoch": 1790000000,
+    "finishEpoch": 1790001200,
+    "splits": [300, 600, 900],
+    "events": [{"t": 1790000000, "e": "START"}, {"t": 1790001200, "e": "FINISH"}],
+    "result": "FINISHED"
+  }
+}

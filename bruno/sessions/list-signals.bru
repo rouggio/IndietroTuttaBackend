@@ -1,0 +1,14 @@
+meta {
+  name: List committee signals
+  type: http
+  seq: 30
+}
+
+get {
+  url: {{baseUrl}}/sessions/:id/signals
+  auth: none
+}
+
+params:path {
+  id: 15
+}

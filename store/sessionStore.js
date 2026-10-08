@@ -461,6 +461,10 @@ module.exports = {
 
 // Newest session (scheduled/live) a device is assigned to, trimmed for the
 // firmware: resolved geometry + own pursuit offset. Null when unassigned.
+const {
+    signalsForDevice
+} = require("./signalStore");
+
 async function getActiveSessionForDevice(deviceId) {
     if (!deviceId) return null;
     const client = getClient();
@@ -476,6 +480,12 @@ async function getActiveSessionForDevice(deviceId) {
     const boats = await getBoats(res.rows[0].id);
     const full = rowToSession(res.rows[0], boats);
     const mine = boats.find(b => b.deviceId === deviceId);
+    let signals = [];
+    try {
+        signals = await signalsForDevice(full.id, deviceId);
+    } catch (e) {
+        signals = [];
+    }
     return {
         id: full.id,
         mode: full.mode,
@@ -490,5 +500,6 @@ async function getActiveSessionForDevice(deviceId) {
         })),
         startLine: full.startLine,
         finishLine: full.finishLine,
+        signals,
     };
 }

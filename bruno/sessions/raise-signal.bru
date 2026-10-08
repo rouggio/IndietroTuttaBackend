@@ -1,0 +1,27 @@
+meta {
+  name: Raise committee signal
+  type: http
+  seq: 29
+}
+
+post {
+  url: {{baseUrl}}/sessions/:id/signals
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 15
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "kind": "OCS",
+    "deviceId": "08:D1:F9:C8:4D:24",
+    "detail": ""
+  }
+}

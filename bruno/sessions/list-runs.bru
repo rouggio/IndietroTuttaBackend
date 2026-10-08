@@ -1,0 +1,14 @@
+meta {
+  name: List run results
+  type: http
+  seq: 28
+}
+
+get {
+  url: {{baseUrl}}/sessions/:id/runs
+  auth: none
+}
+
+params:path {
+  id: 15
+}

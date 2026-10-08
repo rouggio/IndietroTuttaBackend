@@ -11,6 +11,16 @@ const {
     repeatSession,
 } = require("../store/sessionStore");
 
+const {
+    submitRun,
+    listRuns,
+} = require("../store/runStore");
+
+const {
+    raiseSignal,
+    listSignals,
+} = require("../store/signalStore");
+
 const router = express.Router();
 
 function sendErr(res, e) {
@@ -130,6 +140,59 @@ router.delete("/sessions/:id/boats/:deviceId", async (req, res) => {
         const s = await removeBoat(req.params.id, req.params.deviceId);
         if (!s) return res.status(404).json({ error: "session not found" });
         res.json(s);
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
+// POST /sessions/:id/runs — device run upload at finish
+// (retries replace). {deviceId, startEpoch, finishEpoch?,
+// splits?, events?, result?}
+// GET /sessions/:id/runs — results table (finished first, elapsed ASC)
+// --------------------------------------------------
+
+router.post("/sessions/:id/runs", async (req, res) => {
+    try {
+        const s = await getSession(req.params.id);
+        if (!s) return res.status(404).json({ error: "session not found" });
+        res.status(201).json(await submitRun({ ...(req.body || {}), sessionId: s.id }));
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+router.get("/sessions/:id/runs", async (req, res) => {
+    try {
+        const s = await getSession(req.params.id);
+        if (!s) return res.status(404).json({ error: "session not found" });
+        res.json(await listRuns(s.id));
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
+// POST /sessions/:id/signals — committee raises a signal
+// {kind: OCS|DSQ|DNF|RET|SCP|RECALL|ABANDON, deviceId?, detail?}
+// GET /sessions/:id/signals — signal log
+// --------------------------------------------------
+
+router.post("/sessions/:id/signals", async (req, res) => {
+    try {
+        const s = await getSession(req.params.id);
+        if (!s) return res.status(404).json({ error: "session not found" });
+        res.status(201).json(await raiseSignal(s.id, req.body || {}));
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+router.get("/sessions/:id/signals", async (req, res) => {
+    try {
+        const s = await getSession(req.params.id);
+        if (!s) return res.status(404).json({ error: "session not found" });
+        res.json(await listSignals(s.id));
     } catch (e) {
         sendErr(res, e);
     }

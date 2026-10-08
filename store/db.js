@@ -165,6 +165,35 @@ async function initDb() {
         } catch (e) {
             if (!/duplicate column/i.test(e.message || "")) throw e;
         }
+        // Step 5/6: device run uploads (one row per device per session,
+        // re-upload replaces). Step 7: committee signals for devices.
+        await c.execute(`
+            CREATE TABLE IF NOT EXISTS runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sessionId INTEGER NOT NULL,
+                deviceId TEXT NOT NULL,
+                startEpoch INTEGER NOT NULL,
+                finishEpoch INTEGER,
+                elapsedSec INTEGER,
+                splits TEXT NOT NULL DEFAULT '[]',
+                events TEXT NOT NULL DEFAULT '[]',
+                result TEXT NOT NULL DEFAULT 'FINISHED',
+                createdAt TEXT NOT NULL,
+                UNIQUE (sessionId, deviceId)
+            )
+        `);
+        await c.execute(`CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(sessionId)`);
+        await c.execute(`
+            CREATE TABLE IF NOT EXISTS signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sessionId INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                deviceId TEXT,
+                detail TEXT NOT NULL DEFAULT '',
+                createdAt TEXT NOT NULL
+            )
+        `);
+        await c.execute(`CREATE INDEX IF NOT EXISTS idx_signals_session ON signals(sessionId)`);
 
         console.log("[DB] Turso tables ready");
 
