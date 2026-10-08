@@ -380,7 +380,7 @@ function makePanelDraggable(el) {
 }
 
 // Click on or near a route point → show Details, else close
-function findNearestPoint(latlng, maxMeters = 80) {
+function findNearestPoint(latlng, maxMeters = 40) {
     if (!allPoints.length) return null;
     let best = null, bestDist = Infinity;
     allPoints.forEach(p => {
@@ -429,10 +429,10 @@ map.on("click", e => {
     if (nearest) openBoatPanel(nearest.deviceId, nearest);
     else closeAllBoatPanels();
 });
-// Hover anywhere on the map (wide radius — thin route lines are hard to hit)
+// Hover anywhere on the map (tight radius — dot shows only when deliberate)
 map.on("mousemove", e => {
     if (typeof CB !== "undefined" && CB.open && CB.placing) return; // builder gesture in progress
-    const n = findNearestPoint(e.latlng, 100);
+    const n = findNearestPoint(e.latlng, 50);
     if (n) showHoverPoint(n);
     else hideHover();
 });
