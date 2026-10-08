@@ -557,6 +557,7 @@ function saveUI() {
             customEnd,
             boatFilter: document.getElementById("boatFilter")?.value || "",
             windAuto: !!windAuto,
+            showSim: !!showSim,
             panels: {
                 "device-panel": document.getElementById("device-panel")?.style.display,
                 "wind-panel": document.getElementById("wind-panel")?.style.display,
@@ -585,6 +586,7 @@ function loadUI() {
         if (Array.isArray(d.selectedDeviceIds)) { selectedDeviceIds = new Set(d.selectedDeviceIds); syncSelected(); }
         else if (d.selectedDeviceId) { selectedDeviceIds = new Set([d.selectedDeviceId]); syncSelected(); }
         if (typeof d.isLive === "boolean") isLive = d.isLive;
+        if (typeof d.showSim === "boolean") showSim = d.showSim;
         if (d.selectedDate) selectedDate = d.selectedDate;
         if (d.timePreset) timePreset = d.timePreset;
         else if (d.selectedDate && d.selectedDate !== todayStr()) timePreset = "custom"; // migrate old date
@@ -659,6 +661,7 @@ function formatRangeLabel(startMs, endMs){
 }
 
 let isLive = true;
+let showSim = true; // show simulated tracks + previews (persisted)
 let selectedDate = todayStr(); // compat
 let timePreset = "today";
 let customStart = "";
@@ -1534,6 +1537,29 @@ if (boatsBtn && devicePanel) {
     new MutationObserver(syncBoatsBtn).observe(devicePanel, { attributes:true, attributeFilter:["style"] });
 }
 document.getElementById("deviceClose")?.addEventListener("click", () => toggleEl("device-panel", false));
+// --- Sim visibility: one toggle for all simulated layers (live overlay +
+// scripted-run preview). Polling continues underneath so re-showing is
+// instant; persisted like the other topbar toggles.
+const simBtn = document.getElementById("simToggleBtn");
+function applySimVisibility() {
+    if (simBtn) simBtn.classList.toggle("active", !!showSim);
+    try {
+        if (typeof liveSimLayer !== "undefined") {
+            if (showSim) { if (!map.hasLayer(liveSimLayer)) liveSimLayer.addTo(map); }
+            else map.removeLayer(liveSimLayer);
+        }
+    } catch {}
+    try {
+        if (typeof simOverlay !== "undefined" && simOverlay) {
+            if (showSim) { if (!map.hasLayer(simOverlay)) simOverlay.addTo(map); }
+            else map.removeLayer(simOverlay);
+        }
+    } catch {}
+}
+if (simBtn) {
+    simBtn.addEventListener("click", () => { showSim = !showSim; applySimVisibility(); try { saveUI(); } catch {} });
+}
+applySimVisibility();
 const timelineBtn = document.getElementById("timelineToggleBtn");
 const playbackEl = document.getElementById("playback");
 if (timelineBtn && playbackEl) {
@@ -3052,6 +3078,7 @@ function clearSimOverlay() {
 // boat triangle already marks the fed position — no second dot).
 async function renderSimOverlay(fit) {
     clearSimOverlay();
+    if (!showSim) return;
     const box = document.getElementById("tab-session-detail");
     if (!box || !selectedSessionId) return;
     let runs = [];
