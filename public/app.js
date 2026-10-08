@@ -1,10 +1,12 @@
-const map = L.map('map', { zoomControl: false }).setView([39.92, 9.65], 13);
+const map = L.map('map', { zoomControl: false, maxZoom: 22 }).setView([39.92, 9.65], 13);
 
 L.tileLayer(
     'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     {
         attribution: '&copy; OpenStreetMap',
-        referrerPolicy: 'strict-origin-when-cross-origin'
+        referrerPolicy: 'strict-origin-when-cross-origin',
+        maxNativeZoom: 19, // OSM serves to z19; beyond that tiles scale up
+        maxZoom: 22
     }
 ).addTo(map);
 
