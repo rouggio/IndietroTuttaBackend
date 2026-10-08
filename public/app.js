@@ -487,13 +487,14 @@ function saveUI() {
             boatFilter: document.getElementById("boatFilter")?.value || "",
             panels: {
                 "device-panel": document.getElementById("device-panel")?.style.display,
+                "wind-panel": document.getElementById("wind-panel")?.style.display,
                 "playback": document.getElementById("playback")?.style.display,
                 "template-panel": document.getElementById("template-panel")?.style.display,
                 "session-panel": document.getElementById("session-panel")?.style.display,
                 "session-create-panel": document.getElementById("session-create-panel")?.style.display,
                 "session-detail-panel": document.getElementById("session-detail-panel")?.style.display,
             },
-            panelPos: ["device-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "builder-panel"].reduce((acc, id) => {
+            panelPos: ["device-panel", "wind-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "builder-panel"].reduce((acc, id) => {
                 const el = document.getElementById(id);
                 if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
                 return acc;
@@ -1465,6 +1466,64 @@ if (timelineBtn && playbackEl) {
     new MutationObserver(syncTimelineBtn).observe(playbackEl, { attributes:true, attributeFilter:["style"] });
     syncTimelineBtn();
 }
+// --- Wind indicator: same provider as the builder (GET /wind), map center ---
+const windBtn = document.getElementById("windToggleBtn");
+const windPanel = document.getElementById("wind-panel");
+function compass16(deg) {
+    const names = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+    return names[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+}
+async function refreshWind() {
+    const body = document.getElementById("wind-body");
+    if (!body || !panelVisible(windPanel)) return;
+    const c = map.getCenter();
+    const lat = +c.lat.toFixed(4), lon = +c.lng.toFixed(4);
+    body.innerHTML = '<div class="device-meta">Loading…</div>';
+    let w = null;
+    try {
+        const res = await fetch(`/wind?lat=${lat}&lon=${lon}`);
+        if (res.ok) w = await res.json();
+    } catch {}
+    if (!w || typeof w.dir !== "number" || typeof w.speedKn !== "number") {
+        body.innerHTML = '<div class="boat-info-err">No wind source available.</div>';
+        return;
+    }
+    // dir = where the wind comes FROM; arrow points downwind (dir+180)
+    const rot = (((w.dir % 360) + 360) % 360 + 180) % 360;
+    const age = w.ageMin != null ? `${w.ageMin} min old` : "live model";
+    const dist = w.distKm != null ? ` · ${w.distKm} km away` : "";
+    const gust = w.gustKn != null ? ` <span style="color:#64748b">gusts ${w.gustKn}</span>` : "";
+    body.innerHTML = `
+        <div style="display:flex;gap:12px;align-items:center">
+            <svg width="110" height="110" viewBox="0 0 110 110">
+                <circle cx="55" cy="55" r="48" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+                <text x="55" y="16" text-anchor="middle" font-size="11" font-weight="700" fill="#334155">N</text>
+                <text x="55" y="102" text-anchor="middle" font-size="11" fill="#64748b">S</text>
+                <text x="98" y="59" text-anchor="middle" font-size="11" fill="#64748b">E</text>
+                <text x="12" y="59" text-anchor="middle" font-size="11" fill="#64748b">W</text>
+                <g transform="rotate(${rot} 55 55)">
+                    <line x1="55" y1="88" x2="55" y2="30" stroke="#2563eb" stroke-width="4" stroke-linecap="round"/>
+                    <polygon points="55,20 48,34 62,34" fill="#2563eb"/>
+                </g>
+                <circle cx="55" cy="55" r="5" fill="#0f172a"/>
+            </svg>
+            <div>
+                <div style="font-size:26px;font-weight:800">${w.dir}° <span style="font-size:14px;font-weight:600;color:#475569">${compass16(w.dir)}</span></div>
+                <div style="font-size:15px;font-weight:700">${w.speedKn} kn${gust}</div>
+                <div class="device-meta">from · blows toward ${compass16(rot)}</div>
+            </div>
+        </div>
+        <div class="device-meta" style="margin-top:6px">${escHtml(w.source || "")} · ${age}${dist}<br>at map center ${lat}, ${lon}</div>`;
+}
+if (windBtn && windPanel) {
+    const syncWindBtn = () => windBtn.classList.toggle("active", panelVisible(windPanel));
+    windBtn.addEventListener("click", () => { toggleEl("wind-panel"); avoidPanelOverlap(windPanel); syncWindBtn(); refreshWind(); });
+    new MutationObserver(syncWindBtn).observe(windPanel, { attributes:true, attributeFilter:["style"] });
+    syncWindBtn();
+}
+document.getElementById("windClose")?.addEventListener("click", () => toggleEl("wind-panel", false));
+document.getElementById("windRefresh")?.addEventListener("click", () => refreshWind());
+setInterval(() => { try { if (panelVisible(windPanel)) refreshWind(); } catch {} }, 5 * 60 * 1000);
 document.getElementById("boatFilter")?.addEventListener("input", () => { saveUI(); refreshDevices(); });
 
 // --- Courses, builder & sessions (Step 2) ---
@@ -3219,7 +3278,7 @@ function rectsOverlap(a, b) {
 // Panels the user dragged themselves are never auto-moved.
 function avoidPanelOverlap(el) {
     if (!panelVisible(el) || el.dataset.moved) return;
-    const others = ["device-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "builder-panel"]
+    const others = ["device-panel", "wind-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "builder-panel"]
         .map(id => document.getElementById(id))
         .filter(o => o && o !== el && panelVisible(o));
     let moved = false;
@@ -3238,6 +3297,7 @@ function avoidPanelOverlap(el) {
     if (moved) { try { saveUI(); } catch {} }
 }
 makeFloatingDraggable(document.getElementById("device-panel"));
+makeFloatingDraggable(document.getElementById("wind-panel"));
 makeFloatingDraggable(document.getElementById("template-panel"));
 makeFloatingDraggable(document.getElementById("session-panel"));
 makeFloatingDraggable(document.getElementById("session-create-panel"));

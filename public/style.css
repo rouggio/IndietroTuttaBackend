@@ -88,6 +88,7 @@ html, body {
 }
 
 #topbar-menu #boatsToggleBtn.active,
+#topbar-menu #windToggleBtn.active,
 #topbar-menu #timelineToggleBtn.active,
 #topbar-menu #templatesToggleBtn.active,
 #topbar-menu #sessionsToggleBtn.active,
@@ -626,6 +627,7 @@ html, body {
 
 /* Templates & sessions panels */
 #template-panel,
+#wind-panel,
 #session-panel,
 #session-create-panel,
 #session-detail-panel {
@@ -644,6 +646,7 @@ html, body {
 }
 
 #template-panel h4,
+#wind-panel h4,
 #session-panel h4,
 #session-create-panel h4,
 #session-detail-panel h4 {

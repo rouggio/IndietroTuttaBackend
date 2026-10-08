@@ -18,6 +18,7 @@
     <div style="display:flex;align-items:center;gap:12px;margin-left:auto">
         <div id="topbar-menu">
             <button id="boatsToggleBtn" class="dropbtn">Boats</button>
+            <button id="windToggleBtn" class="dropbtn">Wind</button>
             <button id="timelineToggleBtn" class="dropbtn">Timeline</button>
             <button id="sessionsTopBtn" class="dropbtn">Sessions</button>
             <button id="templatesToggleBtn" class="dropbtn">Course templates</button>
@@ -48,6 +49,11 @@
     <h4>Boats</h4>
     <input id="boatFilter" type="text" placeholder="Filter boats…" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:8px;font-size:13px">
     <div id="device-list">Loading...</div>
+</div>
+
+<div id="wind-panel" style="display:none">
+    <h4>Wind <span style="float:right;display:flex;gap:8px;align-items:center"><span id="windRefresh" style="cursor:pointer" title="Refresh now">↻</span><span id="windClose" style="cursor:pointer">×</span></span></h4>
+    <div id="wind-body"><div class="device-meta">Loading…</div></div>
 </div>
 
 <div id="template-panel" style="display:none">
