@@ -1482,7 +1482,7 @@ async function refreshWind() {
     body.innerHTML = '<div class="device-meta">Loading…</div>';
     let w = null;
     try {
-        const res = await fetch(`/wind?lat=${lat}&lon=${lon}`);
+        const res = await fetch(`/wind?lat=${lat}&lon=${lon}`, { signal: AbortSignal.timeout(15000) });
         if (res.ok) w = await res.json();
     } catch {}
     if (!w || typeof w.dir !== "number" || typeof w.speedKn !== "number") {
@@ -3317,4 +3317,5 @@ avoidPanelOverlap(document.getElementById("device-panel"));
 // populate panels restored visible (their content loads on toggle otherwise)
 if (panelVisible(document.getElementById("template-panel"))) loadCourseTemplates();
 if (panelVisible(document.getElementById("session-panel"))) loadSessions();
+if (panelVisible(document.getElementById("wind-panel"))) refreshWind();
 if (panelVisible(document.getElementById("session-create-panel"))) renderSessionCreate();
