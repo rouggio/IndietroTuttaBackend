@@ -2554,11 +2554,16 @@ function renderSessPreview() {
         latlngs.unshift([(r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2]);
         L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], { color: "#16a34a", weight: 5 }).addTo(sessPreview);
     }
-    const effFinish = t.finishLine === "start" ? t.startLine : t.finishLine;
+    // finishLine arrives as "start" (builder shorthand) or {sameAs:"start"}
+    // (presets / DB rows) — both mean "mirror the start line". Anything else
+    // must be a real segment; resolving {sameAs} as geometry yields NaN and
+    // aborts the whole preview (leaving just the start line behind).
+    const sameAsStart = t.finishLine === "start" || (t.finishLine && t.finishLine.sameAs === "start");
+    const effFinish = sameAsStart ? t.startLine : t.finishLine;
     if (effFinish && typeof effFinish === "object") {
         const r = resolveSegJS(effFinish, o);
         latlngs.push([(r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2]);
-        const same = t.finishLine === "start";
+        const same = sameAsStart;
         L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], same
             ? { color: "#dc2626", weight: 2, dashArray: "6 4" }
             : { color: "#dc2626", weight: 5 }).addTo(sessPreview);
@@ -2757,7 +2762,6 @@ async function loadSessions(selectId) {
         if (!lastDevices.length) await refreshDevices();
         if (selectId) selectedSessionId = selectId;
         el.innerHTML = `
-            <div class="builder-row"><button id="sess-new" class="primary">＋ New session</button></div>
             <div id="sess-list">` + (sessionsCache.length ? sessionsCache.map(s => `
                 <div class="device-item ${String(s.id) === String(selectedSessionId) ? "active" : ""}" data-sess="${s.id}" style="cursor:pointer">
                     <div style="overflow:hidden;flex:1">
@@ -2770,7 +2774,6 @@ async function loadSessions(selectId) {
                     </div>
                 </div>`).join("") : '<div class="device-meta">No sessions yet.</div>') + `</div>
             <div id="sess-detail"></div>`;
-        document.getElementById("sess-new").addEventListener("click", () => openSessionCreate());
         el.querySelectorAll("[data-sess]").forEach(row => {
             row.addEventListener("click", () => {
                 selectedSessionId = Number(row.getAttribute("data-sess"));
