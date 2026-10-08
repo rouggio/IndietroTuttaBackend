@@ -28,7 +28,7 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
 
 ## Frontend (`public/`)
 
-- `index.html` + `app.js` + `style.css`, Leaflet 1.9.4 CDN. Topbar: Boats/Timeline toggles, Live button + preset (today/yesterday/thisWeek/custom) + datetime pickers + recenter.
+- `index.html` + `app.js` + `style.css`, Leaflet 1.9.4 CDN. Topbar: Boats/Wind/Timeline toggles, Live button + preset (today/yesterday/thisWeek/custom) + datetime pickers + recenter.
 - Map: polyline tracks + flagged markers, per-boat colored stripes, no-auto-pan (recenter on demand), hover 100m dots, click-to-jump.
 - Boat panels (Leaflet controls, draggable): Speed/Course/Time + Boat make-model, header icons ⌖ (center map, keeps zoom) + ⓘ (info modal) + ×. Info modal: read-only Device/Status/Firmware/Last/First seen + editable Boat name + Make/model → `PUT /boats/:id`, list + panels refresh.
 - Boats list: filter, status dots + firmware (`v1.0.x` after lastSeen when reported), 📅 per-row sailing-days calendar (active days in boat color → click sets custom day range).
