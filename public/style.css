@@ -89,7 +89,6 @@ html, body {
 
 #topbar-menu #boatsToggleBtn.active,
 #topbar-menu #windToggleBtn.active,
-#topbar-menu #simToggleBtn.active,
 #topbar-menu #timelineToggleBtn.active,
 #topbar-menu #templatesToggleBtn.active,
 #topbar-menu #sessionsToggleBtn.active,
@@ -763,6 +762,12 @@ html, body {
 .builder-row button.arming {
     background: #fef3c7;
     border-color: #f59e0b;
+}
+
+.builder-row button.active {
+    background: #2563eb;
+    color: white;
+    border-color: #2563eb;
 }
 
 .builder-row button.primary {

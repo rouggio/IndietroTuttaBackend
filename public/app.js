@@ -557,7 +557,7 @@ function saveUI() {
             customEnd,
             boatFilter: document.getElementById("boatFilter")?.value || "",
             windAuto: !!windAuto,
-            showSim: !!showSim,
+            showSimPreview: !!showSimPreview,
             panels: {
                 "device-panel": document.getElementById("device-panel")?.style.display,
                 "wind-panel": document.getElementById("wind-panel")?.style.display,
@@ -586,7 +586,7 @@ function loadUI() {
         if (Array.isArray(d.selectedDeviceIds)) { selectedDeviceIds = new Set(d.selectedDeviceIds); syncSelected(); }
         else if (d.selectedDeviceId) { selectedDeviceIds = new Set([d.selectedDeviceId]); syncSelected(); }
         if (typeof d.isLive === "boolean") isLive = d.isLive;
-        if (typeof d.showSim === "boolean") showSim = d.showSim;
+        if (typeof d.showSimPreview === "boolean") showSimPreview = d.showSimPreview;
         if (d.selectedDate) selectedDate = d.selectedDate;
         if (d.timePreset) timePreset = d.timePreset;
         else if (d.selectedDate && d.selectedDate !== todayStr()) timePreset = "custom"; // migrate old date
@@ -661,7 +661,7 @@ function formatRangeLabel(startMs, endMs){
 }
 
 let isLive = true;
-let showSim = true; // show simulated tracks + previews (persisted)
+let showSimPreview = true; // scripted-route preview on the map (persisted)
 let selectedDate = todayStr(); // compat
 let timePreset = "today";
 let customStart = "";
@@ -1537,29 +1537,6 @@ if (boatsBtn && devicePanel) {
     new MutationObserver(syncBoatsBtn).observe(devicePanel, { attributes:true, attributeFilter:["style"] });
 }
 document.getElementById("deviceClose")?.addEventListener("click", () => toggleEl("device-panel", false));
-// --- Sim visibility: one toggle for all simulated layers (live overlay +
-// scripted-run preview). Polling continues underneath so re-showing is
-// instant; persisted like the other topbar toggles.
-const simBtn = document.getElementById("simToggleBtn");
-function applySimVisibility() {
-    if (simBtn) simBtn.classList.toggle("active", !!showSim);
-    try {
-        if (typeof liveSimLayer !== "undefined") {
-            if (showSim) { if (!map.hasLayer(liveSimLayer)) liveSimLayer.addTo(map); }
-            else map.removeLayer(liveSimLayer);
-        }
-    } catch {}
-    try {
-        if (typeof simOverlay !== "undefined" && simOverlay) {
-            if (showSim) { if (!map.hasLayer(simOverlay)) simOverlay.addTo(map); }
-            else map.removeLayer(simOverlay);
-        }
-    } catch {}
-}
-if (simBtn) {
-    simBtn.addEventListener("click", () => { showSim = !showSim; applySimVisibility(); try { saveUI(); } catch {} });
-}
-applySimVisibility();
 const timelineBtn = document.getElementById("timelineToggleBtn");
 const playbackEl = document.getElementById("playback");
 if (timelineBtn && playbackEl) {
@@ -3078,7 +3055,7 @@ function clearSimOverlay() {
 // boat triangle already marks the fed position — no second dot).
 async function renderSimOverlay(fit) {
     clearSimOverlay();
-    if (!showSim) return;
+    if (!showSimPreview) return;
     const box = document.getElementById("tab-session-detail");
     if (!box || !selectedSessionId) return;
     let runs = [];
@@ -3145,6 +3122,7 @@ async function renderSessionDetail() {
                 </div>
                 <div class="builder-row">
                     <button id="sess-sim" title="Script a mock-GPS run for all boats (indoor testing)">Simulate</button>
+                    <button id="sess-sim-preview" title="Show/hide the scripted route preview on the map">Preview</button>
                 </div>
                 <div id="sess-runs" class="device-meta"></div>
                 <div class="builder-row"><b>Results</b><button id="sess-res-refresh" title="Reload results">↻</button></div>
@@ -3319,8 +3297,22 @@ async function renderSessionDetail() {
             const j = await r.json();
             if (!r.ok) { if (errBox) errBox.textContent = j.error || "Simulate failed."; return; }
             refreshRuns();
+            showSimPreview = true;
+            try { saveUI(); } catch {}
+            syncSimPreviewBtn();
             renderSimOverlay(true);
         });
+        const syncSimPreviewBtn = () => {
+            const b = document.getElementById("sess-sim-preview");
+            if (b) b.classList.toggle("active", !!showSimPreview);
+        };
+        document.getElementById("sess-sim-preview")?.addEventListener("click", () => {
+            showSimPreview = !showSimPreview;
+            try { saveUI(); } catch {}
+            syncSimPreviewBtn();
+            renderSimOverlay(false);
+        });
+        syncSimPreviewBtn();
         refreshRuns();
         renderSimOverlay(false);
         const gunMs = s.startTime ? new Date(s.startTime).getTime() : 0;
