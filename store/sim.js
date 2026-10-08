@@ -428,22 +428,23 @@ module.exports = {
 
 // ------------------------------------------------------------------
 // Server-driven wander: mock GPS with no scripted run. Per-device
-// random-walk state (6kn, ±15° helm, 500m leash around an anchor) that
-// advances on every poll, so the committee can later steer it.
+// random-walk state (6kn ± 2, ±15° helm) that advances on every poll,
+// so the committee can later steer it.
 // Anchor = centroid of the assigned session's resolved course marks —
-// every mark was placed on water by the committee, so the middle of the
-// course is the wettest single point; start-line center is the fallback,
-// then the device's last track point. Null anchor = nowhere wet: the
-// caller 404s and the device wanders locally instead. Past the leash the
-// walk steers home, so fixes stay inside a ~500m water circle (residual
-// assumption: open water around the course middle; shoreline polygons
-// would be needed for a hard guarantee).
+// every mark was placed on water by the committee — plus a water box
+// (marks bbox + 100m pad) that the walk hard-clamps into; start-line
+// center is the fallback (500m steer-home leash), then the device's
+// last track point. Null anchor = nowhere wet: the caller 404s and the
+// device holds instead. Past the leash / on a box wall the walk steers
+// home, so fixes stay on water (residual assumption: open water around
+// the course; shoreline polygons would be needed for a hard guarantee).
 // In-memory like the runs (lost on restart, by design).
 // ------------------------------------------------------------------
 
 const WANDER_KN = 6;
 const WANDER_LEASH_M = 500;
 const WANDER_RESEED_M = 750; // anchor moved further than this → fresh walk
+const WATER_BOX_PAD_M = 100; // water box = marks bbox + this pad per side
 const WANDER_MIN_KN = 4; // wander speed breathes around 6 ± 2kn
 const WANDER_MAX_KN = 8;
 const wanders = new Map(); // deviceId -> { aLat,aLon,lat,lon,head,spd,t }
@@ -481,16 +482,34 @@ async function resolveWanderAnchor(deviceId) {
 async function getSessionForWander(deviceId) {
     const s = await getActiveSessionForDevice(deviceId);
     if (!s) return null;
-    // Course centroid first: average of all resolved marks.
+    // Course centroid + water box: every resolved mark was placed on water
+    // by the committee, so the marks' bounding box (+pad) is the trusted
+    // wet area. The walk clamps into it instead of a blind radius.
     if (Array.isArray(s.marks) && s.marks.length) {
         let lat = 0, lon = 0, n = 0;
+        let loLat = 90, hiLat = -90, loLon = 180, hiLon = -180;
         for (const m of s.marks) {
             if (m && typeof m.lat === "number" && typeof m.lon === "number"
                 && (m.lat !== 0 || m.lon !== 0)) {
                 lat += m.lat; lon += m.lon; n++;
+                if (m.lat < loLat) loLat = m.lat;
+                if (m.lat > hiLat) hiLat = m.lat;
+                if (m.lon < loLon) loLon = m.lon;
+                if (m.lon > hiLon) hiLon = m.lon;
             }
         }
-        if (n > 0) return { lat: lat / n, lon: lon / n };
+        if (n > 0) {
+            const cosLat = Math.cos((lat / n) * Math.PI / 180);
+            const padLat = WATER_BOX_PAD_M / DEG_M;
+            const padLon = WATER_BOX_PAD_M / (DEG_M * cosLat);
+            return {
+                lat: lat / n, lon: lon / n,
+                box: {
+                    loLat: loLat - padLat, hiLat: hiLat + padLat,
+                    loLon: loLon - padLon, hiLon: hiLon + padLon,
+                },
+            };
+        }
     }
     if (s.startLine && typeof s.startLine.latA === "number") {
         return {
@@ -516,6 +535,9 @@ function wanderSample(deviceId, anchor, nowMs = Date.now()) {
         };
         wanders.set(deviceId, s);
     }
+    // Anchor moved (session edited) → adopt new center + water box.
+    s.aLat = anchor.lat; s.aLon = anchor.lon;
+    s.box = anchor.box || null;
     const dt = Math.min(Math.max((nowMs - s.t) / 1000, 0), 30);
     s.t = nowMs;
     const cosLat = Math.cos((s.aLat * Math.PI) / 180);
@@ -533,6 +555,17 @@ function wanderSample(deviceId, anchor, nowMs = Date.now()) {
     const hr = (s.head * Math.PI) / 180;
     s.lat += (step * Math.cos(hr)) / DEG_M;
     s.lon += (step * Math.sin(hr)) / (DEG_M * cosLat);
+    if (s.box) {
+        // Hard clamp into the water box; hitting a wall turns the boat
+        // back toward the middle instead of sliding along the edge.
+        const b = s.box;
+        const cLat = Math.min(b.hiLat, Math.max(b.loLat, s.lat));
+        const cLon = Math.min(b.hiLon, Math.max(b.loLon, s.lon));
+        if (cLat !== s.lat || cLon !== s.lon) {
+            s.lat = cLat; s.lon = cLon;
+            s.head = bearing(s, { lat: s.aLat, lon: s.aLon });
+        }
+    }
     return {
         deviceId,
         wander: true,
