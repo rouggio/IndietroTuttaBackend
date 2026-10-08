@@ -1529,16 +1529,20 @@ async function refreshWind() {
     if (!body || !panelVisible(windPanel)) return;
     const c = map.getCenter();
     const lat = +c.lat.toFixed(4), lon = +c.lng.toFixed(4);
-    body.innerHTML = '<div class="device-meta">Loading…</div>';
+    // Don't blank existing content on refresh — swap silently when the
+    // new data arrives so the pane never flickers on toggle/tick.
+    const firstLoad = !body.dataset.loaded;
+    if (firstLoad) body.innerHTML = '<div class="device-meta">Loading…</div>';
     let w = null;
     try {
         const res = await fetch(`/wind?lat=${lat}&lon=${lon}`, { signal: AbortSignal.timeout(15000) });
         if (res.ok) w = await res.json();
     } catch {}
     if (!w || typeof w.dir !== "number" || typeof w.speedKn !== "number") {
-        body.innerHTML = '<div class="boat-info-err">No wind source available.</div>';
+        if (firstLoad) body.innerHTML = '<div class="boat-info-err">No wind source available.</div>';
         return;
     }
+    body.dataset.loaded = "1";
     // dir = where the wind comes FROM; arrow points downwind (dir+180)
     const rot = (((w.dir % 360) + 360) % 360 + 180) % 360;
     const age = w.ageMin != null ? `${w.ageMin} min old` : "live model";
@@ -1582,7 +1586,7 @@ function syncWindRefreshBtn() {
     const b = document.getElementById("windRefresh");
     if (b) {
         b.innerHTML = windAuto
-            ? '↻ <span style="font-size:11px;vertical-align:middle;letter-spacing:1px">AUTO</span>'
+            ? '<span style="font-size:11px;vertical-align:middle;letter-spacing:1px">AUTO</span> ↻'
             : "↻";
         b.title = windAuto ? "Auto refresh every 60s — click for manual" : "Manual refresh — click for auto";
     }
