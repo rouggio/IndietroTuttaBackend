@@ -623,7 +623,10 @@ const dateLabel = document.getElementById("dateLabel");
 const datePicker = { value: "" };
 
 function todayStr() {
-    return new Date().toISOString().slice(0, 10);
+    // Local calendar day, NOT UTC: toISOString is yesterday until 02:00
+    // in UTC+2, which misdates sessions created just after midnight.
+    const d = new Date();
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 function pad2(n){ return String(n).padStart(2,"0"); }
 function toLocalDatetimeValue(d){
@@ -2870,7 +2873,7 @@ async function renderSessionCreate() {
             </div>
             <div class="device-meta" id="sess-wind-src"></div>
             <div class="builder-row">
-                <input id="sess-date" type="date" value="${new Date().toISOString().slice(0, 10)}">
+                <input id="sess-date" type="date" value="${todayStr()}">
                 <select id="sess-mode"><option value="practice">Practice</option><option value="race">Race</option></select>
             </div>
             <div class="builder-row"><label class="device-meta" style="flex:1">Start <input id="sess-start" type="time" title="Start time on session date (optional)"></label></div>
@@ -3124,7 +3127,7 @@ async function renderSessionDetail() {
                     <button id="sess-add-btn">Add</button>
                 </div>
                 <div class="builder-row">
-                    <input id="sess-repeat-date" type="date" value="${sessRepeatDate || new Date().toISOString().slice(0, 10)}" title="Repeat this session on a new day">
+                    <input id="sess-repeat-date" type="date" value="${sessRepeatDate || todayStr()}" title="Repeat this session on a new day">
                     <button id="sess-repeat" title="Same course, boats and wind on a new day">Repeat</button>
                 </div>
                 <div class="builder-row">
