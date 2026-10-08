@@ -6,7 +6,9 @@ const {
     getLatestPoint,
     getActiveDays,
     getPointCount,
-    deleteFlaggedByUid
+    deleteFlaggedByUid,
+    pushSimPoint,
+    getSimSince
 } = require("../store/gpsStore");
 
 const {
@@ -72,8 +74,22 @@ router.post("/gps", async (req, res) => {
     const device = await upsertDevice(deviceId, { username, firmware: firmware || bodyFirmware || fw, ip: req.ip });
 
     // --------------------------------------------------
-    // Store point
+    // Store point — simulated uploads NEVER touch Turso: they live in
+    // the ephemeral memory buffer (map overlay only, gone on restart).
     // --------------------------------------------------
+
+    if (simulated === true) {
+        pushSimPoint({
+            lat, lon, speed, course, altitude, sats,
+            timestamp,
+            receivedAt: new Date().toISOString(),
+            deviceId,
+            username: sanitizeUsername(username) ||
+                      (device && device.username) ||
+                      null
+        });
+        return res.json({ status: "ok", stored: false, simulated: true });
+    }
 
     await addPoint({
         lat,
@@ -104,6 +120,21 @@ router.post("/gps", async (req, res) => {
         status: "ok",
         stored: count
     });
+});
+
+// --------------------------------------------------
+// GET /gps/sim-live?deviceId=&since= — ephemeral sim points newer than
+// `since` (ms epoch) for one boat. Powers the live sim overlay; the
+// frontend starts `since` at page load, so a refresh begins empty.
+// --------------------------------------------------
+
+router.get("/gps/sim-live", async (req, res) => {
+    const { deviceId, since } = req.query;
+    if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
+        return res.status(400).json({ error: "deviceId query param required" });
+    }
+    const sinceMs = since ? Number(since) : 0;
+    res.json(getSimSince(deviceId.trim(), sinceMs));
 });
 
 // --------------------------------------------------

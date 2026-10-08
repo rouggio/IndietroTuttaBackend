@@ -339,6 +339,53 @@ function updateOpenPanels() {
 function closeAllBoatPanels() {
     boatPanels.forEach(panel => { panel.open = false; renderBoatPanel(panel); });
 }
+// --- Live sim overlay: ephemeral mock tracks (never in Turso).
+// Page load starts with an empty overlay and `since=now`, so a refresh
+// begins blank and only fills with points that arrive afterwards.
+const liveSimLayer = L.layerGroup().addTo(map);
+const liveSim = new Map(); // deviceId -> { pts: [], cursor: ms, line, dot }
+const liveSimLoadMs = Date.now();
+function liveSimScope() {
+    if (selectedDeviceIds.size) return [...selectedDeviceIds];
+    return (typeof lastDevices !== "undefined" ? lastDevices : []).map(d => d.deviceId).filter(Boolean);
+}
+function drawLiveSim(id) {
+    const st = liveSim.get(id);
+    if (!st) return;
+    if (st.line) { liveSimLayer.removeLayer(st.line); st.line = null; }
+    if (st.dot) { liveSimLayer.removeLayer(st.dot); st.dot = null; }
+    if (st.pts.length < 1) return;
+    const color = colorForDevice(id);
+    if (st.pts.length > 1) {
+        st.line = L.polyline(st.pts.map(p => [p.lat, p.lon]),
+            { color, weight: 2, opacity: 0.85, dashArray: "7 5" }).addTo(liveSimLayer);
+    }
+    const last = st.pts[st.pts.length - 1];
+    st.dot = L.circleMarker([last.lat, last.lon],
+        { color: "#ffffff", weight: 2, fillColor: color, fillOpacity: 1, radius: 5 }).addTo(liveSimLayer);
+}
+async function pollLiveSim() {
+    if (!isLive || document.hidden) return;
+    for (const id of liveSimScope()) {
+        let st = liveSim.get(id);
+        if (!st) { st = { pts: [], cursor: liveSimLoadMs, line: null, dot: null }; liveSim.set(id, st); }
+        try {
+            const res = await fetch(`/gps/sim-live?deviceId=${encodeURIComponent(id)}&since=${st.cursor}`);
+            if (!res.ok) continue;
+            const pts = await res.json();
+            if (!Array.isArray(pts) || !pts.length) continue;
+            for (const p of pts) {
+                if (typeof p.lat !== "number" || typeof p.lon !== "number") continue;
+                st.pts.push(p);
+                const t = new Date(p.receivedAt || 0).getTime();
+                if (!isNaN(t) && t > st.cursor) st.cursor = t;
+            }
+            while (st.pts.length > 2000) st.pts.shift();
+            drawLiveSim(id);
+        } catch {}
+    }
+}
+setInterval(pollLiveSim, 3000);
 
 // Boat panels: draggable by header (close button excluded)
 function makePanelDraggable(el) {
