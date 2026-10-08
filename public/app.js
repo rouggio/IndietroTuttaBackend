@@ -1581,7 +1581,7 @@ let windTimer = null;
 function syncWindRefreshBtn() {
     const b = document.getElementById("windRefresh");
     if (b) {
-        b.textContent = windAuto ? "🔁" : "↻";
+        b.textContent = windAuto ? "AUTO" : "↻";
         b.title = windAuto ? "Auto refresh every 60s — click for manual" : "Manual refresh — click for auto";
     }
 }
