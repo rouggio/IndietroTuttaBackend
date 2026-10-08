@@ -570,7 +570,6 @@ function loadUI() {
         if (d.customEnd) customEnd = d.customEnd;
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => {
-            if (id === "session-panel" || id === "session-create-panel" || id === "session-detail-panel") return; // sessions always start closed
             const el=document.getElementById(id); if(el && disp) el.style.display=disp;
         });
         if (d.panelPos) Object.entries(d.panelPos).forEach(([id, pos]) => {
@@ -1509,6 +1508,7 @@ if (boatsBtn && devicePanel) {
     // keep in sync if panel toggled elsewhere
     new MutationObserver(syncBoatsBtn).observe(devicePanel, { attributes:true, attributeFilter:["style"] });
 }
+document.getElementById("deviceClose")?.addEventListener("click", () => toggleEl("device-panel", false));
 const timelineBtn = document.getElementById("timelineToggleBtn");
 const playbackEl = document.getElementById("playback");
 if (timelineBtn && playbackEl) {
