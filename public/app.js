@@ -534,6 +534,7 @@ function saveUI() {
             customStart,
             customEnd,
             boatFilter: document.getElementById("boatFilter")?.value || "",
+            windAuto: !!windAuto,
             panels: {
                 "device-panel": document.getElementById("device-panel")?.style.display,
                 "wind-panel": document.getElementById("wind-panel")?.style.display,
@@ -1572,8 +1573,34 @@ if (windBtn && windPanel) {
     syncWindBtn();
 }
 document.getElementById("windClose")?.addEventListener("click", () => toggleEl("wind-panel", false));
-document.getElementById("windRefresh")?.addEventListener("click", () => refreshWind());
-setInterval(() => { try { if (panelVisible(windPanel)) refreshWind(); } catch {} }, 5 * 60 * 1000);
+// Wind refresh is two-state: manual (fetch on open / on click) or auto
+// (fetch every 60s while visible). Click toggles the mode; both
+// transitions fetch immediately. Mode persists in user prefs.
+let windAuto = false;
+let windTimer = null;
+function syncWindRefreshBtn() {
+    const b = document.getElementById("windRefresh");
+    if (b) {
+        b.textContent = windAuto ? "⏱60s" : "↻";
+        b.title = windAuto ? "Auto refresh every 60s — click for manual" : "Manual refresh — click for auto";
+    }
+}
+function setWindAuto(on) {
+    windAuto = !!on;
+    syncWindRefreshBtn();
+    if (windTimer) { clearInterval(windTimer); windTimer = null; }
+    if (windAuto) windTimer = setInterval(() => { try { if (panelVisible(windPanel)) refreshWind(); } catch {} }, 60 * 1000);
+    try { saveUI(); } catch {}
+}
+document.getElementById("windRefresh")?.addEventListener("click", () => {
+    setWindAuto(!windAuto);
+    refreshWind();
+});
+try {
+    const d = JSON.parse(localStorage.getItem(UI_KEY) || "{}");
+    if (typeof d.windAuto === "boolean" && d.windAuto) setWindAuto(true);
+    else syncWindRefreshBtn();
+} catch { syncWindRefreshBtn(); }
 document.getElementById("boatFilter")?.addEventListener("input", () => { saveUI(); refreshDevices(); });
 
 // --- Courses, builder & sessions (Step 2) ---
