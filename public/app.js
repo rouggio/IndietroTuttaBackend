@@ -392,14 +392,6 @@ function panToIfOutside(pos) {
     if (!pos) return;
     if (!map.getBounds().contains([pos.lat, pos.lon])) map.panTo([pos.lat, pos.lon]);
 }
-// Route click → timeline jumps to that point's moment (cursor, markers, details follow)
-function jumpTimelineTo(p) {
-    const t = new Date(p.timestamp || p.receivedAt).getTime();
-    if (isNaN(t)) return;
-    const bounds = getDayBounds();
-    if (t < bounds.start || t > bounds.end) return;
-    showTime(t);
-}
 // Hover: a dot on the route + a dot on the timeline for the hovered point
 let hoverMarker = null;
 const timelineHoverEl = document.getElementById("timeline-hover");
@@ -432,7 +424,7 @@ map.on("click", e => {
     if (typeof sessSuppressClick !== "undefined" && sessSuppressClick) { sessSuppressClick = false; return; }
     if (typeof builderMapClick === "function" && builderMapClick(e)) return;
     const nearest = findNearestPoint(e.latlng);
-    if (nearest) { openBoatPanel(nearest.deviceId, nearest); jumpTimelineTo(nearest); }
+    if (nearest) openBoatPanel(nearest.deviceId, nearest);
     else closeAllBoatPanels();
 });
 // Hover anywhere on the map (wide radius — thin route lines are hard to hit)
@@ -867,7 +859,7 @@ async function refresh(recenter = false) {
             // overlap point from the previous run)
             if (run[run.length - 1].simulated) opts.dashArray = "7 5";
             const line = L.polyline(latlngs, opts).addTo(map);
-            line.on("click", e => { const n = findNearestPoint(e.latlng); if (n) { openBoatPanel(n.deviceId, n); jumpTimelineTo(n); L.DomEvent.stop(e); } });
+            line.on("click", e => { const n = findNearestPoint(e.latlng); if (n) openBoatPanel(n.deviceId, n); L.DomEvent.stop(e); });
             if (selectedDeviceIds.size === 1 && id === [...selectedDeviceIds][0] && ri === 0) {
                 polyline = line;
             } else {
