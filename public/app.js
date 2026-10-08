@@ -121,6 +121,7 @@ window.openBoatInfo = function (id) {
                 <tr><td>Device</td><td>${esc(id)}</td></tr>
                 <tr><td>Status</td><td>${esc(d.status || "-")}</td></tr>
                 <tr><td>Firmware</td><td>${d.firmware ? "v" + esc(d.firmware) : "-"}</td></tr>
+                <tr><td>GPS fix</td><td>${d.mock ? "MOCK (simulated)" : "REAL (receiver)"} <button id="boat-info-mock" title="Toggle mock GPS via the device portal over LAN">→ ${d.mock ? "Real" : "Mock"}</button></td></tr>
                 <tr><td>Last seen</td><td>${d.lastSeen ? esc(new Date(d.lastSeen).toLocaleString()) : "-"}</td></tr>
                 <tr><td>First seen</td><td>${d.firstSeen ? esc(new Date(d.firstSeen).toLocaleString()) : "-"}</td></tr>
             </table>
@@ -135,6 +136,29 @@ window.openBoatInfo = function (id) {
     overlay.addEventListener("click", e => { if (e.target === overlay) closeBoatInfo(); });
     document.getElementById("boat-info-cancel").addEventListener("click", () => closeBoatInfo());
     document.getElementById("boat-info-save").addEventListener("click", () => saveBoatInfo(id));
+    document.getElementById("boat-info-mock").addEventListener("click", () => toggleBoatMock(id, !boatRecord(id)?.mock));
+};
+window.toggleBoatMock = async function (id, on) {
+    const errEl = document.getElementById("boat-info-err");
+    if (errEl) errEl.textContent = on ? "Switching to mock GPS…" : "Switching to real GPS…";
+    try {
+        const res = await fetch(`/boats/${encodeURIComponent(id)}/mock`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ on: !!on }),
+        });
+        if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            if (errEl) errEl.textContent = res.status === 409
+                ? "Device has no known LAN address (offline or never seen on LAN)."
+                : (j.error || `Toggle failed (${res.status})`);
+            return;
+        }
+        await refreshDevices();
+        openBoatInfo(id); // re-render with the new state
+    } catch (e) {
+        if (errEl) errEl.textContent = "Network error.";
+    }
 };
 window.closeBoatInfo = function () {
     document.getElementById("boat-info-overlay")?.remove();
@@ -715,7 +739,7 @@ async function refreshDevices() {
                     </div>
                     <div style="text-align:right">
                         <div class="device-meta" style="color:${statusColor};font-weight:600">${status} <span class="boat-cal-btn" data-cal="${d.deviceId}" title="Sailing days calendar">📅</span></div>
-                        <div class="device-meta">${lastSeen}${d.firmware ? ` • v${d.firmware}` : ""}</div>
+                        <div class="device-meta">${lastSeen}${d.firmware ? ` • v${d.firmware}` : ""}${d.mock ? ` • MOCK` : ""}</div>
                     </div>
                 </div>
             `;
