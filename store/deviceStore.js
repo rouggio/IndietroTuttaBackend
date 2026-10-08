@@ -28,7 +28,8 @@ function sanitizeBoat(value) {
 function cleanIp(value) {
     if (typeof value !== "string") return null;
     // Express req.ip: "::ffff:192.168.0.106" → "192.168.0.106"
-    const v = value.replace(/^::ffff:/, "").trim();
+    let v = value.replace(/^::ffff:/, "").trim();
+    if (v === "::1") v = "127.0.0.1"; // IPv6 loopback → plain LAN form
     return v ? v.slice(0, 64) : null;
 }
 
