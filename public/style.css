@@ -90,6 +90,7 @@ html, body {
 #topbar-menu #timelineToggleBtn.active,
 #topbar-menu #templatesToggleBtn.active,
 #topbar-menu #sessionsToggleBtn.active,
+#topbar-menu #sessionsTopBtn.active,
 #topbar-menu #racesToggleBtn.active {
     background: #2563eb;
     color: white;
@@ -617,7 +618,8 @@ html, body {
 
 /* Templates & sessions panels */
 #template-panel,
-#session-panel {
+#session-panel,
+#session-create-panel {
     position: absolute;
     top: 58px;
     right: 10px;
@@ -633,7 +635,8 @@ html, body {
 }
 
 #template-panel h4,
-#session-panel h4 {
+#session-panel h4,
+#session-create-panel h4 {
     margin: 0 0 8px 0;
     font-size: 14px;
 }

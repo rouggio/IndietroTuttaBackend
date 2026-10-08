@@ -474,8 +474,9 @@ function saveUI() {
                 "playback": document.getElementById("playback")?.style.display,
                 "template-panel": document.getElementById("template-panel")?.style.display,
                 "session-panel": document.getElementById("session-panel")?.style.display,
+                "session-create-panel": document.getElementById("session-create-panel")?.style.display,
             },
-            panelPos: ["device-panel", "template-panel", "session-panel", "builder-panel"].reduce((acc, id) => {
+            panelPos: ["device-panel", "template-panel", "session-panel", "session-create-panel", "builder-panel"].reduce((acc, id) => {
                 const el = document.getElementById(id);
                 if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
                 return acc;
@@ -501,7 +502,7 @@ function loadUI() {
         if (d.customEnd) customEnd = d.customEnd;
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => {
-            if (id === "session-panel") return; // sessions always start closed
+            if (id === "session-panel" || id === "session-create-panel") return; // sessions always start closed
             const el=document.getElementById(id); if(el && disp) el.style.display=disp;
         });
         if (d.panelPos) Object.entries(d.panelPos).forEach(([id, pos]) => {
@@ -1470,7 +1471,7 @@ function syncRacesBtn() {
     const rt = document.getElementById("racesToggleBtn");
     if (!rt) return;
     const vis = el => el && el.style.display !== "none" && el.style.display !== "";
-    rt.classList.toggle("active", !!(vis(document.getElementById("template-panel")) || vis(document.getElementById("session-panel"))));
+    rt.classList.toggle("active", !!(vis(document.getElementById("template-panel")) || vis(document.getElementById("session-panel")) || vis(document.getElementById("session-create-panel"))));
 }
 const templatesBtn = document.getElementById("templatesToggleBtn");
 const templatePanel = document.getElementById("template-panel");
@@ -1500,6 +1501,34 @@ if (sessionsBtn && sessionPanel) {
         disarmSessMove();
         clearSessPreview();
         syncSessionsBtn();
+        saveUI();
+    });
+}
+// Top-bar Sessions entry: same as the Races ▾ item (opens the list).
+const sessionsTopBtn = document.getElementById("sessionsTopBtn");
+if (sessionsTopBtn && sessionPanel) {
+    const syncTopBtn = () => {
+        const open = sessionPanel.style.display !== "none" && sessionPanel.style.display !== "";
+        sessionsTopBtn.classList.toggle("active", open);
+    };
+    sessionsTopBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncTopBtn(); saveUI(); loadSessions(); if (!panelVisible(sessionPanel)) { disarmSessMove(); clearSessPreview(); } });
+    new MutationObserver(syncTopBtn).observe(sessionPanel, { attributes: true, attributeFilter: ["style"] });
+    syncTopBtn();
+}
+// New-session pane (creation form split out of the list panel).
+const sessionCreatePanel = document.getElementById("session-create-panel");
+function openSessionCreate() {
+    if (sessionCreatePanel && !panelVisible(sessionCreatePanel)) toggleEl("session-create-panel");
+    if (sessionCreatePanel) avoidPanelOverlap(sessionCreatePanel);
+    saveUI();
+    renderSessionCreate();
+}
+if (sessionCreatePanel) {
+    document.getElementById("sessionCreateClose")?.addEventListener("click", () => {
+        sessionCreatePanel.style.display = "none";
+        disarmSessMove();
+        clearSessPreview();
+        syncRacesBtn();
         saveUI();
     });
 }
@@ -2427,7 +2456,7 @@ if (typeof map !== "undefined" && map.getContainer) {
     const sessBox = map.getContainer();
     sessBox.addEventListener("pointerdown", e => {
         if (SESSDRAFT.placing !== "move" || !SESSDRAFT.origin) return;
-        if (!panelVisible(document.getElementById("session-panel"))) { disarmSessMove(); return; }
+        if (!panelVisible(document.getElementById("session-create-panel"))) { disarmSessMove(); return; }
         if (e.target.closest(".leaflet-marker-icon, .leaflet-tooltip, .leaflet-control, button, input, select, a")) return;
         e.stopPropagation();
         e.preventDefault();
@@ -2460,13 +2489,57 @@ if (typeof map !== "undefined" && map.getContainer) {
 function clearSessPreview() {
     if (sessPreview) { map.removeLayer(sessPreview); sessPreview = null; }
 }
+let selPreview = null; // selected session's frozen course (read-only)
+function clearSelPreview() {
+    if (selPreview) { map.removeLayer(selPreview); selPreview = null; }
+}
+// Selected session's course on the chart: resolved marks + start/finish
+// lines + dashed route + gate connectors. Absolute coords from the session
+// (no wind-frame resolve needed) — this is what the devices sail.
+function renderSelectedPreview(s) {
+    clearSelPreview();
+    if (!s || !Array.isArray(s.marks) || !s.marks.length) return;
+    selPreview = L.layerGroup().addTo(map);
+    const segCenter = g => [(g.latA + g.latB) / 2, (g.lonA + g.lonB) / 2];
+    const latlngs = [];
+    if (s.startLine && s.startLine.latA !== undefined) {
+        latlngs.push(segCenter(s.startLine));
+        L.polyline([[s.startLine.latA, s.startLine.lonA], [s.startLine.latB, s.startLine.lonB]], { color: "#16a34a", weight: 5 }).addTo(selPreview);
+    }
+    const effFinish = s.finishLine && s.finishLine.sameAs === "start" ? s.startLine : s.finishLine;
+    s.marks.forEach(m => latlngs.push([m.lat, m.lon]));
+    if (effFinish && effFinish.latA !== undefined) {
+        latlngs.push(segCenter(effFinish));
+        const same = effFinish === s.startLine;
+        L.polyline([[effFinish.latA, effFinish.lonA], [effFinish.latB, effFinish.lonB]], same
+            ? { color: "#dc2626", weight: 2, dashArray: "6 4" }
+            : { color: "#dc2626", weight: 5 }).addTo(selPreview);
+    }
+    L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(selPreview);
+    s.marks.forEach((m, i) => {
+        L.circle([m.lat, m.lon], { radius: m.r || 30, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(selPreview);
+        L.marker([m.lat, m.lon], {
+            icon: L.divIcon({
+                html: `<div class="builder-mark-label" style="background:${MARK_COLORS[m.type] || "#f59e0b"}">${i + 1}</div>`,
+                className: "", iconSize: [22, 22], iconAnchor: [11, 11],
+            }),
+        }).addTo(selPreview);
+    });
+    const gg = {};
+    s.marks.forEach((m, i) => { if (m.type === "gate" && m.gate) { (gg[m.gate] = gg[m.gate] || []).push(i); } });
+    Object.values(gg).forEach(g => {
+        if (g.length !== 2) return;
+        L.polyline([[s.marks[g[0]].lat, s.marks[g[0]].lon], [s.marks[g[1]].lat, s.marks[g[1]].lon]],
+            { color: "#984ea3", weight: 2, dashArray: "6 4" }).addTo(selPreview);
+    });
+}
 function sessDraftInst() {
     return { originLat: SESSDRAFT.origin.lat, originLon: SESSDRAFT.origin.lon, windDir: SESSDRAFT.windDir, scale: SESSDRAFT.scale };
 }
 function renderSessPreview() {
     clearSessPreview();
     // a template fetch may resolve after the panel was closed — stay buried
-    if (!panelVisible(document.getElementById("session-panel"))) return;
+    if (!panelVisible(document.getElementById("session-create-panel"))) return;
     const t = SESSDRAFT.template;
     if (!t || !SESSDRAFT.origin) return;
     const o = sessDraftInst();
@@ -2548,19 +2621,18 @@ function syncSessForm() {
     if (o) o.textContent = "Origin: " + (SESSDRAFT.origin
         ? `${SESSDRAFT.origin.lat.toFixed(5)}, ${SESSDRAFT.origin.lon.toFixed(5)}` : "—");
 }
-async function loadSessions(selectId) {
-    const el = document.getElementById("tab-sessions");
+async function renderSessionCreate() {
+    const el = document.getElementById("tab-session-create");
+    if (!el) return;
     try {
-        const [sessRes, courseRes, tplRes] = await Promise.all([fetch("/sessions"), fetch("/templates"), fetch("/templates/presets")]);
-        sessionsCache = await sessRes.json();
+        const [courseRes, tplRes] = await Promise.all([fetch("/templates"), fetch("/templates/presets")]);
         const courses = await courseRes.json();
         courseTemplatesCache = courseTemplatesCache || await tplRes.json();
         if (!lastDevices.length) await refreshDevices();
-        if (selectId) selectedSessionId = selectId;
         const boatChecks = lastDevices.map(d => `<label style="display:inline-block;margin-right:8px;font-weight:normal;font-size:12px">
             <input type="checkbox" data-sb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
         el.innerHTML = `
-            <div class="device-meta" style="margin-bottom:6px"><b>New session</b> — pick a template, place it on the chart, set the wind</div>
+            <div class="device-meta" style="margin-bottom:6px">Pick a template, place it on the chart, set the wind</div>
             <div class="builder-row"><select id="sess-template">${courseTemplatesCache.map(t => `<option value="t:${escHtml(t.key)}">${escHtml(t.name)}</option>`).join("")}${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)}</option>`).join("")}</select></div>
             <div class="builder-row">
                 <span id="sess-origin" class="device-meta" style="flex:2">Origin: —</span>
@@ -2579,20 +2651,7 @@ async function loadSessions(selectId) {
             <div class="builder-row"><label class="device-meta" style="flex:1">Start <input id="sess-start" type="time" title="Start time on session date (optional)"></label></div>
             <div style="margin:4px 0">${boatChecks || '<span class="device-meta">No boats known yet.</span>'}</div>
             <div class="builder-row"><button id="sess-create" class="primary">Create session</button></div>
-            <div id="sess-create-err" class="boat-info-err"></div>
-            <div class="device-meta" style="margin:6px 0 4px 0"><b>Sessions</b> (wind/origin editable pre-start in detail view)</div>
-            <div id="sess-list">` + (sessionsCache.length ? sessionsCache.map(s => `
-                <div class="device-item ${String(s.id) === String(selectedSessionId) ? "active" : ""}" data-sess="${s.id}" style="cursor:pointer">
-                    <div style="overflow:hidden;flex:1">
-                        <span class="device-name">${escHtml(s.name || ("Session " + s.id))}</span>
-                        <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boats · v${s.courseVersion}</div>
-                    </div>
-                    <div style="text-align:right">
-                        <div><span class="mode-badge ${s.mode}">${s.mode}</span></div>
-                        <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
-                    </div>
-                </div>`).join("") : '<div class="device-meta">No sessions yet.</div>') + `</div>
-            <div id="sess-detail"></div>`;
+            <div id="sess-create-err" class="boat-info-err"></div>`;
         document.getElementById("sess-template").addEventListener("change", e => pickSessTemplate(e.target.value));
         const sessSel = document.getElementById("sess-template");
         const hasSel = opt => [...sessSel.options].some(o => o.value === opt);
@@ -2669,16 +2728,46 @@ async function loadSessions(selectId) {
                 });
                 const j = await res.json();
                 if (!res.ok) { errEl.textContent = j.error || "Create failed."; return; }
-                const ids = [...document.querySelectorAll("#tab-sessions input[data-sb]:checked")].map(x => x.getAttribute("data-sb"));
+                const ids = [...document.querySelectorAll("#tab-session-create input[data-sb]:checked")].map(x => x.getAttribute("data-sb"));
                 for (const id of ids) {
                     await fetch(`/sessions/${j.id}/boats`, {
                         method: "POST", headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ deviceId: id }),
                     });
                 }
-                loadSessions(j.id);
+                if (sessionCreatePanel) sessionCreatePanel.style.display = "none";
+                disarmSessMove();
+                clearSessPreview();
+                openSessionsPanel(j.id);
             } catch { errEl.textContent = "Network error."; }
         });
+        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-create-panel"));
+    } catch (e) {
+        el.innerHTML = '<div class="boat-info-err">Failed to load templates.</div>';
+    }
+}
+async function loadSessions(selectId) {
+    const el = document.getElementById("tab-sessions");
+    try {
+        const sessRes = await fetch("/sessions");
+        sessionsCache = await sessRes.json();
+        if (!lastDevices.length) await refreshDevices();
+        if (selectId) selectedSessionId = selectId;
+        el.innerHTML = `
+            <div class="builder-row"><button id="sess-new" class="primary">＋ New session</button></div>
+            <div id="sess-list">` + (sessionsCache.length ? sessionsCache.map(s => `
+                <div class="device-item ${String(s.id) === String(selectedSessionId) ? "active" : ""}" data-sess="${s.id}" style="cursor:pointer">
+                    <div style="overflow:hidden;flex:1">
+                        <span class="device-name">${escHtml(s.name || ("Session " + s.id))}</span>
+                        <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boats · v${s.courseVersion}</div>
+                    </div>
+                    <div style="text-align:right">
+                        <div><span class="mode-badge ${s.mode}">${s.mode}</span></div>
+                        <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
+                    </div>
+                </div>`).join("") : '<div class="device-meta">No sessions yet.</div>') + `</div>
+            <div id="sess-detail"></div>`;
+        document.getElementById("sess-new").addEventListener("click", () => openSessionCreate());
         el.querySelectorAll("[data-sess]").forEach(row => {
             row.addEventListener("click", () => {
                 selectedSessionId = Number(row.getAttribute("data-sess"));
@@ -2758,6 +2847,7 @@ async function renderSessionDetail() {
         const res = await fetch(`/sessions/${selectedSessionId}`);
         if (!res.ok) { el.innerHTML = ""; return; }
         const s = await res.json();
+        renderSelectedPreview(s);
         el.innerHTML = `
             <div class="sess-detail">
                 <b>${escHtml(s.name || ("Session " + s.id))}</b>
@@ -2870,6 +2960,7 @@ async function renderSessionDetail() {
             if (!confirm("Delete this session?")) return;
             await fetch(`/sessions/${s.id}`, { method: "DELETE" });
             selectedSessionId = null;
+            clearSelPreview();
             loadSessions();
         });
         const refreshRuns = async () => {
@@ -3017,7 +3108,7 @@ function rectsOverlap(a, b) {
 // Panels the user dragged themselves are never auto-moved.
 function avoidPanelOverlap(el) {
     if (!panelVisible(el) || el.dataset.moved) return;
-    const others = ["device-panel", "template-panel", "session-panel", "builder-panel"]
+    const others = ["device-panel", "template-panel", "session-panel", "session-create-panel", "builder-panel"]
         .map(id => document.getElementById(id))
         .filter(o => o && o !== el && panelVisible(o));
     let moved = false;
@@ -3038,11 +3129,14 @@ function avoidPanelOverlap(el) {
 makeFloatingDraggable(document.getElementById("device-panel"));
 makeFloatingDraggable(document.getElementById("template-panel"));
 makeFloatingDraggable(document.getElementById("session-panel"));
+makeFloatingDraggable(document.getElementById("session-create-panel"));
 makeFloatingDraggable(document.getElementById("builder-panel"));
 // fix any overlap restored from a previous session
 avoidPanelOverlap(document.getElementById("template-panel"));
 avoidPanelOverlap(document.getElementById("session-panel"));
+avoidPanelOverlap(document.getElementById("session-create-panel"));
 avoidPanelOverlap(document.getElementById("device-panel"));
 // populate panels restored visible (their content loads on toggle otherwise)
 if (panelVisible(document.getElementById("template-panel"))) loadCourseTemplates();
 if (panelVisible(document.getElementById("session-panel"))) loadSessions();
+if (panelVisible(document.getElementById("session-create-panel"))) renderSessionCreate();
