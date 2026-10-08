@@ -511,7 +511,9 @@ async function getActiveSessionForDevice(deviceId) {
     const full = rowToSession(res.rows[0], boats);
     // Finished sessions stop pushing (race over); the inferred status
     // (live once the gun passes) drives the device's fast health poll.
-    if ((await deriveStatus(full)) === "finished") return null;
+    // deriveStatus costs 2 queries — call once, reuse below.
+    const status = await deriveStatus(full);
+    if (status === "finished") return null;
     const mine = boats.find(b => b.deviceId === deviceId);
     let signals = [];
     try {
@@ -522,7 +524,7 @@ async function getActiveSessionForDevice(deviceId) {
     return {
         id: full.id,
         mode: full.mode,
-        status: await deriveStatus(full),
+        status,
         startTime: full.startTime,
         startOffsetSec: (mine && mine.startOffsetSec) || 0,
         courseVersion: full.courseVersion,

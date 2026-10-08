@@ -47,8 +47,10 @@ router.post("/sim/runs", async (req, res) => {
 });
 
 // --------------------------------------------------
-// GET /sim/next — wall-clock delivery (?deviceId= newest live run,
-// or ?runId= for a specific one).
+// GET /sim/next — the device's single mock-fix poll (?deviceId= newest
+// live run, or ?runId= for a specific one). One request per pass: live
+// scripted sample wins; an exhausted device run retires into the walk;
+// otherwise the server-driven walk (404 only when anchorless).
 // --------------------------------------------------
 
 router.get("/sim/next", async (req, res) => {
@@ -56,15 +58,24 @@ router.get("/sim/next", async (req, res) => {
         const { deviceId, runId } = req.query;
         const run = runId ? getRun(runId)
             : (deviceId ? activeRunForDevice(deviceId) : null);
-        if (!run) return res.status(404).json({ error: "no live run" });
         const nowMs = Date.now();
-        res.json({
-            runId: run.id,
-            deviceId: run.deviceId,
-            sessionId: run.sessionId,
-            serverTime: new Date(nowMs).toISOString(),
-            ...nextSample(run, nowMs),
-        });
+        if (run) {
+            const sample = nextSample(run, nowMs);
+            if (!sample.done || runId) {
+                return res.json({
+                    runId: run.id,
+                    deviceId: run.deviceId,
+                    sessionId: run.sessionId,
+                    serverTime: new Date(nowMs).toISOString(),
+                    ...sample,
+                });
+            }
+            deleteRun(run.id); // exhausted: fall through to the walk below
+        }
+        if (!deviceId) return res.status(404).json({ error: "no live run" });
+        const anchor = await wanderAnchorFor(deviceId);
+        if (!anchor) return res.status(404).json({ error: "no wander anchor" });
+        res.json(wanderSample(deviceId, anchor));
     } catch (e) {
         sendErr(res, e);
     }

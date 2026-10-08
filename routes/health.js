@@ -30,7 +30,8 @@ router.get("/health", async (req, res) => {
         await upsertDevice(deviceId, { username, firmware, ip: req.ip });
     }
 
-    const count = await getPointCount();
+    // NOTE: no storedPoints here — COUNT(*) per heartbeat cost a full
+    // extra Turso round trip on the hottest endpoint (5s live poll).
 
     // Race push: assigned session (geometry + start) rides the heartbeat.
     // Null when the device has no scheduled/live session.
@@ -43,7 +44,6 @@ router.get("/health", async (req, res) => {
 
     res.json({
         status: "ok",
-        storedPoints: count,
         deviceId: deviceId || null,
         heartbeat: !!deviceId,
         serverTime: new Date().toISOString(),
