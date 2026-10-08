@@ -1561,7 +1561,7 @@ async function refreshWind() {
             <div>
                 <div style="font-size:26px;font-weight:800">${w.dir}° <span style="font-size:14px;font-weight:600;color:#475569">${compass16(w.dir)}</span></div>
                 <div style="font-size:15px;font-weight:700">${w.speedKn} kn${gust}</div>
-                <div class="device-meta">from · blows toward ${compass16(rot)}</div>
+                <div class="device-meta">blowing toward ${compass16(rot)}</div>
             </div>
         </div>
         <div class="device-meta" style="margin-top:6px">${escHtml(w.source || "")} · ${age}${dist}<br>at map center ${lat}, ${lon}</div>`;
