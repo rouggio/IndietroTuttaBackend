@@ -1,0 +1,20 @@
+meta {
+  name: Wind with forced provider
+  type: http
+  seq: 31
+}
+
+get {
+  url: {{baseUrl}}/wind?lat=39.92&lon=9.65&provider=om
+  body: none
+  auth: none
+}
+
+params {
+  provider: om
+}
+
+params:provider {
+  value: om
+  description: auto | wu | wc | om — forces one source instead of the chain
+}
