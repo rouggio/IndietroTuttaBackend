@@ -1,30 +1,37 @@
 const { getClient, initDb } = require("./db");
 
 // ------------------------------------------------------------------
-// Templates: reusable shapes in WIND-FRAME offsets (meters).
-// +y = upwind (direction the wind comes FROM). No lat/lon here —
+// Courses: reusable shapes in WIND-FRAME offsets (meters).
+// +y = upwind (direction the wind comes FROM). No lat/lon here â€”
 // a course is pure shape; sessions place + rotate it on the day.
 // Mark: { x, y, r, side: P|S|G, type: start|mark|gate|finish, gate? }
 // Gate = two entries sharing a gate id (either buoy counts, side G).
 // Repeated positions are explicit entries (no refs) to keep firmware simple.
+//
+// The start/finish line sits at y=0 â€” the LEEWARD edge of every shape â€”
+// and the course runs UPWIND from it (marks at y>0). Placement puts the
+// boat downwind of the line; it beats up through the line at the gun.
 // ------------------------------------------------------------------
 
 const LEG = 500;   // default leg length, meters
 const GATE_HALF = 40;
 const LINE_HALF = 40; // start/finish line half-length (80m line at origin)
 
-// OOTB templates: roundings only — ends are line segments (start + shared
+// Built-in shapes: roundings only â€” ends are line segments (start + shared
 // finish), resolved square to the session wind.
 const OOTB_LINES = {
     startLine: { ax: -LINE_HALF, ay: 0, bx: LINE_HALF, by: 0 },
     finishLine: { sameAs: "start" },
 };
 
-const TEMPLATES = [
+// Seed catalogue. These are inserted into the `courses` TABLE once (see
+// seedBuiltinCourses) and thereafter live as ordinary rows with builtinKey
+// set â€” read-only, copyable, never edited in place.
+const BUILTINS = [
     {
         key: "wl",
         name: "Windward-Leeward",
-        desc: "Start → 1 → 2 → 1 → Finish",
+        desc: "Start â†’ 1 â†’ 2 â†’ 1 â†’ Finish",
         ...OOTB_LINES,
         marks: [
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
@@ -35,7 +42,7 @@ const TEMPLATES = [
     {
         key: "wl-gate",
         name: "W/L with Gate",
-        desc: "Start → 1 → Gate → 1 → Finish",
+        desc: "Start â†’ 1 â†’ Gate â†’ 1 â†’ Finish",
         ...OOTB_LINES,
         marks: [
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
@@ -47,7 +54,7 @@ const TEMPLATES = [
     {
         key: "triangle",
         name: "Triangle",
-        desc: "Start → 1 → 2 → 3 → Finish",
+        desc: "Start â†’ 1 â†’ 2 â†’ 3 â†’ Finish",
         ...OOTB_LINES,
         marks: [
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
@@ -58,7 +65,7 @@ const TEMPLATES = [
     {
         key: "wlt",
         name: "WLT Olympic",
-        desc: "Start → 1 → 2 → 3 → 1 → Finish",
+        desc: "Start â†’ 1 â†’ 2 â†’ 3 â†’ 1 â†’ Finish",
         ...OOTB_LINES,
         marks: [
             { x: 0, y: LEG, r: 30, side: "P", type: "mark" },
@@ -70,7 +77,7 @@ const TEMPLATES = [
     {
         key: "trapezoid",
         name: "Trapezoid",
-        desc: "Start → 1 → 2 → 3 → 4 → Finish",
+        desc: "Start â†’ 1 â†’ 2 â†’ 3 â†’ 4 â†’ Finish",
         ...OOTB_LINES,
         marks: [
             { x: -150, y: LEG, r: 30, side: "P", type: "mark" },
@@ -81,7 +88,7 @@ const TEMPLATES = [
     },
 ];
 
-function cloneTemplate(t) {
+function cloneCourse(t) {
     return {
         ...t,
         marks: t.marks.map(m => ({ ...m })),
@@ -90,17 +97,25 @@ function cloneTemplate(t) {
     };
 }
 
-function getPresetTemplates() {
-    return TEMPLATES.map(cloneTemplate);
+function getBuiltinShapes() {
+    return BUILTINS.map(cloneCourse);
 }
 
-function getPresetTemplate(key) {
-    const t = TEMPLATES.find(t => t.key === key);
-    return t ? cloneTemplate(t) : null;
+function getBuiltinShape(key) {
+    const t = BUILTINS.find(t => t.key === key);
+    return t ? cloneCourse(t) : null;
 }
 
 const SIDES = ["P", "S", "G"];
 const TYPES = ["start", "mark", "gate", "finish"];
+
+// Sort helper mirroring the SQL: built-ins (builtinKey set) first, then name.
+function byBuiltinThenName(a, b) {
+    const ab = a.builtinKey ? 0 : 1;
+    const bb = b.builtinKey ? 0 : 1;
+    if (ab !== bb) return ab - bb;
+    return String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" });
+}
 
 // Returns null when valid, otherwise an error string.
 // A defined startLine replaces the start point (same for finish);
@@ -112,10 +127,10 @@ function validateMarks(marks, startLine = null, finishLine = null) {
     for (let i = 0; i < marks.length; i++) {
         const m = marks[i] || {};
         if (typeof m.x !== "number" || !isFinite(m.x) || Math.abs(m.x) > 5000) {
-            return `marks[${i}].x must be a number within ±5000m`;
+            return `marks[${i}].x must be a number within ┬▒5000m`;
         }
         if (typeof m.y !== "number" || !isFinite(m.y) || Math.abs(m.y) > 5000) {
-            return `marks[${i}].y must be a number within ±5000m`;
+            return `marks[${i}].y must be a number within ┬▒5000m`;
         }
         if (typeof m.r !== "number" || !isFinite(m.r) || m.r < 5 || m.r > 200) {
             return `marks[${i}].r must be 5..200m`;
@@ -151,12 +166,12 @@ function validateMarks(marks, startLine = null, finishLine = null) {
 // Optional line segments (wind-frame meters): {ax,ay,bx,by} plus behavior:
 // square (default true) = bearing follows session wind + bias;
 // square:false = fixed geometry rotating with the template.
-// bias: deliberate skew in degrees (-60..60, 0 = square). Length ≥5m.
+// bias: deliberate skew in degrees (-60..60, 0 = square). Length ÔëÑ5m.
 function validateSegment(seg, what) {
     if (seg === null || seg === undefined) return null;
     for (const k of ["ax", "ay", "bx", "by"]) {
         if (typeof seg[k] !== "number" || !isFinite(seg[k]) || Math.abs(seg[k]) > 5000) {
-            return `${what}.${k} must be a number within ±5000m`;
+            return `${what}.${k} must be a number within ┬▒5000m`;
         }
     }
     const len = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay);
@@ -186,7 +201,7 @@ function validateLines(startLine, finishLine) {
     return null;
 }
 
-function rowToTemplate(r) {
+function rowToCourse(r) {
     const parseOpt = v => (v ? JSON.parse(v) : null);
     return {
         id: r.id,
@@ -197,21 +212,22 @@ function rowToTemplate(r) {
         startLine: parseOpt(r.startLine),
         finishLine: parseOpt(r.finishLine),
         version: r.version,
-        is_template: !!r.is_template,
+        // null for user courses; the seed key for the five read-only built-ins
+        builtinKey: r.builtinKey || null,
         createdAt: r.createdAt,
     };
 }
 
 // In-memory fallback
-const memTemplates = new Map();
+const memCourses = new Map();
 let memNextId = 1;
 
-async function createTemplate({ name, desc = null, owner = null, marks, startLine = null, finishLine = null, is_template = true }) {
+async function createCourse({ name, desc = null, owner = null, marks, startLine = null, finishLine = null, builtinKey = null }) {
     if (typeof name !== "string" || !name.trim() || name.trim().length > 64) {
         throw Object.assign(new Error("name must be 1..64 chars"), { status: 400 });
     }
     if (desc !== null && desc !== undefined && (typeof desc !== "string" || desc.length > 140)) {
-        throw Object.assign(new Error("desc must be ≤140 chars"), { status: 400 });
+        throw Object.assign(new Error("desc must be Ôëñ140 chars"), { status: 400 });
     }
     const err = validateMarks(marks, startLine, finishLine) || validateLines(startLine, finishLine);
     if (err) throw Object.assign(new Error(err), { status: 400 });
@@ -225,51 +241,61 @@ async function createTemplate({ name, desc = null, owner = null, marks, startLin
         marks,
         startLine: startLine || null,
         finishLine: normFinish,
-        is_template: !!is_template,
+        builtinKey: builtinKey || null,
     };
     if (!client) {
         const id = memNextId++;
         const course = { id, ...clean, version: 1, createdAt: new Date().toISOString() };
-        memTemplates.set(id, course);
+        memCourses.set(id, course);
         return course;
     }
     await initDb();
     const now = new Date().toISOString();
     const res = await client.execute({
-        sql: "INSERT INTO templates (name, desc, owner, marks, startLine, finishLine, version, is_template, createdAt) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        sql: "INSERT INTO courses (name, desc, owner, marks, startLine, finishLine, version, builtinKey, createdAt) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
         args: [clean.name, clean.desc, clean.owner, JSON.stringify(clean.marks),
             clean.startLine ? JSON.stringify(clean.startLine) : null,
             clean.finishLine ? JSON.stringify(clean.finishLine) : null,
-            clean.is_template ? 1 : 0, now],
+            clean.builtinKey, now],
     });
     return { id: Number(res.lastInsertRowid), ...clean, version: 1, createdAt: now };
 }
 
-async function listTemplates({ templatesOnly = false } = {}) {
+// Built-ins first, then alphabetical — the order the UI and device both show.
+async function listCourses() {
     const client = getClient();
     if (!client) {
-        return [...memTemplates.values()].filter(c => !templatesOnly || c.is_template);
+        return [...memCourses.values()].sort(byBuiltinThenName);
     }
     await initDb();
     const res = await client.execute({
-        sql: templatesOnly
-            ? "SELECT * FROM templates WHERE is_template = 1 ORDER BY id ASC"
-            : "SELECT * FROM templates ORDER BY id ASC",
+        sql: "SELECT * FROM courses ORDER BY (builtinKey IS NULL), name COLLATE NOCASE ASC, id ASC",
     });
-    return res.rows.map(rowToTemplate);
+    return res.rows.map(rowToCourse);
 }
 
-async function getTemplate(id) {
+async function getCourse(id) {
     const client = getClient();
-    if (!client) return memTemplates.get(Number(id)) || null;
+    if (!client) return memCourses.get(Number(id)) || null;
     await initDb();
-    const res = await client.execute({ sql: "SELECT * FROM templates WHERE id = ?", args: [Number(id)] });
-    return res.rows.length ? rowToTemplate(res.rows[0]) : null;
+    const res = await client.execute({ sql: "SELECT * FROM courses WHERE id = ?", args: [Number(id)] });
+    return res.rows.length ? rowToCourse(res.rows[0]) : null;
 }
 
-async function updateTemplate(id, { name, desc, marks, startLine, finishLine }) {
-    const cur = await getTemplate(id);
+// Built-in courses are read-only: the UI may only copy them.
+function assertEditable(course) {
+    if (course && course.builtinKey) {
+        throw Object.assign(
+            new Error(`built-in course '${course.name}' is read-only — save a copy instead`),
+            { status: 403 }
+        );
+    }
+}
+
+async function updateCourse(id, { name, desc, marks, startLine, finishLine }) {
+    const cur = await getCourse(id);
     if (!cur) return null;
+    assertEditable(cur);
     const next = {
         name: name !== undefined ? name : cur.name,
         desc: desc !== undefined ? desc : cur.desc,
@@ -283,7 +309,7 @@ async function updateTemplate(id, { name, desc, marks, startLine, finishLine }) 
         throw Object.assign(new Error("name must be 1..64 chars"), { status: 400 });
     }
     if (next.desc !== null && next.desc !== undefined && (typeof next.desc !== "string" || next.desc.length > 140)) {
-        throw Object.assign(new Error("desc must be ≤140 chars"), { status: 400 });
+        throw Object.assign(new Error("desc must be Ôëñ140 chars"), { status: 400 });
     }
     const err = validateMarks(next.marks, next.startLine, next.finishLine) || validateLines(next.startLine, next.finishLine);
     if (err) throw Object.assign(new Error(err), { status: 400 });
@@ -291,12 +317,12 @@ async function updateTemplate(id, { name, desc, marks, startLine, finishLine }) 
     const client = getClient();
     if (!client) {
         const updated = { ...cur, name: next.name.trim(), desc: typeof next.desc === "string" && next.desc.trim() ? next.desc.trim().slice(0, 140) : null, marks: next.marks, startLine: next.startLine || null, finishLine: next.finishLine === undefined ? null : next.finishLine, version: cur.version + 1 };
-        memTemplates.set(cur.id, updated);
+        memCourses.set(cur.id, updated);
         return updated;
     }
     await initDb();
     await client.execute({
-        sql: "UPDATE templates SET name = ?, desc = ?, marks = ?, startLine = ?, finishLine = ?, version = version + 1 WHERE id = ?",
+        sql: "UPDATE courses SET name = ?, desc = ?, marks = ?, startLine = ?, finishLine = ?, version = version + 1 WHERE id = ?",
         args: [next.name.trim(), (typeof next.desc === "string" && next.desc.trim() ? next.desc.trim().slice(0, 140) : null), JSON.stringify(next.marks),
             next.startLine ? JSON.stringify(next.startLine) : null,
             next.finishLine ? JSON.stringify(next.finishLine) : null, cur.id],
@@ -304,22 +330,55 @@ async function updateTemplate(id, { name, desc, marks, startLine, finishLine }) 
     return getTemplate(cur.id);
 }
 
-async function deleteTemplate(id) {
+async function deleteCourse(id) {
     const client = getClient();
-    if (!client) return memTemplates.delete(Number(id));
+    const cur = await getCourse(id);
+    if (cur) assertEditable(cur);
+    if (!client) return memCourses.delete(Number(id));
     await initDb();
-    const res = await client.execute({ sql: "DELETE FROM templates WHERE id = ?", args: [Number(id)] });
+    const res = await client.execute({ sql: "DELETE FROM courses WHERE id = ?", args: [Number(id)] });
     return res.rowsAffected > 0;
 }
 
+// Insert any built-in shape whose builtinKey is absent. Idempotent: after the
+// first run every key exists, so restarts never duplicate. A built-in whose
+// row was hand-edited keeps its edit (we do not overwrite existing keys).
+//
+// Called FROM initDb(), so it must never call initDb() itself — that would
+// await the very promise that is still resolving and deadlock the boot.
+async function seedBuiltinCourses(client = getClient()) {
+    if (!client) {
+        for (const b of BUILTINS) {
+            if (![...memCourses.values()].some(c => c.builtinKey === b.key)) {
+                const id = memNextId++;
+                memCourses.set(id, { ...cloneCourse(b), id, name: b.name, desc: b.desc || null, owner: null, version: 1, builtinKey: b.key, createdAt: new Date().toISOString() });
+            }
+        }
+        return;
+    }
+    for (const b of BUILTINS) {
+        const seen = await client.execute({ sql: "SELECT id FROM courses WHERE builtinKey = ?", args: [b.key] });
+        if (seen.rows.length) continue;
+        const c = cloneCourse(b);
+        await client.execute({
+            sql: "INSERT INTO courses (name, desc, owner, marks, startLine, finishLine, version, builtinKey, createdAt) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+            args: [c.name, c.desc || null, null, JSON.stringify(c.marks),
+                c.startLine ? JSON.stringify(c.startLine) : null,
+                c.finishLine ? JSON.stringify(c.finishLine) : null,
+                b.key, new Date().toISOString()],
+        });
+    }
+}
+
 module.exports = {
-    getPresetTemplates,
-    getPresetTemplate,
+    getBuiltinShapes,
+    getBuiltinShape,
     validateMarks,
     validateLines,
-    createTemplate,
-    listTemplates,
-    getTemplate,
-    updateTemplate,
-    deleteTemplate,
+    createCourse,
+    listCourses,
+    getCourse,
+    updateCourse,
+    deleteCourse,
+    seedBuiltinCourses,
 };

@@ -1,7 +1,7 @@
 meta {
-  name: Create session (encapsulate template on day)
+  name: Create session (course + boats in one call)
   type: http
-  seq: 21
+  seq: 20
 }
 
 post {
@@ -16,13 +16,24 @@ headers {
 
 body:json {
   {
-    "templateId": 1,
-    "name": "Saturday practice",
-    "date": "2026-10-10",
+    "courseId": 34,
+    "name": "Saturday stick — 2026-10-09",
+    "date": "2026-10-09",
     "mode": "practice",
     "originLat": 39.92,
     "originLon": 9.65,
-    "windDir": 315,
-    "scale": 1
+    "windDir": 265,
+    "startTime": "2026-10-09T13:00:00.000Z",
+    "boats": [
+      { "deviceId": "08:D1:F9:C8:4D:24" }
+    ]
   }
+}
+
+docs {
+  courseId  = lineage into the courses table (snapshot + marks are frozen onto
+              the session either way)
+  boats[]   = optional; the server applies the same 409 conflict guard as
+              POST /sessions/:id/boats and auto-starts a mock boat's sim
+  409       = this boat is already in another scheduled/live session
 }

@@ -1,0 +1,17 @@
+meta {
+  name: List courses (built-ins first, then mine)
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/courses
+  body: none
+  auth: none
+}
+
+docs {
+  Every course is a row. The five built-in shapes come first (they carry a
+  builtinKey and are read-only — PUT/DELETE return 403), then your own,
+  alphabetically. Verify the order before using an id.
+}

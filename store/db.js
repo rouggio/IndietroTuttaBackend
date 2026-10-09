@@ -105,33 +105,42 @@ async function initDb() {
             }
         }
 
-        // Race program: template library (shape only) + day sessions.
-        // Template marks are wind-frame offsets in meters (see store/templateStore.js).
-        // One-time rename from the old "courses" name; tolerant to fresh DBs.
+        // Race program: course library (shape only) + day sessions.
+        // Course marks are wind-frame offsets in meters (see store/courseStore.js).
+        // 2026-10-09: the concept is called "course" everywhere. This table has
+        // been renamed twice (courses -> templates -> courses); both migrations
+        // are kept so any historical DB lands on the current name. Tolerant to
+        // fresh DBs (both fail with "no such table" and are ignored).
         try {
-            await c.execute(`ALTER TABLE courses RENAME TO templates`);
+            await c.execute(`ALTER TABLE templates RENAME TO courses`);
         } catch (e) {
             if (!/no such table/i.test(e.message || "")) throw e;
         }
         await c.execute(`
-            CREATE TABLE IF NOT EXISTS templates (
+            CREATE TABLE IF NOT EXISTS courses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 owner TEXT,
                 marks TEXT NOT NULL,
                 version INTEGER NOT NULL DEFAULT 1,
-                is_template INTEGER NOT NULL DEFAULT 1,
                 createdAt TEXT NOT NULL
             )
         `);
-        // A session encapsulates a template frozen onto a day: snapshot copy +
-        // instantiation params + resolved absolute marks. templateId is nullable
+        // Built-in shapes seeded into the same table (builtinKey set). They are
+        // read-only: the UI can only copy them. NULL for user courses.
+        try {
+            await c.execute(`ALTER TABLE courses ADD COLUMN builtinKey TEXT`);
+        } catch (e) {
+            if (!/duplicate column/i.test(e.message || "")) throw e;
+        }
+        // A session encapsulates a course frozen onto a day: snapshot copy +
+        // instantiation params + resolved absolute marks. courseId is nullable
         // provenance ("cloned from", may dangle) — never read through.
         await c.execute(`
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                templateId INTEGER,
-                templateVersion INTEGER,
+                courseId INTEGER,
+                courseShapeVersion INTEGER,
                 name TEXT,
                 date TEXT NOT NULL,
                 mode TEXT NOT NULL DEFAULT 'practice',
@@ -143,18 +152,28 @@ async function initDb() {
                 startTime TEXT,
                 status TEXT NOT NULL DEFAULT 'scheduled',
                 courseVersion INTEGER NOT NULL DEFAULT 1,
-                templateSnapshot TEXT NOT NULL,
+                courseSnapshot TEXT NOT NULL,
                 marks TEXT NOT NULL,
                 createdAt TEXT NOT NULL
             )
         `);
         // Migrate pre-rename schemas (best-effort, ignore when absent).
-        try {
-            await c.execute(`ALTER TABLE sessions RENAME COLUMN courseId TO templateId`);
-        } catch (e) {
-            if (!/no such column/i.test(e.message || "")) throw e;
+        // courseId/courseShapeVersion/courseSnapshot were templateId/
+        // templateVersion/templateSnapshot before 2026-10-09. NOTE: sessions'
+        // own courseVersion (geometry revision, pushed to devices) is a
+        // DIFFERENT counter and is never renamed.
+        for (const [from, to] of [
+            ["templateId", "courseId"],
+            ["templateVersion", "courseShapeVersion"],
+            ["templateSnapshot", "courseSnapshot"],
+        ]) {
+            try {
+                await c.execute(`ALTER TABLE sessions RENAME COLUMN ${from} TO ${to}`);
+            } catch (e) {
+                if (!/no such column/i.test(e.message || "")) throw e;
+            }
         }
-        for (const col of ["templateVersion"]) {
+        for (const col of ["courseShapeVersion"]) {
             try {
                 await c.execute(`ALTER TABLE sessions ADD COLUMN ${col} INTEGER`);
             } catch (e) {
@@ -175,9 +194,9 @@ async function initDb() {
             )
         `);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(date)`);
-        // Step 2+: optional start/finish line segments (wind-frame on templates,
+        // Step 2+: optional start/finish line segments (wind-frame on courses,
         // resolved absolute on sessions). finishLine may be {"sameAs":"start"}.
-        for (const table of ["templates", "sessions"]) {
+        for (const table of ["courses", "sessions"]) {
             for (const col of ["startLine", "finishLine"]) {
                 try {
                     await c.execute(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`);
@@ -186,9 +205,9 @@ async function initDb() {
                 }
             }
         }
-        // Template description (editable in builder, shown in template list).
+        // Course description (editable in builder, shown in course list).
         try {
-            await c.execute(`ALTER TABLE templates ADD COLUMN desc TEXT`);
+            await c.execute(`ALTER TABLE courses ADD COLUMN desc TEXT`);
         } catch (e) {
             if (!/duplicate column/i.test(e.message || "")) throw e;
         }
@@ -221,6 +240,15 @@ async function initDb() {
             )
         `);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_signals_session ON signals(sessionId)`);
+
+        // Built-in course shapes live in the `courses` table (builtinKey set),
+        // read-only — the UI can only copy them. Seeded once, idempotently.
+        try {
+            const { seedBuiltinCourses } = require("./courseStore");
+            await seedBuiltinCourses();
+        } catch (e) {
+            console.warn("[DB] builtin course seed skipped:", e.message || e);
+        }
 
         console.log("[DB] Turso tables ready");
 

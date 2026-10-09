@@ -569,6 +569,34 @@ const UI_KEY = "indietrotutta:ui";
 let windProvider = "auto";   // auto | wu | wc | om (see GET /wind)
 let windRefreshMin = 10;     // minutes between auto refreshes; 0 = off
 function syncSelected() { selectedDeviceId = selectedDeviceIds.size ? [...selectedDeviceIds][0] : null; }
+
+// 2026-09-10: the Courses pane used to be #template-panel and the builder
+// draft carried templateId. Move those saved keys across so an existing
+// browser keeps its pane positions, visibility and open builder draft.
+const BUILDER_DRAFT_KEY = "indietrotutta:builder";
+function migratePrefs(d) {
+    if (!d || typeof d !== "object") return d;
+    if (d.panels && "template-panel" in d.panels) {
+        if (!("course-panel" in d.panels)) d.panels["course-panel"] = d.panels["template-panel"];
+        delete d.panels["template-panel"];
+    }
+    if (d.panelPos && "template-panel" in d.panelPos) {
+        if (!("course-panel" in d.panelPos)) d.panelPos["course-panel"] = d.panelPos["template-panel"];
+        delete d.panelPos["template-panel"];
+    }
+    try {
+        const raw = localStorage.getItem(BUILDER_DRAFT_KEY);
+        if (raw) {
+            const draft = JSON.parse(raw);
+            if (draft && "templateId" in draft) {
+                if (!("courseId" in draft)) draft.courseId = draft.templateId;
+                delete draft.templateId;
+                localStorage.setItem(BUILDER_DRAFT_KEY, JSON.stringify(draft));
+            }
+        }
+    } catch {}
+    return d;
+}
 function saveUI() {
     try {
         const data = {
@@ -587,13 +615,13 @@ function saveUI() {
                 "device-panel": document.getElementById("device-panel")?.style.display,
                 "wind-panel": document.getElementById("wind-panel")?.style.display,
                 "playback": document.getElementById("playback")?.style.display,
-                "template-panel": document.getElementById("template-panel")?.style.display,
+                "course-panel": document.getElementById("course-panel")?.style.display,
                 "session-panel": document.getElementById("session-panel")?.style.display,
                 "session-create-panel": document.getElementById("session-create-panel")?.style.display,
                 "settings-panel": document.getElementById("settings-panel")?.style.display,
                 "session-detail-panel": document.getElementById("session-detail-panel")?.style.display,
             },
-            panelPos: ["device-panel", "wind-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "builder-panel"].reduce((acc, id) => {
+            panelPos: ["device-panel", "wind-panel", "course-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "builder-panel"].reduce((acc, id) => {
                 const el = document.getElementById(id);
                 if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
                 return acc;
@@ -608,7 +636,7 @@ function loadUI() {
     try {
         const raw = localStorage.getItem(UI_KEY);
         if (!raw) return;
-        const d = JSON.parse(raw);
+        const d = migratePrefs(JSON.parse(raw));
         if (Array.isArray(d.selectedDeviceIds)) { selectedDeviceIds = new Set(d.selectedDeviceIds); syncSelected(); }
         else if (d.selectedDeviceId) { selectedDeviceIds = new Set([d.selectedDeviceId]); syncSelected(); }
         if (typeof d.isLive === "boolean") isLive = d.isLive;
@@ -1740,19 +1768,19 @@ function offsetsFromLatLon(lat, lon, o) {
     return { x: (E * Math.cos(t) - N * Math.sin(t)) / scale, y: (E * Math.sin(t) + N * Math.cos(t)) / scale };
 }
 
-// (flat top bar: Boats · Timeline · Sessions · Templates · New session —
+// (flat top bar: Boats · Timeline · Sessions · Courses · New session —
 // the old Races ▾ parent menu is gone; each button syncs itself)
-const templatesBtn = document.getElementById("templatesToggleBtn");
-const templatePanel = document.getElementById("template-panel");
-if (templatesBtn && templatePanel) {
-    const syncTemplatesBtn = () => {
-        const open = templatePanel.style.display !== "none" && templatePanel.style.display !== "";
-        templatesBtn.classList.toggle("active", open);
+const coursesBtn = document.getElementById("coursesToggleBtn");
+const coursePanel = document.getElementById("course-panel");
+if (coursesBtn && coursePanel) {
+    const syncCoursesBtn = () => {
+        const open = coursePanel.style.display !== "none" && coursePanel.style.display !== "";
+        coursesBtn.classList.toggle("active", open);
     };
-    templatesBtn.addEventListener("click", () => { toggleEl("template-panel"); avoidPanelOverlap(templatePanel); syncTemplatesBtn(); saveUI(); loadCourseTemplates(); if (!panelVisible(templatePanel)) closeBuilder(); });
-    new MutationObserver(syncTemplatesBtn).observe(templatePanel, { attributes: true, attributeFilter: ["style"] });
-    syncTemplatesBtn();
-    document.getElementById("templateClose")?.addEventListener("click", () => { toggleEl("template-panel", false); syncTemplatesBtn(); saveUI(); closeBuilder(); });
+    coursesBtn.addEventListener("click", () => { toggleEl("course-panel"); avoidPanelOverlap(coursePanel); syncCoursesBtn(); saveUI(); loadCourses(); if (!panelVisible(coursePanel)) closeBuilder(); });
+    new MutationObserver(syncCoursesBtn).observe(coursePanel, { attributes: true, attributeFilter: ["style"] });
+    syncCoursesBtn();
+    document.getElementById("courseClose")?.addEventListener("click", () => { toggleEl("course-panel", false); syncCoursesBtn(); saveUI(); closeBuilder(); });
 }
 const sessionsBtn = document.getElementById("sessionsToggleBtn");
 const sessionPanel = document.getElementById("session-panel");
@@ -1794,8 +1822,8 @@ if (sessionsTopBtn && sessionPanel) {
 // New-session pane (creation form split out of the list panel).
 const sessionCreatePanel = document.getElementById("session-create-panel");
 function openSessionCreate() {
-    // The Course pane stays open — it holds the template library you pick the
-    // day's template from. Only the builder stands down: its live map layers
+    // The Course pane stays open — it holds the course library you pick the
+    // day's course from. Only the builder stands down: its live map layers
     // would fight the session draft preview.
     if (typeof closeBuilder === "function") closeBuilder();
     if (sessionCreatePanel && !panelVisible(sessionCreatePanel)) toggleEl("session-create-panel");
@@ -1814,70 +1842,77 @@ if (sessionCreatePanel) {
     document.getElementById("sessionCreateClose")?.addEventListener("click", closeSessionCreate);
 }
 
-let courseTemplatesCache = null;
-async function loadCourseTemplates() {
-    const el = document.getElementById("tab-templates");
+let coursesCache = null;
+// One list from GET /courses: the five built-ins first (builtinKey set,
+// copy-only), then the user's own. The server already sorts that way.
+function courseSummary(c) {
+    const gates = new Set((c.marks || []).filter(m => m.type === "gate" && m.gate).map(m => m.gate)).size;
+    const lineLen = c.startLine ? Math.round(Math.hypot(c.startLine.bx - c.startLine.ax, c.startLine.by - c.startLine.ay)) + "m line" : "no lines";
+    return `${c.marks.length} marks · ${lineLen}${gates ? ` · ${gates} gate${gates > 1 ? "s" : ""}` : ""}`;
+}
+async function loadCourses() {
+    const el = document.getElementById("tab-courses");
     try {
-        if (!courseTemplatesCache) {
-            const res = await fetch("/templates/presets");
-            courseTemplatesCache = await res.json();
-        }
-        const myRes = await fetch("/templates");
-        const myTpls = await myRes.json();
-        el.innerHTML = `<div class="device-meta" style="margin-bottom:6px">Wind-frame presets — placed + rotated on the day.</div>
-        <div class="template-grid">` + courseTemplatesCache.map(t => `
-            <div class="template-card" data-tpl="${escHtml(t.key)}">
-                <b>${escHtml(t.name)}</b>
-                <span class="device-meta">${escHtml(t.desc)} · ${t.marks.length} marks</span>
+        const res = await fetch("/courses");
+        coursesCache = await res.json();
+        const builtins = coursesCache.filter(c => c.builtinKey);
+        const mine = coursesCache.filter(c => !c.builtinKey);
+        el.innerHTML = `<div class="device-meta" style="margin-bottom:6px">Placed + rotated on the day.</div>
+        <div class="device-meta" style="margin:0 0 4px 0"><b>Built-in courses</b></div>
+        <div class="course-grid">` + builtins.map(c => `
+            <div class="course-card" data-copy-course="${c.id}" title="Built-in: click to save a copy">
+                <b>${escHtml(c.name)}</b>
+                <span class="device-meta">${c.desc ? escHtml(c.desc) : escHtml(courseSummary(c))}</span>
             </div>`).join("") + `
-            <div class="template-card" data-blank-tpl>
+            <div class="course-card" data-blank-course>
                 <b>Blank</b>
                 <span class="device-meta">Start from scratch</span>
-            </div></div>` + (myTpls.length ? `
-            <div class="device-meta" style="margin:8px 0 4px 0"><b>My templates</b></div>
-            <div class="template-grid">` + myTpls.map(c => {
-                const gates = new Set((c.marks || []).filter(m => m.type === "gate" && m.gate).map(m => m.gate)).size;
-                const lineLen = c.startLine ? Math.round(Math.hypot(c.startLine.bx - c.startLine.ax, c.startLine.by - c.startLine.ay)) + "m line" : "no lines";
-                return `
-            <div class="template-card" data-course-tpl="${c.id}">
+            </div></div>` + (mine.length ? `
+            <div class="device-meta" style="margin:8px 0 4px 0"><b>My courses</b></div>
+            <div class="course-grid">` + mine.map(c => `
+            <div class="course-card" data-open-course="${c.id}">
                 <b>${escHtml(c.name)}</b>
-                <span class="device-meta">${c.desc ? escHtml(c.desc) : `${c.marks.length} marks · ${lineLen}${gates ? ` · ${gates} gate${gates > 1 ? "s" : ""}` : ""}`} · v${c.version}</span>
-                <button data-del-tpl="${c.id}" title="Delete template" style="float:right;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;font-size:11px">×</button>
-            </div>`; }).join("") + `</div>` : "");
-        el.querySelectorAll("[data-tpl]").forEach(card => {
-            card.addEventListener("click", () => {
-                const t = courseTemplatesCache.find(x => x.key === card.getAttribute("data-tpl"));
-                if (t) openBuilder({ name: t.name + " (copy)", desc: t.desc, marks: t.marks.map(m => ({ ...m })), startLine: t.startLine ? { ...t.startLine } : null, finishLine: t.finishLine ? { ...t.finishLine } : null });
+                <span class="device-meta">${c.desc ? escHtml(c.desc) : escHtml(courseSummary(c))} · v${c.version}</span>
+                <button data-del-course="${c.id}" title="Delete course" style="float:right;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;font-size:11px">×</button>
+            </div>`).join("") + `</div>` : "");
+        // Built-ins are read-only server-side too (403 on PUT/DELETE): the only
+        // action here is "save a copy", which opens the builder with no id so
+        // saving POSTs a brand new course.
+        el.querySelectorAll("[data-copy-course]").forEach(card => {
+            card.addEventListener("click", async () => {
+                const c = coursesCache.find(x => String(x.id) === card.getAttribute("data-copy-course"));
+                if (c) openBuilder({ name: `${c.name} (copy)`, desc: c.desc, marks: c.marks.map(m => ({ ...m })), startLine: c.startLine ? { ...c.startLine } : null, finishLine: c.finishLine ? { ...c.finishLine } : null });
             });
         });
-        el.querySelectorAll("[data-blank-tpl]").forEach(card => {
+        el.querySelectorAll("[data-blank-course]").forEach(card => {
             card.addEventListener("click", () => openBuilder({ name: "", marks: [] }));
         });
-        el.querySelectorAll("[data-course-tpl]").forEach(card => {
+        el.querySelectorAll("[data-open-course]").forEach(card => {
             card.addEventListener("click", async e => {
-                if (e.target.closest("[data-del-tpl]")) return;
-                const res = await fetch(`/templates/${card.getAttribute("data-course-tpl")}`);
-                const c = await res.json();
-                if (c && c.marks) openBuilder({ templateId: c.id, name: c.name, desc: c.desc, marks: c.marks.map(m => ({ ...m })), startLine: c.startLine, finishLine: c.finishLine });
+                if (e.target.closest("[data-del-course]")) return;
+                const res2 = await fetch(`/courses/${card.getAttribute("data-open-course")}`);
+                const c = await res2.json();
+                if (c && c.marks) openBuilder({ courseId: c.id, name: c.name, desc: c.desc, marks: c.marks.map(m => ({ ...m })), startLine: c.startLine, finishLine: c.finishLine });
             });
         });
-        el.querySelectorAll("[data-del-tpl]").forEach(btn => {
+        el.querySelectorAll("[data-del-course]").forEach(btn => {
             btn.addEventListener("click", async e => {
                 e.stopPropagation();
-                if (!confirm("Delete this template? Sessions already frozen keep their copy.")) return;
-                await fetch(`/templates/${btn.getAttribute("data-del-tpl")}`, { method: "DELETE" });
-                loadCourseTemplates();
+                if (!confirm("Delete this course? Sessions already frozen keep their copy.")) return;
+                await fetch(`/courses/${btn.getAttribute("data-del-course")}`, { method: "DELETE" });
+                coursesCache = null;
+                loadCourses();
             });
         });
-        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("template-panel"));
+        if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("course-panel"));
     } catch (e) {
-        el.innerHTML = '<div class="boat-info-err">Failed to load templates.</div>';
+        el.innerHTML = '<div class="boat-info-err">Failed to load courses.</div>';
     }
 }
 
 // --- Builder state + preview layers ---
 const CB = {
-    open: false, templateId: null, name: "", desc: "", marks: [],
+    open: false, courseId: null, name: "", desc: "", marks: [],
     origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'move' | 'lineA' | 'lineB' | null
     startLine: null, finishLine: null, // wind-frame {ax,ay,bx,by}; finish may be "start"
     lineA: null, lineTarget: "start", // pending first endpoint (absolute) + which line
@@ -1932,7 +1967,7 @@ function segLenM(a, b) {
 }
 let coursePreview = null; // L.layerGroup for resolved preview
 let PV = null; // live refs into the preview (route/segments/dots), for in-drag updates
-const BUILDER_DRAFT_KEY = "indietrotutta:builder";
+// BUILDER_DRAFT_KEY is declared up with UI_KEY (used by the prefs migration).
 
 function builderInst() {
     return { originLat: CB.origin?.lat, originLon: CB.origin?.lon, windDir: CB.windDir, scale: CB.scale };
@@ -1944,12 +1979,12 @@ function builderResolved() {
 const MARK_COLORS = { start: "#16a34a", finish: "#dc2626", gate: "#984ea3", mark: "#f59e0b" };
 
 function openBuilder(init = {}) {
-    CB.templateId = init.templateId ?? null;
+    CB.courseId = init.courseId ?? null;
     CB.name = init.name || "";
     CB.desc = init.desc || "";
     CB.marks = (init.marks || []).map(m => ({ ...m }));
     CB.origin = init.origin || null;
-    CB.windDir = 0; // templates assume N wind — no wind UI in the editor
+    CB.windDir = 0; // courses assume N wind — no wind UI in the editor
     CB.scale = init.scale || 1;
     CB.placing = null;
     CB.startLine = init.startLine || null;
@@ -1958,7 +1993,7 @@ function openBuilder(init = {}) {
     CB.lineA = null;
     CB.open = true;
     pileTops = {};
-    // templates arrive without placement: default the origin to the map
+    // courses arrive without placement: default the origin to the map
     // center so the preview renders immediately (user refines it after)
     if (!CB.origin && CB.marks.length) {
         const c = map.getCenter();
@@ -1990,7 +2025,7 @@ document.getElementById("builderClose")?.addEventListener("click", closeBuilder)
 document.getElementById("builder-name")?.addEventListener("input", e => { CB.name = e.target.value; saveBuilderDraft(); });
 document.getElementById("builder-desc")?.addEventListener("input", e => { CB.desc = e.target.value; saveBuilderDraft(); });
 document.getElementById("builder-scale")?.addEventListener("change", e => {
-    // Scale is an editor operation, not template state: bake the factor
+    // Scale is an editor operation, not course state: bake the factor
     // into the model (marks + line endpoints) and reset to 1. Radii stay
     // absolute meters. Sessions keep their own placement-time scale.
     const f = Math.min(5, Math.max(0.1, Number(e.target.value) || 1));
@@ -2216,7 +2251,7 @@ function renderBuilderMarks() {
     }
     el.innerHTML = CB.marks.map((m, i) => {
         // Ends are lines now: only mark/gate are offered (legacy start/finish
-        // points still render for old templates, just can't be re-picked).
+        // points still render for old courses, just can't be re-picked).
         const typeOpts = ["mark", "gate"];
         if (!typeOpts.includes(m.type)) typeOpts.unshift(m.type);
         return `
@@ -2603,35 +2638,35 @@ function updateBuilderPreview() {
     // (wind lives in the bottom-left dial, not on the chart)
 }
 
-// --- Save template (shape library only; sessions are born in Sessions) ---
-// Save as template (the only shape library — sessions freeze from here).
-async function builderSaveTemplate() {
+// --- Save course (shape library only; sessions are born in Sessions) ---
+// Save as course (the only shape library — sessions freeze from here).
+async function builderSaveCourse() {
     const msg = document.getElementById("builder-msg");
-    const name = document.getElementById("builder-name").value.trim() || "Untitled template";
+    const name = document.getElementById("builder-name").value.trim() || "Untitled course";
     const desc = document.getElementById("builder-desc").value.trim() || null;
     // UI shorthand "start" → server form {sameAs:"start"}
     const finishOut = CB.finishLine === "start" ? { sameAs: "start" } : CB.finishLine;
     try {
         let res;
-        if (CB.templateId) {
-            res = await fetch(`/templates/${CB.templateId}`, {
+        if (CB.courseId) {
+            res = await fetch(`/courses/${CB.courseId}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name, desc, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut }),
             });
         } else {
-            res = await fetch("/templates", {
+            res = await fetch("/courses", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, desc, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut, is_template: true }),
+                body: JSON.stringify({ name, desc, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut }),
             });
         }
         const j = await res.json();
         if (!res.ok) { msg.textContent = j.error || "Save failed."; msg.className = "boat-info-err"; return null; }
-        CB.templateId = j.id;
+        CB.courseId = j.id;
         CB.name = j.name;
         CB.desc = j.desc || "";
         document.getElementById("builder-name").value = j.name;
         document.getElementById("builder-desc").value = CB.desc;
-        msg.textContent = "Course template saved.";
+        msg.textContent = "Course saved.";
         msg.className = "boat-info-ok";
         return j;
     } catch {
@@ -2641,13 +2676,13 @@ async function builderSaveTemplate() {
     }
 }
 document.getElementById("builderSave")?.addEventListener("click", async () => {
-    const j = await builderSaveTemplate();
-    if (j && panelVisible(document.getElementById("template-panel"))) loadCourseTemplates();
+    const j = await builderSaveCourse();
+    if (j && panelVisible(document.getElementById("course-panel"))) loadCourses();
 });
 function saveBuilderDraft() {
     try {
         localStorage.setItem(BUILDER_DRAFT_KEY, JSON.stringify({
-            templateId: CB.templateId, name: document.getElementById("builder-name")?.value || "",
+            courseId: CB.courseId, name: document.getElementById("builder-name")?.value || "",
             desc: document.getElementById("builder-desc")?.value || "",
             marks: CB.marks, origin: CB.origin, windDir: CB.windDir, scale: CB.scale,
             startLine: CB.startLine, finishLine: CB.finishLine,
@@ -2684,10 +2719,10 @@ if (sessionDetailPanel) {
 let sessionsCache = [];
 let selectedSessionId = null;
 
-// --- Session creation draft: template + placement previewed on the chart ---
-// Templates are N-wind shapes (+y = upwind = north at windDir 0), so the
+// --- Session creation draft: course + placement previewed on the chart ---
+// Courses are N-wind shapes (+y = upwind = north at windDir 0), so the
 // draft also assumes 0° until Suggest (or the hand) sets the day's wind.
-const SESSDRAFT = { template: null, sel: null, origin: null, windDir: 0, windSpeed: 0, scale: 1, placing: null };
+const SESSDRAFT = { course: null, sel: null, origin: null, windDir: 0, windSpeed: 0, scale: 1, placing: null };
 let sessPreview = null;
 let sessMove = null;
 let sessSuppressClick = false;
@@ -2790,9 +2825,9 @@ function sessDraftInst() {
 }
 function renderSessPreview() {
     clearSessPreview();
-    // a template fetch may resolve after the panel was closed — stay buried
+    // a course fetch may resolve after the panel was closed — stay buried
     if (!panelVisible(document.getElementById("session-create-panel"))) return;
-    const t = SESSDRAFT.template;
+    const t = SESSDRAFT.course;
     if (!t || !SESSDRAFT.origin) return;
     const o = sessDraftInst();
     sessPreview = L.layerGroup().addTo(map);
@@ -2846,27 +2881,15 @@ function renderSessPreview() {
             { color: "#984ea3", weight: 2, dashArray: "6 4" }).addTo(sessPreview);
     });
 }
-async function pickSessTemplate(value) {
+async function pickSessCourse(value) {
     try {
         let c = null;
-        if (String(value).startsWith("t:")) {
-            if (!courseTemplatesCache) {
-                const res = await fetch("/templates/presets");
-                courseTemplatesCache = await res.json();
-            }
-            const t = (courseTemplatesCache || []).find(x => x.key === String(value).slice(2));
-            if (t) c = {
-                ...t,
-                marks: t.marks.map(m => ({ ...m })),
-                startLine: t.startLine ? { ...t.startLine } : null,
-                finishLine: t.finishLine && typeof t.finishLine === "object" ? { ...t.finishLine } : (t.finishLine ?? null),
-            };
-        } else {
-            const res = await fetch(`/templates/${String(value).replace(/^c:/, "")}`);
-            c = await res.json();
-            if (!c || !c.marks) return;
-        }
-        SESSDRAFT.template = c;
+        // Every course — built-in or user — is a row with an id now, so one
+        // fetch by id covers both (GET /courses returns all of them).
+        const res = await fetch(`/courses/${String(value).replace(/^c:/, "")}`);
+        c = await res.json();
+        if (!c || !c.marks) return;
+        SESSDRAFT.course = c;
         SESSDRAFT.sel = String(value);
         if (!SESSDRAFT.origin) {
             const m = map.getCenter();
@@ -2889,15 +2912,15 @@ async function renderSessionCreate() {
     const el = document.getElementById("tab-session-create");
     if (!el) return;
     try {
-        const [courseRes, tplRes] = await Promise.all([fetch("/templates"), fetch("/templates/presets")]);
+        const courseRes = await fetch("/courses");
         const courses = await courseRes.json();
-        courseTemplatesCache = courseTemplatesCache || await tplRes.json();
+        coursesCache = courses;
         if (!lastDevices.length) await refreshDevices();
         const boatChecks = lastDevices.map(d => `<label style="display:inline-block;margin-right:8px;font-weight:normal;font-size:12px">
             <input type="checkbox" data-sb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
         el.innerHTML = `
-            <div class="device-meta" style="margin-bottom:6px">Pick a template, place it on the chart, set the wind</div>
-            <div class="builder-row"><select id="sess-template">${courseTemplatesCache.map(t => `<option value="t:${escHtml(t.key)}">${escHtml(t.name)}</option>`).join("")}${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)}</option>`).join("")}</select></div>
+            <div class="device-meta" style="margin-bottom:6px">Pick a course, place it on the chart, set the wind</div>
+            <div class="builder-row"><select id="sess-course">${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)}${c.builtinKey ? " (built-in)" : ""}</option>`).join("")}</select></div>
             <div class="builder-row">
                 <span id="sess-origin" class="device-meta" style="flex:2">Origin: —</span>
                 <button id="sess-move" title="Drag the course on the map">Move</button>
@@ -2916,11 +2939,11 @@ async function renderSessionCreate() {
             <div style="margin:4px 0">${boatChecks || '<span class="device-meta">No boats known yet.</span>'}</div>
             <div class="builder-row"><button id="sess-create" class="primary">Create session</button></div>
             <div id="sess-create-err" class="boat-info-err"></div>`;
-        document.getElementById("sess-template").addEventListener("change", e => pickSessTemplate(e.target.value));
-        const sessSel = document.getElementById("sess-template");
+        document.getElementById("sess-course").addEventListener("change", e => pickSessCourse(e.target.value));
+        const sessSel = document.getElementById("sess-course");
         const hasSel = opt => [...sessSel.options].some(o => o.value === opt);
         if (SESSDRAFT.sel && hasSel(SESSDRAFT.sel)) sessSel.value = SESSDRAFT.sel;
-        pickSessTemplate(sessSel.value);
+        pickSessCourse(sessSel.value);
         document.getElementById("sess-wind").addEventListener("change", e => {
             SESSDRAFT.windDir = Math.min(359, Math.max(0, Math.round(Number(e.target.value) || 0)));
             e.target.value = SESSDRAFT.windDir;
@@ -2965,26 +2988,22 @@ async function renderSessionCreate() {
             const mode = document.getElementById("sess-mode").value;
             const startVal = document.getElementById("sess-start").value;
             const startISO = startVal ? new Date(`${date}T${startVal}`).toISOString() : null;
-            const t0 = SESSDRAFT.template;
-            if (!t0) { errEl.textContent = "Pick a template first."; return; }
+            const t0 = SESSDRAFT.course;
+            if (!t0) { errEl.textContent = "Pick a course first."; return; }
             if (!SESSDRAFT.origin) { errEl.textContent = "Place the origin first (Center here)."; return; }
             if (!date) { errEl.textContent = "Pick a session date."; return; }
-            // sessions encapsulate: DB template rows pass lineage, anything else
-            // freezes as an inline snapshot (no phantom template rows created)
-            const shapeBody = t0.id
-                ? { templateId: t0.id }
-                : {
-                    snapshot: {
-                        name: t0.name, marks: t0.marks,
-                        startLine: t0.startLine || null,
-                        finishLine: t0.finishLine === undefined ? null : t0.finishLine,
-                    },
-                };
+            // Sessions encapsulate: every course is a DB row now (built-ins included),
+            // so lineage always passes courseId.
+            const shapeBody = { courseId: t0.id };
+            // One round trip: the checked boats ride along with the create
+            // call (server applies the same 409 guard and mock auto-sim).
+            const ids = [...document.querySelectorAll("#tab-session-create input[data-sb]:checked")].map(x => x.getAttribute("data-sb"));
             try {
                 const res = await fetch("/sessions", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         ...shapeBody,
+                        boats: ids.map((deviceId) => ({ deviceId })),
                         name: `${t0.name} — ${date}`, date, mode,
                         originLat: SESSDRAFT.origin.lat, originLon: SESSDRAFT.origin.lon,
                         windDir: SESSDRAFT.windDir, windSpeed: SESSDRAFT.windSpeed, scale: SESSDRAFT.scale,
@@ -2993,13 +3012,6 @@ async function renderSessionCreate() {
                 });
                 const j = await res.json();
                 if (!res.ok) { errEl.textContent = j.error || "Create failed."; return; }
-                const ids = [...document.querySelectorAll("#tab-session-create input[data-sb]:checked")].map(x => x.getAttribute("data-sb"));
-                for (const id of ids) {
-                    await fetch(`/sessions/${j.id}/boats`, {
-                        method: "POST", headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ deviceId: id }),
-                    });
-                }
                 if (sessionCreatePanel) sessionCreatePanel.style.display = "none";
                 disarmSessMove();
                 clearSessPreview();
@@ -3009,7 +3021,7 @@ async function renderSessionCreate() {
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-create-panel"));
 avoidPanelOverlap(document.getElementById("settings-panel"));
     } catch (e) {
-        el.innerHTML = '<div class="boat-info-err">Failed to load templates.</div>';
+        el.innerHTML = '<div class="boat-info-err">Failed to load courses.</div>';
     }
 }
 async function loadSessions(selectId) {
@@ -3451,7 +3463,7 @@ function rectsOverlap(a, b) {
 // Panels the user dragged themselves are never auto-moved.
 function avoidPanelOverlap(el) {
     if (!panelVisible(el) || el.dataset.moved) return;
-    const others = ["device-panel", "wind-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "builder-panel"]
+    const others = ["device-panel", "wind-panel", "course-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "builder-panel"]
         .map(id => document.getElementById(id))
         .filter(o => o && o !== el && panelVisible(o));
     let moved = false;
@@ -3472,21 +3484,21 @@ function avoidPanelOverlap(el) {
 }
 makeFloatingDraggable(document.getElementById("device-panel"));
 makeFloatingDraggable(document.getElementById("wind-panel"));
-makeFloatingDraggable(document.getElementById("template-panel"));
+makeFloatingDraggable(document.getElementById("course-panel"));
 makeFloatingDraggable(document.getElementById("session-panel"));
 makeFloatingDraggable(document.getElementById("session-create-panel"));
 makeFloatingDraggable(document.getElementById("session-detail-panel"));
 makeFloatingDraggable(document.getElementById("settings-panel"));
 makeFloatingDraggable(document.getElementById("builder-panel"));
 // fix any overlap restored from a previous session
-avoidPanelOverlap(document.getElementById("template-panel"));
+avoidPanelOverlap(document.getElementById("course-panel"));
 avoidPanelOverlap(document.getElementById("session-panel"));
 avoidPanelOverlap(document.getElementById("session-create-panel"));
 avoidPanelOverlap(document.getElementById("settings-panel"));
 avoidPanelOverlap(document.getElementById("session-detail-panel"));
 avoidPanelOverlap(document.getElementById("device-panel"));
 // populate panels restored visible (their content loads on toggle otherwise)
-if (panelVisible(document.getElementById("template-panel"))) loadCourseTemplates();
+if (panelVisible(document.getElementById("course-panel"))) loadCourses();
 if (panelVisible(document.getElementById("session-panel"))) loadSessions();
 if (panelVisible(document.getElementById("wind-panel"))) refreshWind();
 if (panelVisible(document.getElementById("session-create-panel"))) renderSessionCreate();

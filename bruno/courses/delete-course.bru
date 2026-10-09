@@ -1,11 +1,11 @@
 meta {
-  name: Get course
+  name: Delete course
   type: http
-  seq: 13
+  seq: 15
 }
 
-get {
-  url: {{baseUrl}}/templates/:id
+delete {
+  url: {{baseUrl}}/courses/:id
   body: none
   auth: none
 }

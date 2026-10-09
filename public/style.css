@@ -129,7 +129,7 @@ html, body {
 #topbar-menu #boatsToggleBtn.active,
 #topbar-menu #windToggleBtn.active,
 #topbar-menu #timelineToggleBtn.active,
-#topbar-menu #templatesToggleBtn.active,
+#topbar-menu #coursesToggleBtn.active,
 #topbar-menu #sessionsToggleBtn.active,
 #topbar-menu #sessionsTopBtn.active,
 #topbar-menu #settingsToggleBtn.active {
@@ -295,7 +295,7 @@ html, body {
 /* Shared pane header: light gray bar, flush with the panel's rounded top,
    with one large × on the right (same size on every pane). */
 #device-panel h4,
-#template-panel h4,
+#course-panel h4,
 #wind-panel h4,
 #session-panel h4,
 #session-create-panel h4,
@@ -701,8 +701,8 @@ html, body {
     filter: brightness(0.8);
 }
 
-/* Templates & sessions panels */
-#template-panel,
+/* Courses & sessions panels */
+#course-panel,
 #wind-panel,
 #session-panel,
 #session-create-panel,
@@ -723,13 +723,13 @@ html, body {
 
 /* header style lives in the shared rule near #device-panel h4 */
 
-.template-grid {
+.course-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 6px;
 }
 
-.template-card {
+.course-card {
     border: 1px solid #e5e7eb;
     border-radius: 6px;
     padding: 6px;
@@ -738,11 +738,11 @@ html, body {
     background: #f8fafc;
 }
 
-.template-card:hover {
+.course-card:hover {
     border-color: #2563eb;
 }
 
-.template-card b {
+.course-card b {
     display: block;
     font-size: 12px;
 }

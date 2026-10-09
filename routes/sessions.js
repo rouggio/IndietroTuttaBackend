@@ -35,6 +35,21 @@ function sendErr(res, e) {
     return res.status(e.status || 500).json({ error: e.message || "internal error" });
 }
 
+// A mock boat auto-starts its scripted sim (same as the Simulate button)
+// so it begins sailing without a manual step. Used both by
+// POST /sessions/:id/boats and by boats[] riding along a create call.
+// Non-fatal: a failure here never blocks the boat being added.
+async function autoSimMockBoats(session, deviceIds) {
+    for (const raw of deviceIds || []) {
+        const deviceId = typeof raw === "string" ? raw.trim() : "";
+        if (!deviceId) continue;
+        try {
+            const dev = await getDevice(deviceId);
+            if (dev && dev.mock) await createRun({ sessionId: session.id, deviceId });
+        } catch (e) { /* non-fatal */ }
+    }
+}
+
 // --------------------------------------------------
 // GET /sessions[?date=YYYY-MM-DD]
 // --------------------------------------------------
@@ -50,15 +65,20 @@ router.get("/sessions", async (req, res) => {
 });
 
 // --------------------------------------------------
-// POST /sessions — encapsulate a template (or ad-hoc shape) onto a day.
-// {templateId?, snapshot:{name?,marks,startLine?,finishLine}?, date, mode?,
-//  originLat, originLon, windDir, scale?, startTime?, name?}
-// → frozen snapshot + resolved absolute marks.
+// POST /sessions — encapsulate a course (or ad-hoc shape) onto a day.
+// {courseId?, snapshot:{name?,marks,startLine?,finishLine}?, boats?:
+//   [{deviceId, startOffsetSec?}], date, mode?, originLat, originLon, windDir,
+//   scale?, startTime?, name?}
+// → frozen snapshot + resolved absolute marks (+ boats, one round trip).
 // --------------------------------------------------
 
 router.post("/sessions", async (req, res) => {
     try {
-        res.status(201).json(await createSession(req.body || {}));
+        const s = await createSession(req.body || {});
+        if (Array.isArray((req.body || {}).boats)) {
+            await autoSimMockBoats(s, req.body.boats.map((b) => (typeof b === "string" ? b : b && b.deviceId)));
+        }
+        res.status(201).json(s);
     } catch (e) {
         sendErr(res, e);
     }
@@ -133,15 +153,8 @@ router.post("/sessions/:id/boats", async (req, res) => {
         const { deviceId, startOffsetSec } = req.body || {};
         const s = await addBoat(req.params.id, deviceId, startOffsetSec);
         if (!s) return res.status(404).json({ error: "session not found" });
-        // A mock boat auto-starts its scripted sim (same as the Simulate
-        // button) so it begins sailing without a manual step.
-        if (typeof deviceId === "string" && deviceId.trim()) {
-            try {
-                const dev = await getDevice(deviceId.trim());
-                if (dev && dev.mock) await createRun({ sessionId: s.id, deviceId: deviceId.trim() });
-            } catch (e) { /* non-fatal: the boat is still added */ }
-        }
-        res.status(201).json(s);
+await autoSimMockBoats(s, typeof deviceId === "string" ? [deviceId] : []);
+    res.status(201).json(s);
     } catch (e) {
         sendErr(res, e);
     }

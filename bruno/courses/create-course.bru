@@ -1,0 +1,35 @@
+meta {
+  name: Create course
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/courses
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Saturday stick",
+    "desc": "Short legs, windy",
+    "marks": [
+      { "x": 0, "y": 500, "r": 30, "side": "P", "type": "mark" },
+      { "x": 0, "y": 0, "r": 30, "side": "P", "type": "mark" },
+      { "x": 0, "y": 500, "r": 30, "side": "P", "type": "mark" }
+    ],
+    "startLine": { "ax": -40, "ay": 0, "bx": 40, "by": 0 },
+    "finishLine": { "sameAs": "start" }
+  }
+}
+
+docs {
+  Marks are wind-frame metres (+y = upwind); the line sits at y=0 (leeward
+  edge) and the course runs upwind from it. Copy a built-in instead by
+  GET /courses, taking its marks/lines into a new POST like this.
+}

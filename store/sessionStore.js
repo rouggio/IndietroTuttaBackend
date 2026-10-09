@@ -1,10 +1,10 @@
 const { getClient, initDb } = require("./db");
-const { getTemplate, validateMarks, validateLines } = require("./templateStore");
+const { getCourse, validateMarks, validateLines } = require("./courseStore");
 const { uploaders } = require("./runStore");
 const { terminalBoats } = require("./signalStore");
 
 // ------------------------------------------------------------------
-// Sessions freeze a course onto a day: frozen template copy +
+// Sessions freeze a course onto a day: frozen course copy +
 // {originLat, originLon, windDir, scale} + resolved absolute marks.
 // windDir = meteorological degrees (where wind comes FROM).
 // Resolve: rotate wind-frame (x=east+, y=upwind+) by windDir, then
@@ -60,7 +60,7 @@ function resolveLines(lines, inst) {
 
 // Inverse of resolveSegment: resolved absolute → wind-frame offsets.
 // Exact (resolve rounds nothing), used to re-resolve lines after a
-// placement change without refetching the template.
+// placement change without refetching the course.
 function windFrameSegment(res, inst) {
     const t = (inst.windDir * Math.PI) / 180;
     const cosLat = Math.cos((inst.originLat * Math.PI) / 180);
@@ -114,8 +114,8 @@ function validateSessionInput(b) {
 function rowToSession(r, boats = []) {
     return {
         id: r.id,
-        templateId: r.templateId !== undefined && r.templateId !== null ? r.templateId : null,
-        templateVersion: r.templateVersion !== undefined && r.templateVersion !== null ? r.templateVersion : null,
+        courseId: r.courseId !== undefined && r.courseId !== null ? r.courseId : null,
+        courseShapeVersion: r.courseShapeVersion !== undefined && r.courseShapeVersion !== null ? r.courseShapeVersion : null,
         name: r.name || null,
         date: r.date,
         mode: r.mode,
@@ -127,7 +127,7 @@ function rowToSession(r, boats = []) {
         startTime: r.startTime || null,
         status: r.status,
         courseVersion: r.courseVersion,
-        templateSnapshot: JSON.parse(r.templateSnapshot),
+        courseSnapshot: JSON.parse(r.courseSnapshot),
         marks: JSON.parse(r.marks),
         startLine: r.startLine ? JSON.parse(r.startLine) : null,
         finishLine: r.finishLine ? JSON.parse(r.finishLine) : null,
@@ -160,17 +160,31 @@ async function createSession(b) {
         (b.windDir === undefined ? "windDir required" : null);
     if (err) throw Object.assign(new Error(err), { status: 400 });
 
-    // Shape source: a template row (lineage recorded) or an inline snapshot
-    // (fully self-contained — no template row needed).
-    let templateId = null, templateVersion = null, shapeName = "Session";
+    // Boats may ride along with the create call (one round trip). Each is
+    // validated by the same rules addBoat applies — including the 409 when
+    // the boat already belongs to another scheduled/live session.
+    let boats = [];
+    if (b.boats !== undefined && b.boats !== null) {
+        if (!Array.isArray(b.boats)) {
+            throw Object.assign(new Error("boats must be an array"), { status: 400 });
+        }
+        boats = b.boats.map((x) => (typeof x === "string" ? { deviceId: x } : (x || {})));
+        if (boats.some((x) => typeof x.deviceId !== "string" || !x.deviceId.trim())) {
+            throw Object.assign(new Error("each boat needs a deviceId"), { status: 400 });
+        }
+    }
+
+    // Shape source: a course row (lineage recorded) or an inline snapshot
+    // (fully self-contained — no course row needed).
+    let courseId = null, courseShapeVersion = null, shapeName = "Session";
     let shape = null;
-    if (b.templateId !== undefined && b.templateId !== null) {
-        const tpl = await getTemplate(Number(b.templateId));
-        if (!tpl) throw Object.assign(new Error("template not found"), { status: 404 });
-        templateId = tpl.id;
-        templateVersion = tpl.version;
-        shapeName = tpl.name;
-        shape = { marks: tpl.marks, startLine: tpl.startLine || null, finishLine: tpl.finishLine === undefined ? null : tpl.finishLine };
+    if (b.courseId !== undefined && b.courseId !== null) {
+        const course = await getCourse(Number(b.courseId));
+        if (!course) throw Object.assign(new Error("course not found"), { status: 404 });
+        courseId = course.id;
+        courseShapeVersion = course.version;
+        shapeName = course.name;
+        shape = { marks: course.marks, startLine: course.startLine || null, finishLine: course.finishLine === undefined ? null : course.finishLine };
     } else if (b.snapshot && typeof b.snapshot === "object") {
         const snapErr = validateMarks(b.snapshot.marks, b.snapshot.startLine, b.snapshot.finishLine) ||
             validateLines(b.snapshot.startLine, b.snapshot.finishLine);
@@ -184,7 +198,7 @@ async function createSession(b) {
             finishLine: b.snapshot.finishLine === undefined ? null : b.snapshot.finishLine,
         };
     } else {
-        throw Object.assign(new Error("templateId or snapshot required"), { status: 400 });
+        throw Object.assign(new Error("courseId or snapshot required"), { status: 400 });
     }
 
     const inst = {
@@ -199,8 +213,8 @@ async function createSession(b) {
     const lines = resolveLines(linesSnap, inst);
     const now = new Date().toISOString();
     const base = {
-        templateId,
-        templateVersion,
+        courseId,
+        courseShapeVersion,
         name: typeof b.name === "string" && b.name ? b.name.slice(0, 64) : shapeName,
         date: b.date,
         mode: b.mode || "practice",
@@ -209,7 +223,7 @@ async function createSession(b) {
         startTime: b.startTime ? new Date(b.startTime).toISOString() : null,
         status: "scheduled",
         courseVersion: 1,
-        templateSnapshot: snapshot,
+        courseSnapshot: snapshot,
         marks,
         startLine: lines.startLine,
         finishLine: lines.finishLine,
@@ -225,24 +239,34 @@ async function createSession(b) {
         return { ...s, boats: [] };
     }
     await initDb();
+
+    // Fail before writing the session when a boat is already busy: a 409 must
+    // not leave a stray session row behind.
+    for (const boat of boats) {
+        const conflicts = await activeSessionsForDevice(boat.deviceId.trim());
+        if (conflicts.length) throw boatBusyError(conflicts[0]);
+    }
     const res = await client.execute({
-        sql: `INSERT INTO sessions (templateId, templateVersion, name, date, mode, originLat, originLon, windDir, windSpeed, scale,
-              startTime, status, courseVersion, templateSnapshot, marks, startLine, finishLine, createdAt)
+        sql: `INSERT INTO sessions (courseId, courseShapeVersion, name, date, mode, originLat, originLon, windDir, windSpeed, scale,
+              startTime, status, courseVersion, courseSnapshot, marks, startLine, finishLine, createdAt)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-        args: [base.templateId, base.templateVersion, base.name, base.date, base.mode, base.originLat, base.originLon,
+        args: [base.courseId, base.courseShapeVersion, base.name, base.date, base.mode, base.originLat, base.originLon,
             base.windDir, base.windSpeed, base.scale, base.startTime, base.status,
-            JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks),
+            JSON.stringify(base.courseSnapshot), JSON.stringify(base.marks),
             base.startLine ? JSON.stringify(base.startLine) : null,
             base.finishLine ? JSON.stringify(base.finishLine) : null, now],
     });
     const id = Number(res.lastInsertRowid);
+    for (const boat of boats) {
+        await addBoat(id, boat.deviceId, boat.startOffsetSec || 0);
+    }
     return rowToSession({
         id, ...base,
-        templateSnapshot: JSON.stringify(base.templateSnapshot),
+        courseSnapshot: JSON.stringify(base.courseSnapshot),
         marks: JSON.stringify(base.marks),
         startLine: base.startLine ? JSON.stringify(base.startLine) : null,
         finishLine: base.finishLine ? JSON.stringify(base.finishLine) : null,
-    }, []);
+    }, await getBoats(id));
 }
 
 // Status is inferred on read, never set by the committee (except abandon):
@@ -331,7 +355,7 @@ async function updateSession(id, b) {
         scale: b.scale !== undefined ? b.scale : cur.scale,
     };
     const marks = geomChanged
-        ? resolveMarks(cur.templateSnapshot, next)
+        ? resolveMarks(cur.courseSnapshot, next)
         : cur.marks;
     // lines re-resolve from their wind-frame form: invert the current
     // resolved segments with the OLD placement, then resolve with the new.
@@ -484,8 +508,8 @@ async function repeatSession(id, { date, mode, name } = {}) {
     const cleanMode = mode && MODES.includes(mode) ? mode : cur.mode;
     const now = new Date().toISOString();
     const base = {
-        templateId: cur.templateId,
-        templateVersion: cur.templateVersion,
+        courseId: cur.courseId,
+        courseShapeVersion: cur.courseShapeVersion,
         name: (typeof name === "string" && name ? name : cur.name || "Session").slice(0, 64) + "",
         date,
         mode: cleanMode,
@@ -497,7 +521,7 @@ async function repeatSession(id, { date, mode, name } = {}) {
         startTime: null,
         status: "scheduled",
         courseVersion: 1,
-        templateSnapshot: cur.templateSnapshot,
+        courseSnapshot: cur.courseSnapshot,
         marks: cur.marks,
         startLine: cur.startLine,
         finishLine: cur.finishLine,
@@ -516,12 +540,12 @@ async function repeatSession(id, { date, mode, name } = {}) {
     }
     await initDb();
     const res = await client.execute({
-        sql: `INSERT INTO sessions (templateId, templateVersion, name, date, mode, originLat, originLon, windDir, windSpeed, scale,
-              startTime, status, courseVersion, templateSnapshot, marks, startLine, finishLine, createdAt)
+        sql: `INSERT INTO sessions (courseId, courseShapeVersion, name, date, mode, originLat, originLon, windDir, windSpeed, scale,
+              startTime, status, courseVersion, courseSnapshot, marks, startLine, finishLine, createdAt)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-        args: [base.templateId, base.templateVersion, base.name, base.date, base.mode, base.originLat, base.originLon,
+        args: [base.courseId, base.courseShapeVersion, base.name, base.date, base.mode, base.originLat, base.originLon,
             base.windDir, base.windSpeed, base.scale, base.startTime, base.status,
-            JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks),
+            JSON.stringify(base.courseSnapshot), JSON.stringify(base.marks),
             base.startLine ? JSON.stringify(base.startLine) : null,
             base.finishLine ? JSON.stringify(base.finishLine) : null, now],
     });
