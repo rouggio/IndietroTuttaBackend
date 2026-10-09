@@ -158,10 +158,29 @@ async function modelWind(lat, lon) {
 }
 
 // --- Public: chained lookup with cache --------------------------------
-async function getWind(lat, lon) {
-    const key = `${Number(lat).toFixed(2)},${Number(lon).toFixed(2)}`;
+// provider: "auto" (WU → WC → model) or a single forced source
+// ("wu" | "wc" | "om"). A forced source that has no data → null (route 502).
+const PROVIDERS = {
+    wu: { key: "wu", fetch: wuWind },
+    wc: { key: "wc", fetch: wcWind },
+    om: { key: "om", fetch: modelWind },
+};
+
+async function getWind(lat, lon, provider = "auto") {
+    const forced = typeof provider === "string" ? provider.toLowerCase() : "auto";
+    const key = `${Number(lat).toFixed(2)},${Number(lon).toFixed(2)}|${forced}`;
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return { ...hit.data, cached: true };
+
+    if (forced !== "auto") {
+        const p = PROVIDERS[forced];
+        if (!p) return null;
+        // Open-Meteo throws when it has nothing; treat that like "no data".
+        const data = await p.fetch(lat, lon).catch(() => null);
+        if (!data) return null;
+        cache.set(key, { at: Date.now(), data });
+        return data;
+    }
 
     const wu = await wuWind(lat, lon).catch(() => null);
     if (wu) {
@@ -178,4 +197,4 @@ async function getWind(lat, lon) {
     return model;
 }
 
-module.exports = { getWind };
+module.exports = { getWind, PROVIDERS };

@@ -23,6 +23,7 @@
             <button id="sessionsTopBtn" class="dropbtn">Sessions</button>
             <button id="templatesToggleBtn" class="dropbtn">Course</button>
             <button id="sessionsToggleBtn" class="dropbtn">New session</button>
+            <button id="settingsToggleBtn" class="dropbtn">Settings</button>
         </div>
         <div id="topbar-controls">
             <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
@@ -74,6 +75,31 @@
 <div id="session-create-panel" style="display:none">
     <h4>New session <span id="sessionCreateClose" class="pane-close">×</span></h4>
     <div id="tab-session-create" class="course-tab"></div>
+</div>
+
+<div id="settings-panel" style="display:none">
+    <h4>Settings <span id="settingsClose" class="pane-close">×</span></h4>
+    <div class="setting-row">
+        <label for="setWindProvider">Wind data provider</label>
+        <select id="setWindProvider">
+            <option value="auto">Auto (best available)</option>
+            <option value="wu">Weather Underground PWS</option>
+            <option value="wc">Weathercloud</option>
+            <option value="om">Open-Meteo (model)</option>
+        </select>
+    </div>
+    <div class="setting-row">
+        <label for="setWindRefresh">Wind refresh rate</label>
+        <select id="setWindRefresh">
+            <option value="5">Every 5 minutes</option>
+            <option value="10">Every 10 minutes</option>
+            <option value="20">Every 20 minutes</option>
+            <option value="30">Every 30 minutes</option>
+            <option value="0">Off (manual only)</option>
+        </select>
+    </div>
+    <div class="device-meta">Provider applies to the wind pane and the course wind suggestion.
+        The refresh rate only runs while the wind pane is open.</div>
 </div>
 
 <div id="builder-panel" style="display:none">

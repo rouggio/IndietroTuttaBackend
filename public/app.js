@@ -27,7 +27,7 @@ map.on("moveend", () => {
     pushWanderAnchorDebounced();
 });
 // Sim wander anchor = the map viewport (sessions ignored): tell the
-// backend where the user is looking — on load, on pan (debounced) and
+// backend where the user is looking â€” on load, on pan (debounced) and
 // every minute as keep-alive. A page refresh re-anchors the walk at
 // the restored center.
 let wanderAnchorTimer = null;
@@ -86,15 +86,15 @@ function renderBoatPanel(panel) {
     const p = panel.point;
     if (!panel.open || !p) { div.style.display = "none"; panel.renderedKey = null; return; }
     const name = boatDisplayName(panel.id, p);
-    // skip rebuild when nothing changed — keeps links clickable during playback
+    // skip rebuild when nothing changed â€” keeps links clickable during playback
     const key = `${name}|${p.id ?? p.timestamp}|${panel.expanded}`;
     if (panel.renderedKey === key && div.style.display !== "none") return;
     panel.renderedKey = key;
     div.innerHTML = `
-        <h4>${boatDisplayName(panel.id, p)}<span class="pane-actions"><span class="pane-btn" title="Center map on boat" onclick="centerBoatOnMap('${panel.id}')">⌖</span><span class="pane-btn" title="Boat info" onclick="openBoatInfo('${panel.id}')">ⓘ</span><span class="pane-btn pane-close" title="Close" onclick="closeBoatPanel('${panel.id}')">×</span></span></h4>
+        <h4>${boatDisplayName(panel.id, p)}<span class="pane-actions"><span class="pane-btn" title="Center map on boat" onclick="centerBoatOnMap('${panel.id}')">âŒ–</span><span class="pane-btn" title="Boat info" onclick="openBoatInfo('${panel.id}')">â“˜</span><span class="pane-btn pane-close" title="Close" onclick="closeBoatPanel('${panel.id}')">Ã—</span></span></h4>
         <table>
             <tr><td>Speed</td><td>${typeof p.speed === "number" ? p.speed.toFixed(1) : "-"} knots</td></tr>
-            <tr><td>Course</td><td>${p.course ?? "-"}°</td></tr>
+            <tr><td>Course</td><td>${p.course ?? "-"}Â°</td></tr>
             <tr><td>Time</td><td>${fmtTime(p.timestamp || p.receivedAt)}</td></tr>
             ${boatRecord(panel.id)?.boat ? `<tr><td>Boat</td><td>${boatRecord(panel.id).boat}</td></tr>` : ""}
             ${panel.expanded ? `
@@ -138,14 +138,14 @@ window.openBoatInfo = function (id) {
     const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     overlay.innerHTML = `
         <div class="boat-info-card">
-            <h4>Boat info <span style="float:right;cursor:pointer" onclick="closeBoatInfo()">×</span></h4>
+            <h4>Boat info <span style="float:right;cursor:pointer" onclick="closeBoatInfo()">Ã—</span></h4>
             <label>Boat name<input id="boat-info-name" maxlength="32" value="${esc(d.username || p.username || "")}" placeholder="e.g. Ciccio"></label>
             <label>Make / model<input id="boat-info-boat" maxlength="64" value="${esc(d.boat || "")}" placeholder="e.g. First 27.7"></label>
             <table>
                 <tr><td>Device</td><td>${esc(id)}</td></tr>
                 <tr><td>Status</td><td>${esc(d.status || "-")}</td></tr>
                 <tr><td>Firmware</td><td>${d.firmware ? "v" + esc(d.firmware) : "-"}</td></tr>
-                <tr><td>GPS fix</td><td>${d.mock ? "MOCK (simulated)" : "REAL (receiver)"} <button id="boat-info-mock" title="Toggle mock GPS via the device portal over LAN">→ ${d.mock ? "Real" : "Mock"}</button></td></tr>
+                <tr><td>GPS fix</td><td>${d.mock ? "MOCK (simulated)" : "REAL (receiver)"} <button id="boat-info-mock" title="Toggle mock GPS via the device portal over LAN">â†’ ${d.mock ? "Real" : "Mock"}</button></td></tr>
                 <tr><td>Last seen</td><td>${d.lastSeen ? esc(new Date(d.lastSeen).toLocaleString()) : "-"}</td></tr>
                 <tr><td>First seen</td><td>${d.firstSeen ? esc(new Date(d.firstSeen).toLocaleString()) : "-"}</td></tr>
             </table>
@@ -164,7 +164,7 @@ window.openBoatInfo = function (id) {
 };
 window.toggleBoatMock = async function (id, on) {
     const errEl = document.getElementById("boat-info-err");
-    if (errEl) errEl.textContent = on ? "Switching to mock GPS…" : "Switching to real GPS…";
+    if (errEl) errEl.textContent = on ? "Switching to mock GPSâ€¦" : "Switching to real GPSâ€¦";
     try {
         const res = await fetch(`/boats/${encodeURIComponent(id)}/mock`, {
             method: "POST",
@@ -211,7 +211,7 @@ window.saveBoatInfo = async function (id) {
         errEl.textContent = "Network error.";
     }
 };
-// --- Per-boat sailing-days calendar (days with track data → click filters main view) ---
+// --- Per-boat sailing-days calendar (days with track data â†’ click filters main view) ---
 let boatCalState = null; // { deviceId, counts: Map<day,count>, viewY, viewM }
 window.openBoatCalendar = async function (id) {
     if (!id) return;
@@ -224,8 +224,8 @@ window.openBoatCalendar = async function (id) {
     overlay.id = "boat-cal-overlay";
     overlay.innerHTML = `
         <div class="boat-cal-card">
-            <h4>📅 ${esc(name)} <span style="float:right;cursor:pointer" onclick="closeBoatCalendar()">×</span></h4>
-            <div id="boat-cal-body"><div class="device-meta">Loading days…</div></div>
+            <h4>ðŸ“… ${esc(name)} <span style="float:right;cursor:pointer" onclick="closeBoatCalendar()">Ã—</span></h4>
+            <div id="boat-cal-body"><div class="device-meta">Loading daysâ€¦</div></div>
         </div>
     `;
     document.body.appendChild(overlay);
@@ -280,22 +280,22 @@ function renderBoatCalendar() {
         const count = st.counts.get(key);
         const isToday = key === todayKey ? " boat-cal-today" : "";
         if (count) {
-            cells += `<span class="boat-cal-day boat-cal-active${isToday}" title="${count} points — click to view" onclick="boatCalPick('${key}')" style="background:${lightenColor(st.color, 0.85)};border-color:${st.color}">${d}</span>`;
+            cells += `<span class="boat-cal-day boat-cal-active${isToday}" title="${count} points â€” click to view" onclick="boatCalPick('${key}')" style="background:${lightenColor(st.color, 0.85)};border-color:${st.color}">${d}</span>`;
         } else {
             cells += `<span class="boat-cal-day${isToday}">${d}</span>`;
         }
     }
     body.innerHTML = `
         <div class="boat-cal-nav">
-            <button onclick="boatCalNav(-1)" title="Previous month">◀</button>
+            <button onclick="boatCalNav(-1)" title="Previous month">â—€</button>
             <b>${monthName}</b>
-            <button onclick="boatCalNav(1)" title="Next month">▶</button>
+            <button onclick="boatCalNav(1)" title="Next month">â–¶</button>
         </div>
         <div class="boat-cal-grid">
             ${["M", "T", "W", "T", "F", "S", "S"].map(w => `<span class="boat-cal-wd">${w}</span>`).join("")}
             ${cells}
         </div>
-        <div class="device-meta" style="margin-top:8px">Days in <span style="font-weight:700;color:${st.color}">■</span> boat color have track data — click one to filter.</div>
+        <div class="device-meta" style="margin-top:8px">Days in <span style="font-weight:700;color:${st.color}">â– </span> boat color have track data â€” click one to filter.</div>
     `;
 }
 // Picking a day sets the main screen start/end filters to that full UTC day
@@ -312,7 +312,7 @@ window.boatCalPick = function (dayStr) {
     liveBtn.classList.remove("active");
     timePreset = "custom";
     if (presetSelect) presetSelect.value = "custom";
-    // cover the full UTC day (backend groups days in UTC) — round-trip via local picker values
+    // cover the full UTC day (backend groups days in UTC) â€” round-trip via local picker values
     customStart = toLocalDatetimeValue(new Date(dayStr + "T00:00:00.000Z"));
     customEnd = toLocalDatetimeValue(new Date(dayStr + "T23:59:59.999Z"));
     if (startPicker) startPicker.value = customStart;
@@ -463,10 +463,10 @@ function makePanelDraggable(el) {
     el.addEventListener("pointercancel", end);
 }
 
-// Click on or near a route point → show Details, else close
+// Click on or near a route point â†’ show Details, else close
 function findNearestPoint(latlng, maxMeters = 15) {
     let best = null, bestDist = Infinity;
-    // Live-sim (mock) boats live only in the overlay, never in Turso — search
+    // Live-sim (mock) boats live only in the overlay, never in Turso â€” search
     // their newest fix too, otherwise clicks on a mock boat hit nothing.
     const candidates = allPoints.slice();
     liveSim.forEach((st, id) => {
@@ -519,7 +519,7 @@ map.on("click", e => {
     if (nearest) openBoatPanel(nearest.deviceId, nearest);
     else closeAllBoatPanels();
 });
-// Hover anywhere on the map (tight radius — dot shows only when deliberate)
+// Hover anywhere on the map (tight radius â€” dot shows only when deliberate)
 map.on("mousemove", e => {
     if (typeof CB !== "undefined" && CB.open && CB.placing) return; // builder gesture in progress
     const n = findNearestPoint(e.latlng, 15);
@@ -564,6 +564,10 @@ function boatTriangleIcon(deviceId, courseDeg) {
 }
 
 const UI_KEY = "indietrotutta:ui";
+// Wind prefs, edited in the Settings pane. Declared up here because
+// loadUI() (called before the wind block) restores them.
+let windProvider = "auto";   // auto | wu | wc | om (see GET /wind)
+let windRefreshMin = 10;     // minutes between auto refreshes; 0 = off
 function syncSelected() { selectedDeviceId = selectedDeviceIds.size ? [...selectedDeviceIds][0] : null; }
 function saveUI() {
     try {
@@ -576,7 +580,8 @@ function saveUI() {
             customStart,
             customEnd,
             boatFilter: document.getElementById("boatFilter")?.value || "",
-            windAuto: !!windAuto,
+            windProvider,
+            windRefreshMin,
             showSimPreview: !!showSimPreview,
             panels: {
                 "device-panel": document.getElementById("device-panel")?.style.display,
@@ -585,9 +590,10 @@ function saveUI() {
                 "template-panel": document.getElementById("template-panel")?.style.display,
                 "session-panel": document.getElementById("session-panel")?.style.display,
                 "session-create-panel": document.getElementById("session-create-panel")?.style.display,
+                "settings-panel": document.getElementById("settings-panel")?.style.display,
                 "session-detail-panel": document.getElementById("session-detail-panel")?.style.display,
             },
-            panelPos: ["device-panel", "wind-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "builder-panel"].reduce((acc, id) => {
+            panelPos: ["device-panel", "wind-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "builder-panel"].reduce((acc, id) => {
                 const el = document.getElementById(id);
                 if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
                 return acc;
@@ -613,6 +619,8 @@ function loadUI() {
         if (d.customStart) customStart = d.customStart;
         if (d.customEnd) customEnd = d.customEnd;
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
+        if (d.windProvider) windProvider = d.windProvider;
+        if (typeof d.windRefreshMin === "number") windRefreshMin = d.windRefreshMin;
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => {
             const el=document.getElementById(id); if(el && disp) el.style.display=disp;
         });
@@ -641,7 +649,7 @@ const endPicker = document.getElementById("endPicker");
 const applyRangeBtn = document.getElementById("applyRangeBtn");
 const rangeSep = document.getElementById("rangeSep");
 const dateLabel = document.getElementById("dateLabel");
-// compat: old datePicker removed — keep variable for legacy code
+// compat: old datePicker removed â€” keep variable for legacy code
 const datePicker = { value: "" };
 
 function todayStr() {
@@ -676,8 +684,8 @@ function formatRangeLabel(startMs, endMs){
     const sameDay = s.toDateString()===e.toDateString();
     const sd = s.toLocaleDateString(); const st=s.toLocaleTimeString().slice(0,5);
     const ed = e.toLocaleDateString(); const et=e.toLocaleTimeString().slice(0,5);
-    if(sameDay) return `${sd} ${st} → ${et}`;
-    return `${sd} ${st} → ${ed} ${et}`;
+    if(sameDay) return `${sd} ${st} â†’ ${et}`;
+    return `${sd} ${st} â†’ ${ed} ${et}`;
 }
 
 let isLive = true;
@@ -709,7 +717,7 @@ function updateTimeControlsVisibility(){
 }
 function syncDateLabel(count){
     const suffix = typeof count==="number" ? ` (${count})` : "";
-    if(isLive){ dateLabel.textContent = `Live — Today${suffix}`; return; }
+    if(isLive){ dateLabel.textContent = `Live â€” Today${suffix}`; return; }
     const range = computeRangeForPreset(timePreset, customStart, customEnd);
     if(timePreset==="today") dateLabel.textContent = `Today${suffix}`;
     else if(timePreset==="yesterday") dateLabel.textContent = `Yesterday${suffix}`;
@@ -780,7 +788,7 @@ if(startPicker) startPicker.addEventListener("change", applyCustomRange);
 if(endPicker) endPicker.addEventListener("change", applyCustomRange);
 if(applyRangeBtn) applyRangeBtn.addEventListener("click", applyCustomRange);
 
-// Manual recenter — explicit viewport jump to the track. Interval
+// Manual recenter â€” explicit viewport jump to the track. Interval
 // refreshes never touch the viewport, so free panning is preserved.
 document.getElementById("recenterBtn")?.addEventListener("click", () => {
     refresh(true);
@@ -829,8 +837,8 @@ async function refreshDevices() {
                         <span class="device-name" style="border:1.5px solid ${routeColor};background:${lightBg};padding:2px 7px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px">${name}</span>
                     </div>
                     <div style="text-align:right">
-                        <div class="device-meta" style="color:${statusColor};font-weight:600">${status} <span class="boat-cal-btn" data-cal="${d.deviceId}" title="Sailing days calendar">📅</span></div>
-                        <div class="device-meta">${lastSeen}${d.firmware ? ` • v${d.firmware}` : ""}${d.mock ? ` • MOCK` : ""}</div>
+                        <div class="device-meta" style="color:${statusColor};font-weight:600">${status} <span class="boat-cal-btn" data-cal="${d.deviceId}" title="Sailing days calendar">ðŸ“…</span></div>
+                        <div class="device-meta">${lastSeen}${d.firmware ? ` â€¢ v${d.firmware}` : ""}${d.mock ? ` â€¢ MOCK` : ""}</div>
                     </div>
                 </div>
             `;
@@ -865,7 +873,7 @@ async function refreshDevices() {
                 openBoatCalendar(btn.getAttribute("data-cal"));
             });
         });
-        // list height changed after async load — re-cascade floating panels
+        // list height changed after async load â€” re-cascade floating panels
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("device-panel"));
 
     } catch (e) {
@@ -884,7 +892,7 @@ async function refresh(recenter = false) {
             const all = await Promise.all(ids.map(async id => {
                 const params = new URLSearchParams();
                 params.set("deviceId", id);
-                // use rich range (start/end ISO) — backend filters by timestamp
+                // use rich range (start/end ISO) â€” backend filters by timestamp
                 params.set("start", new Date(range.start).toISOString());
                 params.set("end", new Date(range.end).toISOString());
                 const r = await fetch(`/gps?${params.toString()}`);
@@ -907,8 +915,8 @@ async function refresh(recenter = false) {
     }
 
     allPoints = points;
-    // Update label with count — rich selector
-    const filterSuffix = selectedDeviceIds.size ? ` • ${selectedDeviceIds.size} selected` : "";
+    // Update label with count â€” rich selector
+    const filterSuffix = selectedDeviceIds.size ? ` â€¢ ${selectedDeviceIds.size} selected` : "";
     syncDateLabel(points.length);
     if (filterSuffix) dateLabel.textContent += filterSuffix;
 
@@ -1054,7 +1062,7 @@ let playbackSpeed = 1;
 let playbackMarkers = new Map(); // deviceId -> circleMarker
 
 // Gap larger than this splits activity into separate trips (idle stillness)
-const IDLE_GAP_MS = 5 * 60 * 1000; // 5 minutes — gps is ~40s, so >5min = idle/transport
+const IDLE_GAP_MS = 5 * 60 * 1000; // 5 minutes â€” gps is ~40s, so >5min = idle/transport
 
 function getTripsForDevice(deviceId) {
     const pts = allPoints.filter(p=>p.deviceId===deviceId).sort((a,b)=> new Date(a.timestamp)-new Date(b.timestamp));
@@ -1080,7 +1088,7 @@ function getDayBounds() {
 }
 function updateTimelineTracks() {
     if (!timelineTracksEl) return;
-    // always clear first — stale stripes must not survive selection/data changes
+    // always clear first â€” stale stripes must not survive selection/data changes
     timelineTracksEl.innerHTML = "";
     const oldSvg = document.getElementById("timeline-speed");
     if (oldSvg) oldSvg.remove();
@@ -1112,7 +1120,7 @@ function updateTimelineTracks() {
             seg.style.left = Math.max(0, left) + "%";
             seg.style.width = Math.max(0.6, width) + "%";
             seg.style.background = lightenColor(colorForDevice(id), 0.85);
-            seg.title = `${id} ${new Date(tFirst).toLocaleTimeString()}–${new Date(tLast).toLocaleTimeString()} (${trip.length} pts)`;
+            seg.title = `${id} ${new Date(tFirst).toLocaleTimeString()}â€“${new Date(tLast).toLocaleTimeString()} (${trip.length} pts)`;
             seg.dataset.deviceId = id;
             seg.addEventListener("mousemove", e => {
                 const rect = timelineEl.getBoundingClientRect();
@@ -1132,7 +1140,7 @@ function updateTimelineTracks() {
         });
         timelineTracksEl.appendChild(track);
     });
-    // height — one stripe per boat
+    // height â€” one stripe per boat
     timelineTracksEl.parentElement.style.height = totalH + "px";
     // speed graph overlay: one polyline per trip, normalized to its own
     // stripe so each boat's min/max touch its stripe margins
@@ -1146,7 +1154,7 @@ function updateTimelineTracks() {
         svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1";
         ids.forEach((id, idx) => {
             const top = stripeTop(idx);
-            // one polyline per trip — speed lives only where data is present
+            // one polyline per trip â€” speed lives only where data is present
             getTripsForDevice(id).forEach(trip => {
                 const pts = trip.filter(p => typeof p.speed === "number" && !isNaN(p.speed))
                     .sort((a, b) => new Date(a.timestamp || a.receivedAt) - new Date(b.timestamp || b.receivedAt));
@@ -1186,7 +1194,7 @@ function interpolatePosition(deviceId, timeMs) {
         const tFirst = new Date(trip[0].timestamp).getTime();
         const tLast = new Date(trip[trip.length-1].timestamp).getTime();
         if (timeMs >= tFirst && timeMs <= tLast) {
-            // inside an activity period — interpolate within this trip only
+            // inside an activity period â€” interpolate within this trip only
             if (trip.length === 1) return trip[0];
             for (let i=0;i<trip.length-1;i++) {
                 const t1 = new Date(trip[i].timestamp).getTime();
@@ -1205,7 +1213,7 @@ function interpolatePosition(deviceId, timeMs) {
             }
             return trip[trip.length-1];
         }
-        // idle gap between this trip and next — stay still at end of previous trip
+        // idle gap between this trip and next â€” stay still at end of previous trip
         if (ti < trips.length-1) {
             const nextFirst = new Date(trips[ti+1][0].timestamp).getTime();
             if (timeMs > tLast && timeMs < nextFirst) {
@@ -1213,7 +1221,7 @@ function interpolatePosition(deviceId, timeMs) {
             }
         }
     }
-    // fallback — idle gap fallback to nearest trip end
+    // fallback â€” idle gap fallback to nearest trip end
     return lastTrip[lastTrip.length-1];
 }
 function getPlaybackSteps() { return 1000; }
@@ -1270,7 +1278,7 @@ function showPlaybackPoint(idx) {
 function startPlayback() {
     if (playbackPoints.length === 0) return;
     if (playbackTimer) return;
-    playBtn.textContent = "⏸";
+    playBtn.textContent = "â¸";
     const steps = getPlaybackSteps();
     playbackTimer = setInterval(() => {
         if (playbackIdx >= steps - 1) {
@@ -1299,13 +1307,13 @@ function nextDataTime(fromMs) {
 function startPlayback() {
     if (playbackTimer) return;
     if (playbackTime === null) playbackTime = getDayBounds().start;
-    // Cursor in a gray area (no data) → jump to the next point with data
+    // Cursor in a gray area (no data) â†’ jump to the next point with data
     const snap = nextDataTime(playbackTime);
     if (snap !== null && snap !== playbackTime) {
         playbackTime = snap;
         showTime(playbackTime);
     }
-    playBtn.textContent = "⏸";
+    playBtn.textContent = "â¸";
     let last = Date.now();
     playbackTimer = setInterval(() => {
         const now = Date.now();
@@ -1319,7 +1327,7 @@ function startPlayback() {
 }
 function stopPlayback() {
     if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
-    playBtn.textContent = "▶";
+    playBtn.textContent = "â–¶";
 }
 playBtn.addEventListener("click", () => {
     if (playbackTimer) stopPlayback();
@@ -1426,7 +1434,7 @@ window.addEventListener("mouseup", e => {
         const minR = Math.min(startRatio, endRatio), maxR = Math.max(startRatio, endRatio);
         if(maxR - minR < 0.01){
             hideTimelineSelection();
-            // treat as click — move cursor, keep playing if already playing
+            // treat as click â€” move cursor, keep playing if already playing
             const bounds = getDayBounds();
             const timeMs = bounds.start + minR * (bounds.end - bounds.start);
             showTime(timeMs);
@@ -1560,13 +1568,13 @@ async function refreshWind() {
     if (!body || !panelVisible(windPanel)) return;
     const c = map.getCenter();
     const lat = +c.lat.toFixed(4), lon = +c.lng.toFixed(4);
-    // Don't blank existing content on refresh — swap silently when the
+    // Don't blank existing content on refresh â€” swap silently when the
     // new data arrives so the pane never flickers on toggle/tick.
     const firstLoad = !body.dataset.loaded;
-    if (firstLoad) body.innerHTML = '<div class="device-meta">Loading…</div>';
+    if (firstLoad) body.innerHTML = '<div class="device-meta">Loadingâ€¦</div>';
     let w = null;
     try {
-        const res = await fetch(`/wind?lat=${lat}&lon=${lon}`, { signal: AbortSignal.timeout(15000) });
+        const res = await fetch(`/wind?lat=${lat}&lon=${lon}&provider=${windProvider}`, { signal: AbortSignal.timeout(15000) });
         if (res.ok) w = await res.json();
     } catch {}
     if (!w || typeof w.dir !== "number" || typeof w.speedKn !== "number") {
@@ -1577,7 +1585,7 @@ async function refreshWind() {
     // dir = where the wind comes FROM; arrow points downwind (dir+180)
     const rot = (((w.dir % 360) + 360) % 360 + 180) % 360;
     const age = w.ageMin != null ? `${w.ageMin} min old` : "live model";
-    const dist = w.distKm != null ? ` · ${w.distKm} km away` : "";
+    const dist = w.distKm != null ? ` Â· ${w.distKm} km away` : "";
     const gust = w.gustKn != null ? ` <span style="color:#64748b">gusts ${w.gustKn}</span>` : "";
     body.innerHTML = `
         <div style="display:flex;gap:12px;align-items:center">
@@ -1594,12 +1602,12 @@ async function refreshWind() {
                 <circle cx="55" cy="55" r="5" fill="#0f172a"/>
             </svg>
             <div>
-                <div style="font-size:26px;font-weight:800">${w.dir}° <span style="font-size:14px;font-weight:600;color:#475569">${compass16(w.dir)}</span></div>
+                <div style="font-size:26px;font-weight:800">${w.dir}Â° <span style="font-size:14px;font-weight:600;color:#475569">${compass16(w.dir)}</span></div>
                 <div style="font-size:15px;font-weight:700">${w.speedKn} kn${gust}</div>
                 <div class="device-meta">blowing toward ${compass16(rot)}</div>
             </div>
         </div>
-        <div class="device-meta" style="margin-top:6px">${escHtml(w.source || "")} · ${age}${dist}<br>at map center ${lat}, ${lon}</div>`;
+        <div class="device-meta" style="margin-top:6px">${escHtml(w.source || "")} Â· ${age}${dist}<br>at map center ${lat}, ${lon}</div>`;
 }
 if (windBtn && windPanel) {
     const syncWindBtn = () => windBtn.classList.toggle("active", panelVisible(windPanel));
@@ -1608,45 +1616,60 @@ if (windBtn && windPanel) {
     syncWindBtn();
 }
 document.getElementById("windClose")?.addEventListener("click", () => toggleEl("wind-panel", false));
-// Wind refresh is two-state: manual (fetch on open / on click) or auto
-// (fetch every 60s while visible). Click toggles the mode; both
-// transitions fetch immediately. Mode persists in user prefs.
-let windAuto = false;
+// Wind auto-refresh rate lives in Settings (5/10/20/30 min, or off). The
+// header â†» is a one-off refresh only.
 let windTimer = null;
-function syncWindRefreshBtn() {
-    const b = document.getElementById("windRefresh");
-    if (b) {
-        b.innerHTML = windAuto
-            ? '<span style="font-size:11px;vertical-align:middle;letter-spacing:1px">AUTO</span> ↻'
-            : "↻";
-        b.title = windAuto ? "Auto refresh every 60s — click for manual" : "Manual refresh — click for auto";
-    }
-}
-function setWindAuto(on) {
-    windAuto = !!on;
-    syncWindRefreshBtn();
+function applyWindRefresh() {
     if (windTimer) { clearInterval(windTimer); windTimer = null; }
-    if (windAuto) windTimer = setInterval(() => { try { if (panelVisible(windPanel)) refreshWind(); } catch {} }, 60 * 1000);
+    if (windRefreshMin > 0) {
+        windTimer = setInterval(() => { try { if (panelVisible(windPanel)) refreshWind(); } catch {} }, windRefreshMin * 60000);
+    }
+    const b = document.getElementById("windRefresh");
+    if (b) b.title = windRefreshMin > 0 ? `Refresh now (auto every ${windRefreshMin} min)` : "Refresh now";
+}
+function setWindRefreshMin(min) {
+    windRefreshMin = [5, 10, 20, 30].includes(Number(min)) ? Number(min) : 0;
+    applyWindRefresh();
     try { saveUI(); } catch {}
 }
-document.getElementById("windRefresh")?.addEventListener("click", () => {
-    setWindAuto(!windAuto);
+function setWindProvider(p) {
+    windProvider = ["auto", "wu", "wc", "om"].includes(p) ? p : "auto";
+    try { saveUI(); } catch {}
+}
+document.getElementById("windRefresh")?.addEventListener("click", () => { refreshWind(); });
+applyWindRefresh();
+
+// --- Settings pane ---------------------------------------------------
+const settingsBtn = document.getElementById("settingsToggleBtn");
+const settingsPanel = document.getElementById("settings-panel");
+if (settingsBtn && settingsPanel) {
+    const syncSettingsBtn = () => settingsBtn.classList.toggle("active", panelVisible(settingsPanel));
+    settingsBtn.addEventListener("click", () => { toggleEl("settings-panel"); avoidPanelOverlap(settingsPanel); syncSettingsBtn(); saveUI(); });
+    new MutationObserver(syncSettingsBtn).observe(settingsPanel, { attributes: true, attributeFilter: ["style"] });
+    syncSettingsBtn();
+}
+document.getElementById("settingsClose")?.addEventListener("click", () => toggleEl("settings-panel", false));
+function syncSettingsForm() {
+    const p = document.getElementById("setWindProvider");
+    const r = document.getElementById("setWindRefresh");
+    if (p) p.value = windProvider;
+    if (r) r.value = String(windRefreshMin);
+}
+document.getElementById("setWindProvider")?.addEventListener("change", e => {
+    setWindProvider(e.target.value);
     refreshWind();
 });
-try {
-    const d = JSON.parse(localStorage.getItem(UI_KEY) || "{}");
-    if (typeof d.windAuto === "boolean" && d.windAuto) setWindAuto(true);
-    else syncWindRefreshBtn();
-} catch { syncWindRefreshBtn(); }
+document.getElementById("setWindRefresh")?.addEventListener("change", e => setWindRefreshMin(e.target.value));
+syncSettingsForm();
 document.getElementById("boatFilter")?.addEventListener("input", () => { saveUI(); refreshDevices(); });
 
 // --- Courses, builder & sessions (Step 2) ---
 function escHtml(s) {
     return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
-// Route threading: the sailed route passes THROUGH each gate once — a pair
+// Route threading: the sailed route passes THROUGH each gate once â€” a pair
 // collapses to its midpoint, never buoy-to-buoy (that spike is what made
-// gate courses draw incoherently). items: [{lat,lon,type,gate,src}] →
+// gate courses draw incoherently). items: [{lat,lon,type,gate,src}] â†’
 // [{pt:[lat,lon], src}]. Orphan gates fall through as singles.
 function routeThread(items) {
     const seen = new Set();
@@ -1688,7 +1711,7 @@ function roundingArc(lat, lon, rM, side) {
     const w2 = [bc[0] - (w * Math.cos(pB * D)) / 111320, bc[1] - (w * Math.sin(pB * D)) / (111320 * cosLat)];
     return { arc, head: [tip, w1, w2] };
 }
-// Arrow sides per mark: oriented marks show their side. Gates show none —
+// Arrow sides per mark: oriented marks show their side. Gates show none â€”
 // a gate is a through-passage with side choice, not a rounding; the route
 // threading between the buoys says it all.
 function arrowSides(m, i, all) {
@@ -1707,7 +1730,7 @@ function resolveMarksJS(offsetMarks, o) {
         return { ...m, lat: o.originLat + N / 111320, lon: o.originLon + E / (111320 * cosLat) };
     });
 }
-// Inverse: absolute lat/lon → wind-frame offsets (builder placement).
+// Inverse: absolute lat/lon â†’ wind-frame offsets (builder placement).
 function offsetsFromLatLon(lat, lon, o) {
     const t = (o.windDir * Math.PI) / 180;
     const cosLat = Math.cos((o.originLat * Math.PI) / 180);
@@ -1717,8 +1740,8 @@ function offsetsFromLatLon(lat, lon, o) {
     return { x: (E * Math.cos(t) - N * Math.sin(t)) / scale, y: (E * Math.sin(t) + N * Math.cos(t)) / scale };
 }
 
-// (flat top bar: Boats · Timeline · Sessions · Templates · New session —
-// the old Races ▾ parent menu is gone; each button syncs itself)
+// (flat top bar: Boats Â· Timeline Â· Sessions Â· Templates Â· New session â€”
+// the old Races â–¾ parent menu is gone; each button syncs itself)
 const templatesBtn = document.getElementById("templatesToggleBtn");
 const templatePanel = document.getElementById("template-panel");
 if (templatesBtn && templatePanel) {
@@ -1795,11 +1818,11 @@ async function loadCourseTemplates() {
         }
         const myRes = await fetch("/templates");
         const myTpls = await myRes.json();
-        el.innerHTML = `<div class="device-meta" style="margin-bottom:6px">Wind-frame presets — placed + rotated on the day.</div>
+        el.innerHTML = `<div class="device-meta" style="margin-bottom:6px">Wind-frame presets â€” placed + rotated on the day.</div>
         <div class="template-grid">` + courseTemplatesCache.map(t => `
             <div class="template-card" data-tpl="${escHtml(t.key)}">
                 <b>${escHtml(t.name)}</b>
-                <span class="device-meta">${escHtml(t.desc)} · ${t.marks.length} marks</span>
+                <span class="device-meta">${escHtml(t.desc)} Â· ${t.marks.length} marks</span>
             </div>`).join("") + `
             <div class="template-card" data-blank-tpl>
                 <b>Blank</b>
@@ -1812,8 +1835,8 @@ async function loadCourseTemplates() {
                 return `
             <div class="template-card" data-course-tpl="${c.id}">
                 <b>${escHtml(c.name)}</b>
-                <span class="device-meta">${c.desc ? escHtml(c.desc) : `${c.marks.length} marks · ${lineLen}${gates ? ` · ${gates} gate${gates > 1 ? "s" : ""}` : ""}`} · v${c.version}</span>
-                <button data-del-tpl="${c.id}" title="Delete template" style="float:right;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;font-size:11px">×</button>
+                <span class="device-meta">${c.desc ? escHtml(c.desc) : `${c.marks.length} marks Â· ${lineLen}${gates ? ` Â· ${gates} gate${gates > 1 ? "s" : ""}` : ""}`} Â· v${c.version}</span>
+                <button data-del-tpl="${c.id}" title="Delete template" style="float:right;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;font-size:11px">Ã—</button>
             </div>`; }).join("") + `</div>` : "");
         el.querySelectorAll("[data-tpl]").forEach(card => {
             card.addEventListener("click", () => {
@@ -1886,7 +1909,7 @@ function resolveSegJS(seg, o) {
         const N = -x * scale * Math.sin(t) + y * scale * Math.cos(t);
         return { lat: o.originLat + N / 111320, lon: o.originLon + E / (111320 * cosLat) };
     };
-    // Lines are always square to the wind (90°): fixed center + length,
+    // Lines are always square to the wind (90Â°): fixed center + length,
     // bearing follows the wind. Stored square/bias are ignored leftovers.
     const cx = (seg.ax + seg.bx) / 2, cy = (seg.ay + seg.by) / 2;
     const len = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) * scale;
@@ -1920,7 +1943,7 @@ function openBuilder(init = {}) {
     CB.desc = init.desc || "";
     CB.marks = (init.marks || []).map(m => ({ ...m }));
     CB.origin = init.origin || null;
-    CB.windDir = 0; // templates assume N wind — no wind UI in the editor
+    CB.windDir = 0; // templates assume N wind â€” no wind UI in the editor
     CB.scale = init.scale || 1;
     CB.placing = null;
     CB.startLine = init.startLine || null;
@@ -2013,8 +2036,8 @@ if (typeof map !== "undefined" && map.getContainer) {
         if (!dy && !dx) return;
         courseMove.lastLat = p.lat; courseMove.lastLon = p.lng;
         CB.origin = { lat: CB.origin.lat + dy, lon: CB.origin.lon + dx };
-        // shift every preview layer in place — no rebuild, labels don't bump.
-        // (getLatLngs returns LatLng objects, not arrays — handle both)
+        // shift every preview layer in place â€” no rebuild, labels don't bump.
+        // (getLatLngs returns LatLng objects, not arrays â€” handle both)
         const shiftLL = x => {
             if (Array.isArray(x)) {
                 if (x.length === 2 && typeof x[0] === "number") return [x[0] + dy, x[1] + dx];
@@ -2056,7 +2079,7 @@ document.getElementById("builderMoveCourse")?.addEventListener("click", () => {
     syncBuilderArmButtons();
 });
 // Start/finish line rows: rendered as the first/last entries of the course
-// sequence (WS order: start line → marks/gates → finish line), not a side
+// sequence (WS order: start line â†’ marks/gates â†’ finish line), not a side
 // section. renderLinesBox refreshes both ends around the marks list.
 function renderLinesBox() {
     renderLineRow("start", document.getElementById("seq-start"));
@@ -2070,8 +2093,8 @@ function renderLineRow(role, el) {
     el.innerHTML = `
         <div class="mark-row" data-line="${role}">
             <div class="mark-head">
-                <b>${role === "start" ? "🟢 Start line" : "🏁 Finish line"}</b>
-                <span class="device-meta">${isSame ? "same as start" : seg ? `${segLen(seg)}m · ⊥ wind` : "radius circle"}</span>
+                <b>${role === "start" ? "ðŸŸ¢ Start line" : "ðŸ Finish line"}</b>
+                <span class="device-meta">${isSame ? "same as start" : seg ? `${segLen(seg)}m Â· âŠ¥ wind` : "radius circle"}</span>
             </div>
             <div class="mark-head" style="margin-top:4px">
                 <button class="mini" data-lact="define">Define</button>
@@ -2135,7 +2158,7 @@ function builderMapClick(e) {
                 bx: Math.round(b.x * 10) / 10, by: Math.round(b.y * 10) / 10,
             };
             const len = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay);
-            if (len < 5) { msg.textContent = "Line too short (min 5m) — click two farther points."; return true; }
+            if (len < 5) { msg.textContent = "Line too short (min 5m) â€” click two farther points."; return true; }
             if (CB.lineTarget === "start") CB.startLine = seg;
             else CB.finishLine = seg;
             CB.lineA = null;
@@ -2165,7 +2188,7 @@ function builderMapClick(e) {
     return true;
 }
 
-// Gate buoys only ever come in pairs — an orphaned single demotes to mark.
+// Gate buoys only ever come in pairs â€” an orphaned single demotes to mark.
 function normalizeGates() {
     const groups = {};
     CB.marks.forEach((m, i) => { if (m.type === "gate" && m.gate) { (groups[m.gate] = groups[m.gate] || []).push(i); } });
@@ -2182,7 +2205,7 @@ function renderBuilderMarks() {
     const gateCounts = {};
     CB.marks.forEach(m => { if (m.type === "gate" && m.gate) gateCounts[m.gate] = (gateCounts[m.gate] || 0) + 1; });
     if (!CB.marks.length) {
-            el.innerHTML = '<div class="device-meta">No marks — click "+ Add marks" then click the map.</div>';
+            el.innerHTML = '<div class="device-meta">No marks â€” click "+ Add marks" then click the map.</div>';
         return;
     }
     el.innerHTML = CB.marks.map((m, i) => {
@@ -2201,11 +2224,11 @@ function renderBuilderMarks() {
                     ${["P", "S", "G"].map(s => `<option ${m.side === s ? "selected" : ""}>${s}</option>`).join("")}
                 </select>
                 <input data-f="r" type="number" min="5" max="200" value="${m.r}" title="Radius (m)">
-                <button class="mini" data-up title="Move earlier">↑</button>
-                <button class="mini" data-down title="Move later">↓</button>
-                <button class="mini" data-del title="Delete mark">×</button>
+                <button class="mini" data-up title="Move earlier">â†‘</button>
+                <button class="mini" data-down title="Move later">â†“</button>
+                <button class="mini" data-del title="Delete mark">Ã—</button>
             </div>
-            <div class="device-meta">${Math.round(m.x)}m E, ${Math.round(m.y)}m N (wind frame)${m.sourceUid ? ` · from ${escHtml(m.sourceUid)}` : ""}${m.gate ? ` · gate ${escHtml(m.gate)}${gateCounts[m.gate] === 2 ? "" : " (needs partner)"}` : ""}</div>
+            <div class="device-meta">${Math.round(m.x)}m E, ${Math.round(m.y)}m N (wind frame)${m.sourceUid ? ` Â· from ${escHtml(m.sourceUid)}` : ""}${m.gate ? ` Â· gate ${escHtml(m.gate)}${gateCounts[m.gate] === 2 ? "" : " (needs partner)"}` : ""}</div>
         </div>`;
     }).join("");
     el.querySelectorAll("[data-mark]").forEach(row => {
@@ -2319,13 +2342,13 @@ function updateBuilderPreview() {
     coursePreview = L.layerGroup().addTo(map);
     PV = { marks: [], circles: [], arrows: [], route: null, legs: [], startSeg: null, finishSeg: null, startDots: [], finishDots: [], startMove: null, finishMove: null, startLenTip: null, finishLenTip: null, gateSegs: [] };
     const resolved = builderResolved();
-    // route runs line-center → marks → line-center when lines replace points
+    // route runs line-center â†’ marks â†’ line-center when lines replace points
     const segCenter = seg => {
         const r = resolveSegJS(seg, builderInst());
         return [(r.latA + r.latB) / 2, (r.lonA + r.lonB) / 2];
     };
     const latlngs = [];
-    // route point sources (mark index or -1 for line centers) — legs inside
+    // route point sources (mark index or -1 for line centers) â€” legs inside
     // one gate pair get no leg label (the gate connector already labels them)
     const routeSrc = [];
     routeThread(resolved.map((m, i) => ({ ...m, src: i }))).forEach(r => {
@@ -2353,7 +2376,7 @@ function updateBuilderPreview() {
         }
     }
     // relaxed stacking: any marks whose radius circles collide belong to one
-    // pile (union-find over pairwise circle overlap) — catches exact stacks
+    // pile (union-find over pairwise circle overlap) â€” catches exact stacks
     // and near-misses alike
     const parent = resolved.map((_, i) => i);
     const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
@@ -2388,7 +2411,7 @@ function updateBuilderPreview() {
             zIndexOffset: isTop ? 1000 : 0,
             icon: L.divIcon({
                 html: `<div class="builder-mark-label" style="background:${MARK_COLORS[m.type] || "#f59e0b"};position:relative">${i + 1}` +
-                    (isTop && pile.length > 1 ? `<span class="pile-count">×${pile.length}</span>` : "") + `</div>`,
+                    (isTop && pile.length > 1 ? `<span class="pile-count">Ã—${pile.length}</span>` : "") + `</div>`,
                 className: "", iconSize: [22, 22], iconAnchor: [11, 11],
             }),
         }).addTo(coursePreview);
@@ -2398,7 +2421,7 @@ function updateBuilderPreview() {
             pileTops[pkey] = ((pileTops[pkey] || 0) + 1) % pile.length;
             updateBuilderPreview();
         });
-        marker.bindTooltip(`#${i + 1} ${m.type} ${m.side}` + (pile.length > 1 ? ` · pile: ${pile.map(x => x + 1).join(", ")} (click cycles)` : ""));
+        marker.bindTooltip(`#${i + 1} ${m.type} ${m.side}` + (pile.length > 1 ? ` Â· pile: ${pile.map(x => x + 1).join(", ")} (click cycles)` : ""));
         PV.marks.push(marker);
         // Magnetic stacking while dragging: snap onto another mark within
         // 12m, hold until dragged 18m away (hysteresis kills jitter), then
@@ -2446,7 +2469,7 @@ function updateBuilderPreview() {
         marker.on("dragend", () => {
             const ll = marker.getLatLng();
             const off = offsetsFromLatLon(ll.lat, ll.lng, builderInst());
-            // snap-to-stack: dropped within 12m of another mark → coincide
+            // snap-to-stack: dropped within 12m of another mark â†’ coincide
             // exactly (piles: repeated roundings, shared windward mark).
             let best = null, bd = 12;
             CB.marks.forEach((m, mi) => {
@@ -2462,7 +2485,7 @@ function updateBuilderPreview() {
         });
     });
     // start/finish line segments (green/red); shared finish drawn dashed over start.
-    // endpoints are draggable dots — drag adjusts the line on the chart.
+    // endpoints are draggable dots â€” drag adjusts the line on the chart.
     const lineEndDrag = (role, end, marker) => {
         const ll = marker.getLatLng();
         const off = offsetsFromLatLon(ll.lat, ll.lng, builderInst());
@@ -2575,12 +2598,12 @@ function updateBuilderPreview() {
 }
 
 // --- Save template (shape library only; sessions are born in Sessions) ---
-// Save as template (the only shape library — sessions freeze from here).
+// Save as template (the only shape library â€” sessions freeze from here).
 async function builderSaveTemplate() {
     const msg = document.getElementById("builder-msg");
     const name = document.getElementById("builder-name").value.trim() || "Untitled template";
     const desc = document.getElementById("builder-desc").value.trim() || null;
-    // UI shorthand "start" → server form {sameAs:"start"}
+    // UI shorthand "start" â†’ server form {sameAs:"start"}
     const finishOut = CB.finishLine === "start" ? { sameAs: "start" } : CB.finishLine;
     try {
         let res;
@@ -2657,7 +2680,7 @@ let selectedSessionId = null;
 
 // --- Session creation draft: template + placement previewed on the chart ---
 // Templates are N-wind shapes (+y = upwind = north at windDir 0), so the
-// draft also assumes 0° until Suggest (or the hand) sets the day's wind.
+// draft also assumes 0Â° until Suggest (or the hand) sets the day's wind.
 const SESSDRAFT = { template: null, sel: null, origin: null, windDir: 0, windSpeed: 0, scale: 1, placing: null };
 let sessPreview = null;
 let sessMove = null;
@@ -2711,7 +2734,7 @@ function clearSelPreview() {
 }
 // Selected session's course on the chart: resolved marks + start/finish
 // lines + dashed route + gate connectors. Absolute coords from the session
-// (no wind-frame resolve needed) — this is what the devices sail.
+// (no wind-frame resolve needed) â€” this is what the devices sail.
 function renderSelectedPreview(s) {
     clearSelPreview();
     if (!s || !Array.isArray(s.marks) || !s.marks.length) return;
@@ -2761,7 +2784,7 @@ function sessDraftInst() {
 }
 function renderSessPreview() {
     clearSessPreview();
-    // a template fetch may resolve after the panel was closed — stay buried
+    // a template fetch may resolve after the panel was closed â€” stay buried
     if (!panelVisible(document.getElementById("session-create-panel"))) return;
     const t = SESSDRAFT.template;
     if (!t || !SESSDRAFT.origin) return;
@@ -2775,7 +2798,7 @@ function renderSessPreview() {
         L.polyline([[r.latA, r.lonA], [r.latB, r.lonB]], { color: "#16a34a", weight: 5 }).addTo(sessPreview);
     }
     // finishLine arrives as "start" (builder shorthand) or {sameAs:"start"}
-    // (presets / DB rows) — both mean "mirror the start line". Anything else
+    // (presets / DB rows) â€” both mean "mirror the start line". Anything else
     // must be a real segment; resolving {sameAs} as geometry yields NaN and
     // aborts the whole preview (leaving just the start line behind).
     const sameAsStart = t.finishLine === "start" || (t.finishLine && t.finishLine.sameAs === "start");
@@ -2854,7 +2877,7 @@ function syncSessForm() {
     if (sc) sc.value = SESSDRAFT.scale;
     const o = document.getElementById("sess-origin");
     if (o) o.textContent = "Origin: " + (SESSDRAFT.origin
-        ? `${SESSDRAFT.origin.lat.toFixed(5)}, ${SESSDRAFT.origin.lon.toFixed(5)}` : "—");
+        ? `${SESSDRAFT.origin.lat.toFixed(5)}, ${SESSDRAFT.origin.lon.toFixed(5)}` : "â€”");
 }
 async function renderSessionCreate() {
     const el = document.getElementById("tab-session-create");
@@ -2870,7 +2893,7 @@ async function renderSessionCreate() {
             <div class="device-meta" style="margin-bottom:6px">Pick a template, place it on the chart, set the wind</div>
             <div class="builder-row"><select id="sess-template">${courseTemplatesCache.map(t => `<option value="t:${escHtml(t.key)}">${escHtml(t.name)}</option>`).join("")}${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)}</option>`).join("")}</select></div>
             <div class="builder-row">
-                <span id="sess-origin" class="device-meta" style="flex:2">Origin: —</span>
+                <span id="sess-origin" class="device-meta" style="flex:2">Origin: â€”</span>
                 <button id="sess-move" title="Drag the course on the map">Move</button>
             </div>
             <div class="builder-row">
@@ -2916,15 +2939,15 @@ async function renderSessionCreate() {
         document.getElementById("sess-wind-suggest").addEventListener("click", async () => {
             const src = document.getElementById("sess-wind-src");
             const at = SESSDRAFT.origin || (() => { const m = map.getCenter(); return { lat: m.lat, lon: m.lng }; })();
-            src.textContent = "asking…";
+            src.textContent = "askingâ€¦";
             try {
-                const res = await fetch(`/wind?lat=${at.lat}&lon=${at.lon}`);
+                const res = await fetch(`/wind?lat=${at.lat}&lon=${at.lon}&provider=${windProvider}`);
                 if (!res.ok) throw new Error();
                 const w = await res.json();
                 SESSDRAFT.windDir = ((Math.round(w.dir) % 360) + 360) % 360;
                 SESSDRAFT.windSpeed = Math.max(0, Math.round(Number(w.speedKn) || 0));
                 syncSessForm();
-                src.textContent = `${escHtml(w.source)} · ${w.distKm != null ? w.distKm + "km" : "model"} · ${w.ageMin}min ago · ${w.speedKn}kn`;
+                src.textContent = `${escHtml(w.source)} Â· ${w.distKm != null ? w.distKm + "km" : "model"} Â· ${w.ageMin}min ago Â· ${w.speedKn}kn`;
                 renderSessPreview();
             } catch {
                 src.textContent = "no wind source available";
@@ -2956,7 +2979,7 @@ async function renderSessionCreate() {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         ...shapeBody,
-                        name: `${t0.name} — ${date}`, date, mode,
+                        name: `${t0.name} â€” ${date}`, date, mode,
                         originLat: SESSDRAFT.origin.lat, originLon: SESSDRAFT.origin.lon,
                         windDir: SESSDRAFT.windDir, windSpeed: SESSDRAFT.windSpeed, scale: SESSDRAFT.scale,
                         startTime: startISO,
@@ -2978,6 +3001,7 @@ async function renderSessionCreate() {
             } catch { errEl.textContent = "Network error."; }
         });
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-create-panel"));
+avoidPanelOverlap(document.getElementById("settings-panel"));
     } catch (e) {
         el.innerHTML = '<div class="boat-info-err">Failed to load templates.</div>';
     }
@@ -3005,10 +3029,10 @@ async function loadSessions(selectId) {
                 <div class="device-item ${String(s.id) === String(selectedSessionId) ? "active" : ""}" data-sess="${s.id}" style="cursor:pointer">
                     <div style="overflow:hidden;flex:1">
                         <span class="device-name">${escHtml(s.name || ("Session " + s.id))}</span>
-                        <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boats · v${s.courseVersion}</div>
+                        <div class="device-meta">${escHtml(s.date)} Â· ${s.boats.length} boats Â· v${s.courseVersion}</div>
                     </div>
                     <div style="text-align:right">
-                        <div><a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">⚙</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
+                        <div><a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">âš™</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
                         <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
                     </div>
                 </div>`).join("") : '<div class="device-meta">No sessions yet.</div>') + `</div>`;
@@ -3040,7 +3064,7 @@ async function loadSessions(selectId) {
         if (selectedSessionId) openSessionDetail();
         else {
             // Detail pane restored visible by loadUI() with nothing selected:
-            // an empty "Session details" box is just noise — hide it.
+            // an empty "Session details" box is just noise â€” hide it.
             clearSessDetailTimers();
             document.getElementById("tab-session-detail").innerHTML = "";
             document.getElementById("session-detail-panel").style.display = "none";
@@ -3058,7 +3082,7 @@ function sessLinesText(s) {
     if (s.startLine) parts.push(`start ${len(s.startLine)}`);
     if (s.finishLine && s.finishLine.sameAs === "start") parts.push("finish = start");
     else if (s.finishLine) parts.push(`finish ${len(s.finishLine)}`);
-    return parts.length ? parts.join(" · ") : "radius circles";
+    return parts.length ? parts.join(" Â· ") : "radius circles";
 }
 
 // Session-detail live timers (gun countdown) + sim map overlay (scripted
@@ -3075,7 +3099,7 @@ function clearSimOverlay() {
     simOverlayRun = null;
 }
 // Newest sim run for a session, drawn as dashed preview only (the live
-// boat triangle already marks the fed position — no second dot).
+// boat triangle already marks the fed position â€” no second dot).
 async function renderSimOverlay(fit) {
     clearSimOverlay();
     if (!showSimPreview) return;
@@ -3115,11 +3139,11 @@ async function renderSessionDetail() {
                     <tr><td>Date</td><td>${escHtml(s.date)}</td></tr>
                     <tr><td>Mode</td><td><span class="mode-badge ${s.mode}">${s.mode}</span></td></tr>
                     <tr><td>Status</td><td><span class="status-badge ${s.status}">${s.status}</span></td></tr>
-                    <tr><td>Course</td><td>v${s.courseVersion} · ${s.marks.length} marks · wind ${Math.round(s.windDir)}° · scale ${s.scale}</td></tr>
+                    <tr><td>Course</td><td>v${s.courseVersion} Â· ${s.marks.length} marks Â· wind ${Math.round(s.windDir)}Â° Â· scale ${s.scale}</td></tr>
                     <tr><td>Lines</td><td>${sessLinesText(s)}</td></tr>
-                    <tr><td>Start</td><td>${s.startTime ? escHtml(new Date(s.startTime).toLocaleString()) : "—"}</td></tr>
-                    <tr><td>Gun</td><td id="sess-countdown">—</td></tr>
-                    <tr><td>Boats</td><td>${s.boats.length ? s.boats.map(b => `${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))}${b.startOffsetSec ? ` (+${b.startOffsetSec}s)` : ""} <a href="#" data-unboat="${escHtml(b.deviceId)}" style="color:#dc2626">×</a>`).join(", ") : "—"}</td></tr>
+                    <tr><td>Start</td><td>${s.startTime ? escHtml(new Date(s.startTime).toLocaleString()) : "â€”"}</td></tr>
+                    <tr><td>Gun</td><td id="sess-countdown">â€”</td></tr>
+                    <tr><td>Boats</td><td>${s.boats.length ? s.boats.map(b => `${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))}${b.startOffsetSec ? ` (+${b.startOffsetSec}s)` : ""} <a href="#" data-unboat="${escHtml(b.deviceId)}" style="color:#dc2626">Ã—</a>`).join(", ") : "â€”"}</td></tr>
                 </table>
                 <div class="builder-row">
                     ${s.status === "abandoned"
@@ -3148,7 +3172,7 @@ async function renderSessionDetail() {
                     <button id="sess-sim-preview" title="Show/hide the scripted route preview on the map">Preview</button>
                 </div>
                 <div id="sess-runs" class="device-meta"></div>
-                <div class="builder-row"><b>Results</b><button id="sess-res-refresh" title="Reload results">↻</button></div>
+                <div class="builder-row"><b>Results</b><button id="sess-res-refresh" title="Reload results">â†»</button></div>
                 <div id="sess-results" class="device-meta">no runs yet</div>
                 <div class="builder-row"><b>Committee</b></div>
                 <div class="builder-row">
@@ -3255,8 +3279,8 @@ async function renderSessionDetail() {
                 box.innerHTML = runs.length ? runs.map(r => {
                     const el = Math.max(0, Math.floor((nowMs - r.startMs) / 1000));
                     const state = el >= r.durationSec ? "done" : `${el}s / ${r.durationSec}s`;
-                    const echo = r.echoCount ? ` · echo ${r.echoCount}${r.lastDevM != null ? ` Δ${r.lastDevM}m` : ""}` : "";
-                    return `<div>${escHtml(r.deviceId.slice(-5))} · ${r.speedKn}kn · gun T+${r.gunSec}s · ${state}${echo} <a href="#" data-stoprun="${escHtml(r.id)}" style="color:#dc2626">stop</a></div>`;
+                    const echo = r.echoCount ? ` Â· echo ${r.echoCount}${r.lastDevM != null ? ` Î”${r.lastDevM}m` : ""}` : "";
+                    return `<div>${escHtml(r.deviceId.slice(-5))} Â· ${r.speedKn}kn Â· gun T+${r.gunSec}s Â· ${state}${echo} <a href="#" data-stoprun="${escHtml(r.id)}" style="color:#dc2626">stop</a></div>`;
                 }).join("") : "no sim runs";
                 box.querySelectorAll("[data-stoprun]").forEach(a => a.addEventListener("click", async e => {
                     e.preventDefault();
@@ -3267,7 +3291,7 @@ async function renderSessionDetail() {
             } catch { box.textContent = "runs unavailable"; }
         };
         const boatName = id => escHtml((lastDevices.find(d => d.deviceId === id) || {}).username || id.slice(-5));
-        const fmtEl = sec => sec == null ? "—" : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+        const fmtEl = sec => sec == null ? "â€”" : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
         const refreshResults = async () => {
             const box = document.getElementById("sess-results");
             if (!box) return;
@@ -3276,8 +3300,8 @@ async function renderSessionDetail() {
                 box.innerHTML = runs.length ? `<table>${runs.map((r, i) => {
                     const pens = r.events.filter(e => ["OCS", "WRONG", "SIG"].includes(e.e))
                         .map(e => e.e + (e.v ? `:${escHtml(e.v)}` : "")).join(" ");
-                    const splits = r.splits.length ? r.splits.map(fmtEl).join(" ") : "—";
-                    return `<tr><td>${r.result === "FINISHED" ? i + 1 : "–"}</td><td>${boatName(r.deviceId)}</td><td>${fmtEl(r.elapsedSec)}</td><td>${splits}</td><td>${r.result}${pens ? ` (${pens})` : ""}</td></tr>`;
+                    const splits = r.splits.length ? r.splits.map(fmtEl).join(" ") : "â€”";
+                    return `<tr><td>${r.result === "FINISHED" ? i + 1 : "â€“"}</td><td>${boatName(r.deviceId)}</td><td>${fmtEl(r.elapsedSec)}</td><td>${splits}</td><td>${r.result}${pens ? ` (${pens})` : ""}</td></tr>`;
                 }).join("")}</table>` : "no runs yet";
             } catch { box.textContent = "results unavailable"; }
         };
@@ -3289,7 +3313,7 @@ async function renderSessionDetail() {
             try {
                 const sigs = await (await fetch(`/sessions/${s.id}/signals`)).json();
                 box.innerHTML = sigs.length ? sigs.map(g =>
-                    `<div>${escHtml(g.kind)}${g.deviceId ? ` → ${boatName(g.deviceId)}` : " (fleet)"}${g.detail ? ` ${escHtml(g.detail)}` : ""}</div>`
+                    `<div>${escHtml(g.kind)}${g.deviceId ? ` â†’ ${boatName(g.deviceId)}` : " (fleet)"}${g.detail ? ` ${escHtml(g.detail)}` : ""}</div>`
                 ).join("") : "no signals";
             } catch { box.textContent = "signals unavailable"; }
         };
@@ -3346,14 +3370,14 @@ async function renderSessionDetail() {
         const tickCountdown = () => {
             const box = document.getElementById("sess-countdown");
             if (!box) return;
-            if (!gunMs || ["finished", "abandoned"].includes(s.status)) { box.textContent = "—"; return; }
+            if (!gunMs || ["finished", "abandoned"].includes(s.status)) { box.textContent = "â€”"; return; }
             const d = Math.floor((gunMs - Date.now()) / 1000);
             const mmss = `${Math.floor(Math.abs(d) / 60)}:${String(Math.abs(d) % 60).padStart(2, "0")}`;
             box.innerHTML = d >= 0 ? `Gun in <b>${mmss}</b>` : `<b style="color:#16a34a">LIVE +${mmss}</b>`;
         };
         tickCountdown();
         sessDetailTimers.push(setInterval(tickCountdown, 1000));
-        // Status is inferred server-side (gun passed → live, all boats in →
+        // Status is inferred server-side (gun passed â†’ live, all boats in â†’
         // finished): refresh just the badge so the committee sees flips.
         const tickStatus = async () => {
             try {
@@ -3385,12 +3409,12 @@ function makeFloatingDraggable(el) {
     let drag = null;
     header.addEventListener("pointerdown", e => {
         if (e.target.closest("button,input,select,a")) return;
-        if (e.target.closest("[id$='Close']")) return; // × must stay clickable (preventDefault would eat the click)
+        if (e.target.closest("[id$='Close']")) return; // Ã— must stay clickable (preventDefault would eat the click)
         // bring the grabbed panel above its siblings
         el.style.zIndex = String(++floatZ);
         const r = el.getBoundingClientRect();
         drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
-        // CSS docks panels with right:10px — with both left+right set the
+        // CSS docks panels with right:10px â€” with both left+right set the
         // browser squeezes the width to satisfy both. Left wins on drag.
         el.style.right = "auto";
         try { header.setPointerCapture(e.pointerId); } catch {}
@@ -3421,7 +3445,7 @@ function rectsOverlap(a, b) {
 // Panels the user dragged themselves are never auto-moved.
 function avoidPanelOverlap(el) {
     if (!panelVisible(el) || el.dataset.moved) return;
-    const others = ["device-panel", "wind-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "builder-panel"]
+    const others = ["device-panel", "wind-panel", "template-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "builder-panel"]
         .map(id => document.getElementById(id))
         .filter(o => o && o !== el && panelVisible(o));
     let moved = false;
@@ -3446,11 +3470,13 @@ makeFloatingDraggable(document.getElementById("template-panel"));
 makeFloatingDraggable(document.getElementById("session-panel"));
 makeFloatingDraggable(document.getElementById("session-create-panel"));
 makeFloatingDraggable(document.getElementById("session-detail-panel"));
+makeFloatingDraggable(document.getElementById("settings-panel"));
 makeFloatingDraggable(document.getElementById("builder-panel"));
 // fix any overlap restored from a previous session
 avoidPanelOverlap(document.getElementById("template-panel"));
 avoidPanelOverlap(document.getElementById("session-panel"));
 avoidPanelOverlap(document.getElementById("session-create-panel"));
+avoidPanelOverlap(document.getElementById("settings-panel"));
 avoidPanelOverlap(document.getElementById("session-detail-panel"));
 avoidPanelOverlap(document.getElementById("device-panel"));
 // populate panels restored visible (their content loads on toggle otherwise)
