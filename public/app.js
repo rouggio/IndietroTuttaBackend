@@ -511,7 +511,6 @@ map.on("mouseout", hideHover);
 let marker = null;
 let polyline = null;
 let polylines = [];
-let flaggedMarkers = [];
 let fleetMarkers = [];
 
 const palette = ["#e41a1c","#377eb8","#4daf4a","#984ea3","#ff7f00","#a65628","#f781bf","#1f77b4"];
@@ -897,8 +896,6 @@ async function refresh(recenter = false) {
         polylines.forEach(l => map.removeLayer(l)); polylines = [];
         if (marker) { map.removeLayer(marker); marker = null; }
         fleetMarkers.forEach(m => map.removeLayer(m)); fleetMarkers = [];
-        flaggedMarkers.forEach(m => m.remove());
-        flaggedMarkers = [];
         hideHover();
         return;
     }
@@ -953,21 +950,6 @@ async function refresh(recenter = false) {
         polyline = polylines[0];
         polylines = [];
     }
-
-    flaggedMarkers.forEach(m => m.remove());
-    flaggedMarkers = points
-        .filter(p => p.flagged)
-        .map(p => L.circleMarker([p.lat, p.lon], {
-            color: "#dc2626",
-            fillColor: "#ef4444",
-            fillOpacity: 0.9,
-            radius: 8,
-            weight: 2
-        })
-            .addTo(map)
-            .bindPopup(`Flagged position${p.username
-                ? `<br><b>${p.username}</b>`
-                : ""}<br>${p.timestamp}`));
 
     const latest = points[points.length - 1];
 
@@ -1704,7 +1686,7 @@ function resolveMarksJS(offsetMarks, o) {
         return { ...m, lat: o.originLat + N / 111320, lon: o.originLon + E / (111320 * cosLat) };
     });
 }
-// Inverse: absolute lat/lon → wind-frame offsets (waypoint adopter).
+// Inverse: absolute lat/lon → wind-frame offsets (builder placement).
 function offsetsFromLatLon(lat, lon, o) {
     const t = (o.windDir * Math.PI) / 180;
     const cosLat = Math.cos((o.originLat * Math.PI) / 180);

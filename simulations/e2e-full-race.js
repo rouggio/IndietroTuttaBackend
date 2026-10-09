@@ -14,8 +14,8 @@ const start = { lat: 39.9155, lon: 9.6955 };
 
 function lerp(a,b,t){ return a + (b-a)*t; }
 
-async function post(deviceId, username, lat, lon, flagged) {
-  const body = { lat, lon, speed: 6.2, course: 0, altitude: 5, sats: 9, flagged, username, timestamp: new Date().toISOString() };
+async function post(deviceId, username, lat, lon) {
+  const body = { lat, lon, speed: 6.2, course: 0, altitude: 5, sats: 9, username, timestamp: new Date().toISOString() };
   const res = await fetch(`${base}/gps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'DeviceId': deviceId }, body: JSON.stringify(body) });
   const j = await res.json();
   return j;
@@ -31,7 +31,7 @@ async function health(deviceId, username) {
     await health(b.deviceId, b.username);
     const lat = start.lat + b.offLat;
     const lon = start.lon + b.offLon;
-    await post(b.deviceId, b.username, lat, lon, false);
+    await post(b.deviceId, b.username, lat, lon);
     console.log(`start line ${b.username} ${lat.toFixed(6)},${lon.toFixed(6)}`);
     await new Promise(r=>setTimeout(r,150));
   }
@@ -55,16 +55,14 @@ async function health(deviceId, username) {
         const jitter = (Math.random()-0.5)*0.00005;
         const lat = lerp(leg.from.lat, leg.to.lat, t) + b.offLat*0.3 + jitter;
         const lon = lerp(leg.from.lon, leg.to.lon, t) + b.offLon*0.3 + jitter;
-        const flagged = step===5; // flag rounding
-        await post(b.deviceId, b.username, lat, lon, flagged);
+        await post(b.deviceId, b.username, lat, lon);
       }
       await new Promise(r=>setTimeout(r, 600));
     }
   }
 
-  const g = await fetch(`${base}/gps`).then(r=>r.json());
   const d = await fetch(`${base}/devices`).then(r=>r.json());
-  console.log(`done: gps ${g.length} flagged ${g.filter(x=>x.flagged).length} devices ${d.length}`);
+  console.log(`done: devices ${d.length}`);
   console.log(d.map(x=>`${x.username} ${x.status}`).join(', '));
   console.log('Check https://indietrotutta.onrender.com/ and /gps?date='+new Date().toISOString().slice(0,10));
 })();

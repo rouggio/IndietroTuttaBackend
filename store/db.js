@@ -77,19 +77,11 @@ async function initDb() {
                 course REAL,
                 altitude REAL,
                 sats INTEGER,
-                flagged INTEGER NOT NULL DEFAULT 0,
-                uid TEXT,
                 simulated INTEGER NOT NULL DEFAULT 0,
                 timestamp TEXT,
                 receivedAt TEXT NOT NULL
             )
         `);
-        // Migration for DBs created before the uid column existed
-        try {
-            await c.execute(`ALTER TABLE gps_points ADD COLUMN uid TEXT`);
-        } catch (e) {
-            if (!/duplicate column/i.test(e.message || "")) throw e;
-        }
         // Mock-GPS uploads are tagged simulated=1 (shown on the map like
         // normal points; filterable via the flag)
         try {
@@ -99,8 +91,19 @@ async function initDb() {
         }
 
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_device ON gps_points(deviceId)`);
-        await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_flagged ON gps_points(flagged)`);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_gps_timestamp ON gps_points(timestamp)`);
+
+        // Waypoints are gone (device + web): drop the leftover flag index
+        // and columns. Best-effort — if the engine refuses DROP COLUMN the
+        // old columns simply stay unused (nothing reads or writes them).
+        await c.execute(`DROP INDEX IF EXISTS idx_gps_flagged`);
+        for (const col of ["flagged", "uid"]) {
+            try {
+                await c.execute(`ALTER TABLE gps_points DROP COLUMN ${col}`);
+            } catch (e) {
+                // ignore: column already gone, or engine without DROP COLUMN
+            }
+        }
 
         // Race program: template library (shape only) + day sessions.
         // Template marks are wind-frame offsets in meters (see store/templateStore.js).

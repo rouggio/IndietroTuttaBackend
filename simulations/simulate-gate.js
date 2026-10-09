@@ -13,7 +13,7 @@ const points = [
   { lat: 39.9155, lon: 9.6955, desc: 'leeward' },
 ];
 
-async function post(p, flagged=false) {
+async function post(p) {
   const body = {
     lat: p.lat,
     lon: p.lon,
@@ -21,7 +21,6 @@ async function post(p, flagged=false) {
     course: 180,
     altitude: 10,
     sats: 8,
-    flagged,
     username,
     timestamp: new Date().toISOString()
   };
@@ -31,13 +30,13 @@ async function post(p, flagged=false) {
     body: JSON.stringify(body)
   });
   const j = await res.json();
-  console.log(`posted ${p.desc} ${p.lat.toFixed(6)},${p.lon.toFixed(6)} flagged=${flagged} -> stored ${j.stored}`);
+  console.log(`posted ${p.desc} ${p.lat.toFixed(6)},${p.lon.toFixed(6)} -> stored ${j.stored}`);
 }
 
 (async () => {
   for (let i=0; i<points.length; i++) {
     const p = points[i];
-    await post(p, i===3); // flag gate center as example
+    await post(p);
     await new Promise(r=>setTimeout(r, 400));
   }
   console.log('done - check http://localhost:3000/gps and map');

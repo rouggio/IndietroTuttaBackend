@@ -13,8 +13,8 @@ const start = { lat: 39.9155, lon: 9.6955 };
 
 function lerp(a,b,t){ return a + (b-a)*t; }
 
-async function post(deviceId, username, lat, lon, flagged) {
-  const body = { lat, lon, speed: 5.5 + Math.random()*1.5, course: 180, altitude: 5, sats: 8, flagged, username, timestamp: new Date().toISOString() };
+async function post(deviceId, username, lat, lon) {
+  const body = { lat, lon, speed: 5.5 + Math.random()*1.5, course: 180, altitude: 5, sats: 8, username, timestamp: new Date().toISOString() };
   const res = await fetch(`${base}/gps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'DeviceId': deviceId }, body: JSON.stringify(body) });
   const j = await res.json();
   return j;
@@ -30,25 +30,22 @@ async function post(deviceId, username, lat, lon, flagged) {
   for (const boat of fleet) {
     console.log(`--- ${boat.username} ---`);
     const legs = [
-      { from: {lat: start.lat+boat.offsetLat, lon: start.lon+boat.offsetLon}, to: {lat: windward.lat+boat.offsetLat, lon: windward.lon+boat.offsetLon}, flaggedAtEnd: true },
-      { from: {lat: windward.lat+boat.offsetLat, lon: windward.lon+boat.offsetLon}, to: {lat: gatePort.lat+boat.offsetLat, lon: gatePort.lon+boat.offsetLon}, flaggedAtEnd: true },
-      { from: {lat: gatePort.lat+boat.offsetLat, lon: gatePort.lon+boat.offsetLon}, to: {lat: windward.lat+boat.offsetLat, lon: windward.lon+boat.offsetLon}, flaggedAtEnd: true },
-      { from: {lat: windward.lat+boat.offsetLat, lon: windward.lon+boat.offsetLon}, to: {lat: start.lat+boat.offsetLat, lon: start.lon+boat.offsetLon}, flaggedAtEnd: false },
+      { from: {lat: start.lat+boat.offsetLat, lon: start.lon+boat.offsetLon}, to: {lat: windward.lat+boat.offsetLat, lon: windward.lon+boat.offsetLon} },
+      { from: {lat: windward.lat+boat.offsetLat, lon: windward.lon+boat.offsetLon}, to: {lat: gatePort.lat+boat.offsetLat, lon: gatePort.lon+boat.offsetLon} },
+      { from: {lat: gatePort.lat+boat.offsetLat, lon: gatePort.lon+boat.offsetLon}, to: {lat: windward.lat+boat.offsetLat, lon: windward.lon+boat.offsetLon} },
+      { from: {lat: windward.lat+boat.offsetLat, lon: windward.lon+boat.offsetLon}, to: {lat: start.lat+boat.offsetLat, lon: start.lon+boat.offsetLon} },
     ];
     for (const leg of legs) {
       for (let i=0;i<6;i++) {
         const t = i/5;
         const lat = lerp(leg.from.lat, leg.to.lat, t);
         const lon = lerp(leg.from.lon, leg.to.lon, t);
-        const flagged = leg.flaggedAtEnd && i===5;
-        await post(boat.deviceId, boat.username, lat, lon, flagged);
+        await post(boat.deviceId, boat.username, lat, lon);
         await new Promise(r=>setTimeout(r, 80));
       }
     }
   }
   console.log('fleet done');
-  const g = await fetch(`${base}/gps`).then(r=>r.json());
-  console.log(`total gps ${g.length} flagged ${g.filter(x=>x.flagged).length}`);
   const d = await fetch(`${base}/devices`).then(r=>r.json());
   console.log(`devices ${d.length}:`, d.map(x=>`${x.username} ${x.status}`).join(', '));
 })();

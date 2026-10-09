@@ -6,7 +6,6 @@ const {
     getLatestPoint,
     getActiveDays,
     getPointCount,
-    deleteFlaggedByUid,
     pushSimPoint,
     getSimSince
 } = require("../store/gpsStore");
@@ -36,9 +35,7 @@ router.post("/gps", async (req, res) => {
         course = null,
         altitude = null,
         sats = null,
-        flagged = false,
         username = null,
-        uid = null,
         simulated = false,
         fw = null,
         firmware: bodyFirmware = null,
@@ -55,16 +52,6 @@ router.post("/gps", async (req, res) => {
     ) {
         return res.status(400).json({
             error: "lat and lon must be numbers"
-        });
-    }
-
-    // --------------------------------------------------
-    // Validate flagged
-    // --------------------------------------------------
-
-    if (typeof flagged !== "boolean") {
-        return res.status(400).json({
-            error: "flagged must be a boolean"
         });
     }
 
@@ -109,8 +96,6 @@ router.post("/gps", async (req, res) => {
         course,
         altitude,
         sats,
-        flagged,
-        uid,
         simulated,
         timestamp,
         receivedAt: new Date().toISOString(),
@@ -149,29 +134,11 @@ router.get("/gps/sim-live", async (req, res) => {
 });
 
 // --------------------------------------------------
-// DELETE /gps/flagged — delete flagged point by exact uid (device waypoint delete)
-// --------------------------------------------------
-
-router.delete("/gps/flagged", async (req, res) => {
-    const deviceId = req.header("DeviceId");
-    if (!deviceId) return res.status(400).json({ error: "DeviceId header required" });
-
-    const { uid } = req.body || {};
-    if (typeof uid !== "string" || !uid.trim()) {
-        return res.status(400).json({ error: "uid must be a non-empty string" });
-    }
-
-    const deletedId = await deleteFlaggedByUid(deviceId, uid.trim());
-    if (deletedId == null) return res.status(404).json({ error: "No matching flagged point" });
-    res.json({ status: "deleted", id: deletedId });
-});
-
-// --------------------------------------------------
 // GET /gps
 // --------------------------------------------------
 
 router.get("/gps", async (req, res) => {
-    const { date, deviceId, start, end, flagged } = req.query;
+    const { date, deviceId, start, end } = req.query;
     if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
         return res.status(400).json({ error: "deviceId query param required" });
     }
@@ -187,12 +154,10 @@ router.get("/gps", async (req, res) => {
         if (!isNaN(e.getTime())) cleanEnd = e.toISOString();
     }
     // if range provided, it takes precedence over date
-    // flagged=true limits to device waypoint flags (course adopter)
-    const flaggedOnly = flagged === "true" || flagged === "1";
     if (cleanStart || cleanEnd) {
-        res.json(await getPoints({ deviceId: cleanDeviceId, start: cleanStart, end: cleanEnd, flaggedOnly }));
+        res.json(await getPoints({ deviceId: cleanDeviceId, start: cleanStart, end: cleanEnd }));
     } else {
-        res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId, flaggedOnly }));
+        res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId }));
     }
 });
 
