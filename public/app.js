@@ -94,7 +94,7 @@ function renderBoatPanel(panel) {
         <h4>${boatDisplayName(panel.id, p)}<span class="pane-actions"><span class="pane-btn" title="Center map on boat" onclick="centerBoatOnMap('${panel.id}')">âŒ–</span><span class="pane-btn" title="Boat info" onclick="openBoatInfo('${panel.id}')">â“˜</span><span class="pane-btn pane-close" title="Close" onclick="closeBoatPanel('${panel.id}')">Ã—</span></span></h4>
         <table>
             <tr><td>Speed</td><td>${typeof p.speed === "number" ? p.speed.toFixed(1) : "-"} knots</td></tr>
-            <tr><td>Course</td><td>${p.course ?? "-"}Â°</td></tr>
+            <tr><td>Course</td><td>${p.course ?? "-"}&deg;</td></tr>
             <tr><td>Time</td><td>${fmtTime(p.timestamp || p.receivedAt)}</td></tr>
             ${boatRecord(panel.id)?.boat ? `<tr><td>Boat</td><td>${boatRecord(panel.id).boat}</td></tr>` : ""}
             ${panel.expanded ? `
@@ -1602,7 +1602,7 @@ async function refreshWind() {
                 <circle cx="55" cy="55" r="5" fill="#0f172a"/>
             </svg>
             <div>
-                <div style="font-size:26px;font-weight:800">${w.dir}Â° <span style="font-size:14px;font-weight:600;color:#475569">${compass16(w.dir)}</span></div>
+                <div style="font-size:26px;font-weight:800">${w.dir}&deg; <span style="font-size:14px;font-weight:600;color:#475569">${compass16(w.dir)}</span></div>
                 <div style="font-size:15px;font-weight:700">${w.speedKn} kn${gust}</div>
                 <div class="device-meta">blowing toward ${compass16(rot)}</div>
             </div>
@@ -1909,7 +1909,7 @@ function resolveSegJS(seg, o) {
         const N = -x * scale * Math.sin(t) + y * scale * Math.cos(t);
         return { lat: o.originLat + N / 111320, lon: o.originLon + E / (111320 * cosLat) };
     };
-    // Lines are always square to the wind (90Â°): fixed center + length,
+    // Lines are always square to the wind (90 deg): fixed center + length,
     // bearing follows the wind. Stored square/bias are ignored leftovers.
     const cx = (seg.ax + seg.bx) / 2, cy = (seg.ay + seg.by) / 2;
     const len = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) * scale;
@@ -3139,7 +3139,7 @@ async function renderSessionDetail() {
                     <tr><td>Date</td><td>${escHtml(s.date)}</td></tr>
                     <tr><td>Mode</td><td><span class="mode-badge ${s.mode}">${s.mode}</span></td></tr>
                     <tr><td>Status</td><td><span class="status-badge ${s.status}">${s.status}</span></td></tr>
-                    <tr><td>Course</td><td>v${s.courseVersion} Â· ${s.marks.length} marks Â· wind ${Math.round(s.windDir)}Â° Â· scale ${s.scale}</td></tr>
+                    <tr><td>Course</td><td>v${s.courseVersion} Â· ${s.marks.length} marks Â· wind ${Math.round(s.windDir)}&deg; Â· scale ${s.scale}</td></tr>
                     <tr><td>Lines</td><td>${sessLinesText(s)}</td></tr>
                     <tr><td>Start</td><td>${s.startTime ? escHtml(new Date(s.startTime).toLocaleString()) : "â€”"}</td></tr>
                     <tr><td>Gun</td><td id="sess-countdown">â€”</td></tr>

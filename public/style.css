@@ -125,13 +125,14 @@ html, body {
     color: white;
 }
 
+/* every top-bar pane toggle highlights the same way (keep new ids here) */
 #topbar-menu #boatsToggleBtn.active,
 #topbar-menu #windToggleBtn.active,
 #topbar-menu #timelineToggleBtn.active,
 #topbar-menu #templatesToggleBtn.active,
 #topbar-menu #sessionsToggleBtn.active,
 #topbar-menu #sessionsTopBtn.active,
-#topbar-menu #racesToggleBtn.active {
+#topbar-menu #settingsToggleBtn.active {
     background: #2563eb;
     color: white;
 }
