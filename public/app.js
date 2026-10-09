@@ -336,11 +336,16 @@ function toggleBoatPanel(id) {
     if (panel.open) { panel.open = false; renderBoatPanel(panel); }
     else openBoatPanel(id);
 }
+// Newest live-sim fix for a boat (mock boats never reach Turso), else null.
+function liveSimLatest(id) {
+    const st = liveSim.get(id);
+    return st && st.pts.length ? st.pts[st.pts.length - 1] : null;
+}
 // Boat's current point: follow playback cursor when playing/history, else latest
 function currentPointForBoat(id) {
     const pts = allPoints.filter(p => p.deviceId === id);
-    if (!pts.length) return null;
     if (playbackTimer || !isLive) {
+        if (!pts.length) return null;
         let cur = null;
         for (const p of pts) {
             if (new Date(p.timestamp || p.receivedAt).getTime() <= playbackTime) cur = p;
@@ -348,7 +353,13 @@ function currentPointForBoat(id) {
         }
         return cur || pts[0];
     }
-    return pts[pts.length - 1];
+    const db = pts.length ? pts[pts.length - 1] : null;
+    const sim = liveSimLatest(id);
+    if (!db) return sim ? { ...sim, deviceId: id } : null;
+    if (!sim) return db;
+    // newest wins (mock uploads never land in Turso, so their track is stale)
+    const t = p => new Date(p.timestamp || p.receivedAt || 0).getTime();
+    return t(sim) > t(db) ? { ...sim, deviceId: id } : db;
 }
 function updateOpenPanels() {
     boatPanels.forEach(panel => {
@@ -385,6 +396,10 @@ function drawLiveSim(id) {
     const last = st.pts[st.pts.length - 1];
     // boat symbol: triangle at the newest sim fix, like the DB-driven arrow
     st.arrow = L.marker([last.lat, last.lon], { icon: boatTriangleIcon(id, last.course) }).addTo(liveSimLayer);
+    // Mock boats never reach Turso, so this arrow IS their only position:
+    // without a handler, clicking the boat resolves to a stale DB point (or
+    // none) and the details panel never opens.
+    st.arrow.on("click", () => openBoatPanel(id, { ...last, deviceId: id }));
 }
 async function pollLiveSim() {
     if (!isLive || document.hidden) return;
@@ -450,9 +465,15 @@ function makePanelDraggable(el) {
 
 // Click on or near a route point → show Details, else close
 function findNearestPoint(latlng, maxMeters = 15) {
-    if (!allPoints.length) return null;
     let best = null, bestDist = Infinity;
-    allPoints.forEach(p => {
+    // Live-sim (mock) boats live only in the overlay, never in Turso — search
+    // their newest fix too, otherwise clicks on a mock boat hit nothing.
+    const candidates = allPoints.slice();
+    liveSim.forEach((st, id) => {
+        const last = st.pts[st.pts.length - 1];
+        if (last) candidates.push({ ...last, deviceId: id });
+    });
+    candidates.forEach(p => {
         const d = map.distance(latlng, L.latLng(p.lat, p.lon));
         if (d < bestDist && d < maxMeters) { bestDist = d; best = p; }
     });
@@ -2967,6 +2988,17 @@ async function loadSessions(selectId) {
         sessionsCache = await sessRes.json();
         if (!lastDevices.length) await refreshDevices();
         if (selectId) selectedSessionId = selectId;
+        // A selected session can disappear under us (deleted via the API or
+        // another client). Drop the ghost selection instead of re-opening an
+        // empty detail pane on every refresh.
+        if (selectedSessionId && !sessionsCache.some(s => String(s.id) === String(selectedSessionId))) {
+            selectedSessionId = null;
+            clearSelPreview();
+            clearSimOverlay();
+            clearSessDetailTimers();
+            document.getElementById("tab-session-detail").innerHTML = "";
+            document.getElementById("session-detail-panel").style.display = "none";
+        }
         el.innerHTML = `
             <div id="sess-list">` + (sessionsCache.length ? sessionsCache.map(s => `
                 <div class="device-item ${String(s.id) === String(selectedSessionId) ? "active" : ""}" data-sess="${s.id}" style="cursor:pointer">
@@ -3005,6 +3037,13 @@ async function loadSessions(selectId) {
             });
         });
         if (selectedSessionId) openSessionDetail();
+        else {
+            // Detail pane restored visible by loadUI() with nothing selected:
+            // an empty "Session details" box is just noise — hide it.
+            clearSessDetailTimers();
+            document.getElementById("tab-session-detail").innerHTML = "";
+            document.getElementById("session-detail-panel").style.display = "none";
+        }
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-panel"));
     } catch (e) {
         el.innerHTML = '<div class="boat-info-err">Failed to load sessions.</div>';
@@ -3418,3 +3457,11 @@ if (panelVisible(document.getElementById("template-panel"))) loadCourseTemplates
 if (panelVisible(document.getElementById("session-panel"))) loadSessions();
 if (panelVisible(document.getElementById("wind-panel"))) refreshWind();
 if (panelVisible(document.getElementById("session-create-panel"))) renderSessionCreate();
+// The detail pane's selection is not persisted, so a pane restored visible has
+// nothing to render (and loadSessions() only runs when the LIST panel is open).
+// Hide it rather than leaving an empty "Session details" box.
+if (panelVisible(document.getElementById("session-detail-panel"))) {
+    document.getElementById("tab-session-detail").innerHTML = "";
+    document.getElementById("session-detail-panel").style.display = "none";
+    try { saveUI(); } catch {}
+}
