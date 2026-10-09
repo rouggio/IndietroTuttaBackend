@@ -51,3 +51,15 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
   DB-backed route 500'd until `sd` redeployed the new code. Safe order: (1) deploy code that
   stops using the column, (2) drop it in a later deploy (or keep it one release). Local
   `:3000` shares the LIVE Turso DB, so a local migration IS a prod migration.
+- **Never rewrite `public/*.js|css|html` with PowerShell `Set-Content`/`Out-File`** — they
+  default to a legacy codepage and silently double-encode every non-ASCII char (UTF-8 → CP1252
+  → UTF-8), so `·` becomes `Â·`, `→` becomes `â†’`, `×` becomes `Ã—`. The file stays *valid*
+  UTF-8, so a validity check passes and the browser faithfully renders the garbage — it looks
+  like corruption in the wind pane, top bar, boats and courses all at once (hit 2026-10-09:
+  131 sequences in `app.js`, repaired in `fb75ce4`). Use the edit tool; if a shell write is
+  unavoidable go through Node (`fs.readFileSync/writeFileSync(..., "utf8")`).
+  Repair/verify recipes (Node, not PowerShell — the console mangles the literals):
+  decode the mojibake run through **windows-1252 → bytes → UTF-8**, and accept a result only
+  if it is valid UTF-8 with no control chars. A plain latin1 pass has no such guard and turns
+  correct `—`/`…`/`•` into `\u0014`/`&`/`"`. Degree signs in rendered HTML: prefer the ASCII
+  entity `&deg;`.
