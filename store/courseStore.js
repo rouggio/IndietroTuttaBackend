@@ -165,7 +165,7 @@ function validateMarks(marks, startLine = null, finishLine = null) {
 
 // Optional line segments (wind-frame meters): {ax,ay,bx,by} plus behavior:
 // square (default true) = bearing follows session wind + bias;
-// square:false = fixed geometry rotating with the template.
+// square:false = fixed geometry rotating with the course.
 // bias: deliberate skew in degrees (-60..60, 0 = square). Length ÔëÑ5m.
 function validateSegment(seg, what) {
     if (seg === null || seg === undefined) return null;
@@ -327,7 +327,7 @@ async function updateCourse(id, { name, desc, marks, startLine, finishLine }) {
             next.startLine ? JSON.stringify(next.startLine) : null,
             next.finishLine ? JSON.stringify(next.finishLine) : null, cur.id],
     });
-    return getTemplate(cur.id);
+    return getCourse(cur.id);
 }
 
 async function deleteCourse(id) {
