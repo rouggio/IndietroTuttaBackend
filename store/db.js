@@ -135,6 +135,7 @@ async function initDb() {
                 originLat REAL NOT NULL,
                 originLon REAL NOT NULL,
                 windDir REAL NOT NULL,
+                windSpeed REAL,
                 scale REAL NOT NULL DEFAULT 1,
                 startTime TEXT,
                 status TEXT NOT NULL DEFAULT 'scheduled',
@@ -156,6 +157,11 @@ async function initDb() {
             } catch (e) {
                 if (!/duplicate column/i.test(e.message || "")) throw e;
             }
+        }
+        try {
+            await c.execute(`ALTER TABLE sessions ADD COLUMN windSpeed REAL`);
+        } catch (e) {
+            if (!/duplicate column/i.test(e.message || "")) throw e;
         }
         await c.execute(`
             CREATE TABLE IF NOT EXISTS session_boats (

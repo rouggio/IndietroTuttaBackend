@@ -2654,7 +2654,7 @@ let selectedSessionId = null;
 // --- Session creation draft: template + placement previewed on the chart ---
 // Templates are N-wind shapes (+y = upwind = north at windDir 0), so the
 // draft also assumes 0° until Suggest (or the hand) sets the day's wind.
-const SESSDRAFT = { template: null, sel: null, origin: null, windDir: 0, scale: 1, placing: null };
+const SESSDRAFT = { template: null, sel: null, origin: null, windDir: 0, windSpeed: 0, scale: 1, placing: null };
 let sessPreview = null;
 let sessMove = null;
 let sessSuppressClick = false;
@@ -2918,6 +2918,7 @@ async function renderSessionCreate() {
                 if (!res.ok) throw new Error();
                 const w = await res.json();
                 SESSDRAFT.windDir = ((Math.round(w.dir) % 360) + 360) % 360;
+                SESSDRAFT.windSpeed = Math.max(0, Math.round(Number(w.speedKn) || 0));
                 syncSessForm();
                 src.textContent = `${escHtml(w.source)} · ${w.distKm != null ? w.distKm + "km" : "model"} · ${w.ageMin}min ago · ${w.speedKn}kn`;
                 renderSessPreview();
@@ -2953,7 +2954,7 @@ async function renderSessionCreate() {
                         ...shapeBody,
                         name: `${t0.name} — ${date}`, date, mode,
                         originLat: SESSDRAFT.origin.lat, originLon: SESSDRAFT.origin.lon,
-                        windDir: SESSDRAFT.windDir, scale: SESSDRAFT.scale,
+                        windDir: SESSDRAFT.windDir, windSpeed: SESSDRAFT.windSpeed, scale: SESSDRAFT.scale,
                         startTime: startISO,
                     }),
                 });

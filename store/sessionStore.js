@@ -96,6 +96,9 @@ function validateSessionInput(b) {
     if (b.windDir !== undefined && (typeof b.windDir !== "number" || b.windDir < 0 || b.windDir >= 360)) {
         return "windDir must be 0..359";
     }
+    if (b.windSpeed !== undefined && b.windSpeed !== null && (typeof b.windSpeed !== "number" || b.windSpeed < 0 || b.windSpeed > 99)) {
+        return "windSpeed must be 0..99";
+    }
     if (b.scale !== undefined && (typeof b.scale !== "number" || b.scale < 0.1 || b.scale > 5)) {
         return "scale must be 0.1..5";
     }
@@ -119,6 +122,7 @@ function rowToSession(r, boats = []) {
         originLat: r.originLat,
         originLon: r.originLon,
         windDir: r.windDir,
+        windSpeed: r.windSpeed !== undefined && r.windSpeed !== null ? r.windSpeed : null,
         scale: r.scale,
         startTime: r.startTime || null,
         status: r.status,
@@ -201,6 +205,7 @@ async function createSession(b) {
         date: b.date,
         mode: b.mode || "practice",
         ...inst,
+        windSpeed: b.windSpeed === undefined || b.windSpeed === null ? null : b.windSpeed,
         startTime: b.startTime ? new Date(b.startTime).toISOString() : null,
         status: "scheduled",
         courseVersion: 1,
@@ -221,11 +226,11 @@ async function createSession(b) {
     }
     await initDb();
     const res = await client.execute({
-        sql: `INSERT INTO sessions (templateId, templateVersion, name, date, mode, originLat, originLon, windDir, scale,
+        sql: `INSERT INTO sessions (templateId, templateVersion, name, date, mode, originLat, originLon, windDir, windSpeed, scale,
               startTime, status, courseVersion, templateSnapshot, marks, startLine, finishLine, createdAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
         args: [base.templateId, base.templateVersion, base.name, base.date, base.mode, base.originLat, base.originLon,
-            base.windDir, base.scale, base.startTime, base.status,
+            base.windDir, base.windSpeed, base.scale, base.startTime, base.status,
             JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks),
             base.startLine ? JSON.stringify(base.startLine) : null,
             base.finishLine ? JSON.stringify(base.finishLine) : null, now],
@@ -246,6 +251,8 @@ async function createSession(b) {
 async function deriveStatus(s) {
     if (!s) return s;
     if (s.status === "abandoned") return "abandoned";
+    // A boat-less session can never be live (nothing to run).
+    if (!s.boats || s.boats.length === 0) return "scheduled";
     try {
         if (s.boats && s.boats.length) {
             // A boat's race is over with an uploaded run OR a terminal
@@ -320,6 +327,7 @@ async function updateSession(id, b) {
         originLat: b.originLat !== undefined ? b.originLat : cur.originLat,
         originLon: b.originLon !== undefined ? b.originLon : cur.originLon,
         windDir: b.windDir !== undefined ? b.windDir : cur.windDir,
+        windSpeed: b.windSpeed !== undefined ? b.windSpeed : cur.windSpeed,
         scale: b.scale !== undefined ? b.scale : cur.scale,
     };
     const marks = geomChanged
@@ -351,10 +359,10 @@ async function updateSession(id, b) {
     await initDb();
     await client.execute({
         sql: `UPDATE sessions SET name = ?, status = ?, startTime = ?, originLat = ?, originLon = ?,
-              windDir = ?, scale = ?, marks = ?, startLine = ?, finishLine = ?,
+              windDir = ?, windSpeed = ?, scale = ?, marks = ?, startLine = ?, finishLine = ?,
               courseVersion = courseVersion + ? WHERE id = ?`,
         args: [next.name, next.status, next.startTime, next.originLat, next.originLon,
-            next.windDir, next.scale, JSON.stringify(marks),
+            next.windDir, next.windSpeed === undefined ? null : next.windSpeed, next.scale, JSON.stringify(marks),
             startLine ? JSON.stringify(startLine) : null,
             finishLine ? JSON.stringify(finishLine) : null,
             geomChanged ? 1 : 0, cur.id],
@@ -484,6 +492,7 @@ async function repeatSession(id, { date, mode, name } = {}) {
         originLat: cur.originLat,
         originLon: cur.originLon,
         windDir: cur.windDir,
+        windSpeed: cur.windSpeed === undefined ? null : cur.windSpeed,
         scale: cur.scale,
         startTime: null,
         status: "scheduled",
@@ -507,11 +516,11 @@ async function repeatSession(id, { date, mode, name } = {}) {
     }
     await initDb();
     const res = await client.execute({
-        sql: `INSERT INTO sessions (templateId, templateVersion, name, date, mode, originLat, originLon, windDir, scale,
+        sql: `INSERT INTO sessions (templateId, templateVersion, name, date, mode, originLat, originLon, windDir, windSpeed, scale,
               startTime, status, courseVersion, templateSnapshot, marks, startLine, finishLine, createdAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
         args: [base.templateId, base.templateVersion, base.name, base.date, base.mode, base.originLat, base.originLon,
-            base.windDir, base.scale, base.startTime, base.status,
+            base.windDir, base.windSpeed, base.scale, base.startTime, base.status,
             JSON.stringify(base.templateSnapshot), JSON.stringify(base.marks),
             base.startLine ? JSON.stringify(base.startLine) : null,
             base.finishLine ? JSON.stringify(base.finishLine) : null, now],
@@ -584,6 +593,7 @@ async function getActiveSessionForDevice(deviceId) {
         startOffsetSec: (mine && mine.startOffsetSec) || 0,
         courseVersion: full.courseVersion,
         windDir: Math.round(full.windDir),
+        windSpeed: full.windSpeed == null ? null : Math.round(full.windSpeed),
         marks: full.marks.map(m => ({
             lat: m.lat, lon: m.lon, r: m.r, side: m.side, type: m.type,
             ...(m.gate ? { gate: m.gate } : {}),
