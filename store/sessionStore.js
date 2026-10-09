@@ -575,7 +575,14 @@ module.exports = {
     sessionsForDevice,
     activeSessionsForDevice,
     getActiveSessionForDevice,
+    abandonMemorySession,
 };
+
+// In-memory twin of the ABANDON signal's UPDATE (no-DB fallback mode).
+function abandonMemorySession(sessionId) {
+    const s = memSessions.get(Number(sessionId));
+    if (s) s.status = "abandoned";
+}
 
 // Newest session (scheduled/live) a device is assigned to, trimmed for the
 // firmware: resolved geometry + own pursuit offset. Null when unassigned.

@@ -37,6 +37,26 @@ function rowToSignal(row) {
     };
 }
 
+// ABANDON ends the whole session (fleet-wide), so raising it also flips the
+// session's stored status to "abandoned". Without this the session would keep
+// being inferred as scheduled/live and keep riding the health piggyback, so a
+// device that walked away would be handed the session straight back. "abandoned"
+// is the only status ever stored; everything else is inferred on read.
+async function markSessionAbandoned(sessionId) {
+    const client = getClient();
+    if (!client) {
+        // Lazy require: sessionStore requires this module, so the back-edge is
+        // resolved at call time only.
+        const { abandonMemorySession } = require("./sessionStore");
+        abandonMemorySession(sessionId);
+        return;
+    }
+    await client.execute({
+        sql: "UPDATE sessions SET status = 'abandoned' WHERE id = ?",
+        args: [sessionId],
+    });
+}
+
 async function raiseSignal(sessionId, body) {
     const s = cleanSignal(sessionId, body || {});
     const now = new Date().toISOString();
@@ -44,6 +64,7 @@ async function raiseSignal(sessionId, body) {
     if (!client) {
         const row = { id: memId++, ...s, createdAt: now };
         memSignals.push(row);
+        if (s.kind === "ABANDON") await markSessionAbandoned(s.sessionId);
         return row;
     }
     await initDb();
@@ -52,6 +73,7 @@ async function raiseSignal(sessionId, body) {
               VALUES (?, ?, ?, ?, ?) RETURNING *`,
         args: [s.sessionId, s.kind, s.deviceId, s.detail, now],
     });
+    if (s.kind === "ABANDON") await markSessionAbandoned(s.sessionId);
     return rowToSignal(res.rows[0]);
 }
 

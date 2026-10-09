@@ -133,10 +133,16 @@ async function initDb() {
         } catch (e) {
             if (!/duplicate column/i.test(e.message || "")) throw e;
         }
+        // Historical DBs still carry the pre-2026-10-09 preset flag.
+        try {
+            await c.execute(`ALTER TABLE courses DROP COLUMN is_template`);
+        } catch (e) {
+            // ignore: already dropped, or engine without DROP COLUMN
+        }
         // A session encapsulates a course frozen onto a day: snapshot copy +
         // instantiation params + resolved absolute marks. courseId is nullable
         // provenance ("cloned from", may dangle) — never read through.
-        await c.execute(`
+        const SESSIONS_DDL = `
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 courseId INTEGER,
@@ -154,36 +160,58 @@ async function initDb() {
                 courseVersion INTEGER NOT NULL DEFAULT 1,
                 courseSnapshot TEXT NOT NULL,
                 marks TEXT NOT NULL,
-                createdAt TEXT NOT NULL
-            )
-        `);
-        // Migrate pre-rename schemas (best-effort, ignore when absent).
-        // courseId/courseShapeVersion/courseSnapshot were templateId/
-        // templateVersion/templateSnapshot before 2026-10-09. NOTE: sessions'
-        // own courseVersion (geometry revision, pushed to devices) is a
-        // DIFFERENT counter and is never renamed.
-        for (const [from, to] of [
-            ["templateId", "courseId"],
-            ["templateVersion", "courseShapeVersion"],
-            ["templateSnapshot", "courseSnapshot"],
-        ]) {
-            try {
-                await c.execute(`ALTER TABLE sessions RENAME COLUMN ${from} TO ${to}`);
-            } catch (e) {
-                if (!/no such column/i.test(e.message || "")) throw e;
-            }
-        }
-        for (const col of ["courseShapeVersion"]) {
-            try {
-                await c.execute(`ALTER TABLE sessions ADD COLUMN ${col} INTEGER`);
-            } catch (e) {
-                if (!/duplicate column/i.test(e.message || "")) throw e;
-            }
-        }
-        try {
-            await c.execute(`ALTER TABLE sessions ADD COLUMN windSpeed REAL`);
-        } catch (e) {
-            if (!/duplicate column/i.test(e.message || "")) throw e;
+                createdAt TEXT NOT NULL,
+                startLine TEXT,
+                finishLine TEXT
+            )`;
+        await c.execute(SESSIONS_DDL);
+        // Migrate pre-rename schemas: courseId/courseShapeVersion/courseSnapshot
+        // were templateId/templateVersion/templateSnapshot. NOTE: sessions' own
+        // courseVersion (geometry revision, pushed to devices) is a DIFFERENT
+        // counter and is never renamed.
+        //
+        // This REBUILDS the table instead of using ALTER ... RENAME COLUMN: a
+        // table grown by many ADD COLUMN steps makes SQLite re-parse the whole
+        // accumulated schema on rename, which fails with "duplicate column
+        // name" (hit on the live DB 2026-10-10). A rebuild is deterministic and
+        // only runs while a legacy column is still present.
+        const info = await c.execute(`PRAGMA table_info(sessions)`);
+        const have = new Set(info.rows.map((r) => r.name));
+        if (["templateId", "templateVersion", "templateSnapshot"].some((c) => have.has(c))) {
+            // [target column, source aliases, fallback expression]
+            const map = [
+                ["id", ["id"], "NULL"],
+                ["courseId", ["courseId", "templateId"], "NULL"],
+                ["courseShapeVersion", ["courseShapeVersion", "templateVersion"], "NULL"],
+                ["courseSnapshot", ["courseSnapshot", "templateSnapshot"], "''"],
+                ["name", ["name"], "NULL"],
+                ["date", ["date"], "NULL"],
+                ["mode", ["mode"], "'practice'"],
+                ["originLat", ["originLat"], "0"],
+                ["originLon", ["originLon"], "0"],
+                ["windDir", ["windDir"], "0"],
+                ["windSpeed", ["windSpeed"], "NULL"],
+                ["scale", ["scale"], "1"],
+                ["startTime", ["startTime"], "NULL"],
+                ["status", ["status"], "'scheduled'"],
+                ["courseVersion", ["courseVersion"], "1"],
+                ["marks", ["marks"], "NULL"],
+                ["createdAt", ["createdAt"], "NULL"],
+                ["startLine", ["startLine"], "NULL"],
+                ["finishLine", ["finishLine"], "NULL"],
+            ];
+            const cols = map.map(([t]) => t).join(", ");
+            const exprs = map
+                .map(([, aliases, fallback]) => (aliases.find((a) => have.has(a)) || fallback))
+                .join(", ");
+            await c.execute(`DROP INDEX IF EXISTS idx_sessions_date`);
+            await c.execute(`ALTER TABLE sessions RENAME TO sessions_legacy`);
+            await c.execute(SESSIONS_DDL);
+            await c.execute(
+                `INSERT INTO sessions (${cols}) SELECT ${exprs} FROM sessions_legacy`
+            );
+            await c.execute(`DROP TABLE sessions_legacy`);
+            console.log("[db] sessions rebuilt onto the course naming");
         }
         await c.execute(`
             CREATE TABLE IF NOT EXISTS session_boats (
