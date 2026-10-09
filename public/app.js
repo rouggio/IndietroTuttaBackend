@@ -91,7 +91,7 @@ function renderBoatPanel(panel) {
     if (panel.renderedKey === key && div.style.display !== "none") return;
     panel.renderedKey = key;
     div.innerHTML = `
-        <h4>${boatDisplayName(panel.id, p)} <span style="float:right;cursor:pointer" onclick="closeBoatPanel('${panel.id}')">×</span><span style="float:right;cursor:pointer;margin-right:8px" title="Boat info" onclick="openBoatInfo('${panel.id}')">ⓘ</span><span style="float:right;cursor:pointer;margin-right:8px" title="Center map on boat" onclick="centerBoatOnMap('${panel.id}')">⌖</span></h4>
+        <h4>${boatDisplayName(panel.id, p)}<span class="pane-actions"><span class="pane-btn" title="Center map on boat" onclick="centerBoatOnMap('${panel.id}')">⌖</span><span class="pane-btn" title="Boat info" onclick="openBoatInfo('${panel.id}')">ⓘ</span><span class="pane-btn pane-close" title="Close" onclick="closeBoatPanel('${panel.id}')">×</span></span></h4>
         <table>
             <tr><td>Speed</td><td>${typeof p.speed === "number" ? p.speed.toFixed(1) : "-"} knots</td></tr>
             <tr><td>Course</td><td>${p.course ?? "-"}°</td></tr>
@@ -1729,6 +1729,7 @@ if (templatesBtn && templatePanel) {
     templatesBtn.addEventListener("click", () => { toggleEl("template-panel"); avoidPanelOverlap(templatePanel); syncTemplatesBtn(); saveUI(); loadCourseTemplates(); if (!panelVisible(templatePanel)) closeBuilder(); });
     new MutationObserver(syncTemplatesBtn).observe(templatePanel, { attributes: true, attributeFilter: ["style"] });
     syncTemplatesBtn();
+    document.getElementById("templateClose")?.addEventListener("click", () => { toggleEl("template-panel", false); syncTemplatesBtn(); saveUI(); closeBuilder(); });
 }
 const sessionsBtn = document.getElementById("sessionsToggleBtn");
 const sessionPanel = document.getElementById("session-panel");

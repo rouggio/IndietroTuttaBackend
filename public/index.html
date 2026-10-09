@@ -21,7 +21,7 @@
             <button id="windToggleBtn" class="dropbtn">Wind</button>
             <button id="timelineToggleBtn" class="dropbtn">Timeline</button>
             <button id="sessionsTopBtn" class="dropbtn">Sessions</button>
-            <button id="templatesToggleBtn" class="dropbtn">Course templates</button>
+            <button id="templatesToggleBtn" class="dropbtn">Course</button>
             <button id="sessionsToggleBtn" class="dropbtn">New session</button>
         </div>
         <div id="topbar-controls">
@@ -46,33 +46,33 @@
 <div id="map"></div>
 
 <div id="device-panel" style="display:none">
-    <h4>Boats <span id="deviceClose" style="float:right;cursor:pointer;font-size:19px;line-height:1">×</span></h4>
+    <h4>Boats <span id="deviceClose" class="pane-close">×</span></h4>
     <input id="boatFilter" type="text" placeholder="Filter boats…" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:8px;font-size:13px">
     <div id="device-list">Loading...</div>
 </div>
 
 <div id="wind-panel" style="display:none">
-    <h4>Wind <span style="float:right;display:flex;gap:8px;align-items:center"><button id="windRefresh" title="Refresh now" style="border:none;background:none;cursor:pointer;font-size:19px;padding:0;line-height:1">↻</button><span id="windClose" style="cursor:pointer;font-size:19px;line-height:1">×</span></span></h4>
+    <h4>Wind <button id="windRefresh" class="pane-close" title="Refresh now">↻</button><span id="windClose" class="pane-close">×</span></h4>
     <div id="wind-body"><div class="device-meta">Loading…</div></div>
 </div>
 
 <div id="template-panel" style="display:none">
-    <h4>Course templates</h4>
+    <h4>Course <span id="templateClose" class="pane-close">×</span></h4>
     <div id="tab-templates" class="course-tab"></div>
 </div>
 
 <div id="session-panel" style="display:none">
-    <h4>Sessions <span style="float:right;cursor:pointer;font-size:19px;line-height:1" id="sessionClose">×</span></h4>
+    <h4>Sessions <span id="sessionClose" class="pane-close">×</span></h4>
     <div id="tab-sessions" class="course-tab"></div>
 </div>
 
 <div id="session-detail-panel" style="display:none">
-    <h4>Session <span style="float:right;cursor:pointer" id="sessionDetailClose">×</span></h4>
+    <h4>Session <span id="sessionDetailClose" class="pane-close">×</span></h4>
     <div id="tab-session-detail" class="course-tab"></div>
 </div>
 
 <div id="session-create-panel" style="display:none">
-    <h4>New session <span style="float:right;cursor:pointer" id="sessionCreateClose">×</span></h4>
+    <h4>New session <span id="sessionCreateClose" class="pane-close">×</span></h4>
     <div id="tab-session-create" class="course-tab"></div>
 </div>
 

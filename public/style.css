@@ -22,11 +22,49 @@ html, body {
 }
 
 .gps-info h4 {
-    margin: 0 0 8px 0;
-    font-size: 16px;
+    margin: -10px -10px 8px -10px;
+    padding: 7px 10px;
+    background: #e5e7eb;
+    border-bottom: 1px solid #d1d5db;
+    border-radius: 8px 8px 0 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     cursor: move;
     user-select: none;
     -webkit-user-select: none;
+}
+
+/* icon buttons in a pane header (boat pane: × ⓘ ⌖) */
+.pane-btn {
+    cursor: pointer;
+    font-size: 19px;
+    line-height: 1;
+    color: #374151;
+    background: none;
+    border: none;
+    padding: 0 2px;
+    font-family: inherit;
+}
+
+.pane-btn:hover {
+    color: #111827;
+}
+
+/* right-aligned icon group in a pane header (boat pane: ⌖ ⓘ ×) */
+.pane-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+/* drag handle must stay grabbable, not look clickable */
+.boat-panel h4 .pane-btn {
+    cursor: pointer;
 }
 
 .gps-info table {
@@ -251,6 +289,43 @@ html, body {
 #device-panel h4 {
     margin: 0 0 8px 0;
     font-size: 14px;
+}
+
+/* Shared pane header: light gray bar, flush with the panel's rounded top,
+   with one large × on the right (same size on every pane). */
+#device-panel h4,
+#template-panel h4,
+#wind-panel h4,
+#session-panel h4,
+#session-create-panel h4,
+#session-detail-panel h4 {
+    margin: -10px -10px 8px -10px;
+    padding: 7px 10px;
+    background: #e5e7eb;
+    border-bottom: 1px solid #d1d5db;
+    border-radius: 8px 8px 0 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pane-close {
+    margin-left: auto;
+    cursor: pointer;
+    font-size: 19px;
+    line-height: 1;
+    color: #374151;
+    background: none;
+    border: none;
+    padding: 0 2px;
+    font-family: inherit;
+}
+
+.pane-close:hover {
+    color: #111827;
 }
 
 .device-item {
@@ -645,14 +720,7 @@ html, body {
     overflow-y: auto;
 }
 
-#template-panel h4,
-#wind-panel h4,
-#session-panel h4,
-#session-create-panel h4,
-#session-detail-panel h4 {
-    margin: 0 0 8px 0;
-    font-size: 14px;
-}
+/* header style lives in the shared rule near #device-panel h4 */
 
 .template-grid {
     display: grid;
