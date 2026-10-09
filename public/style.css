@@ -786,9 +786,19 @@ html, body {
     font-size: 13px;
 }
 
+/* header style lives in the shared rule near #device-panel h4 */
 #builder-panel h4 {
-    margin: 0 0 8px 0;
+    margin: -12px -12px 8px -12px;
+    padding: 7px 10px;
+    background: #e5e7eb;
+    border-bottom: 1px solid #d1d5db;
+    border-radius: 8px 8px 0 0;
     font-size: 14px;
+    font-weight: 700;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .builder-label {
