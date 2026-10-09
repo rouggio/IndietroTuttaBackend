@@ -21,6 +21,14 @@ const {
     listSignals,
 } = require("../store/signalStore");
 
+const {
+    getDevice,
+} = require("../store/deviceStore");
+
+const {
+    createRun,
+} = require("../store/sim");
+
 const router = express.Router();
 
 function sendErr(res, e) {
@@ -125,6 +133,14 @@ router.post("/sessions/:id/boats", async (req, res) => {
         const { deviceId, startOffsetSec } = req.body || {};
         const s = await addBoat(req.params.id, deviceId, startOffsetSec);
         if (!s) return res.status(404).json({ error: "session not found" });
+        // A mock boat auto-starts its scripted sim (same as the Simulate
+        // button) so it begins sailing without a manual step.
+        if (typeof deviceId === "string" && deviceId.trim()) {
+            try {
+                const dev = await getDevice(deviceId.trim());
+                if (dev && dev.mock) await createRun({ sessionId: s.id, deviceId: deviceId.trim() });
+            } catch (e) { /* non-fatal: the boat is still added */ }
+        }
         res.status(201).json(s);
     } catch (e) {
         sendErr(res, e);

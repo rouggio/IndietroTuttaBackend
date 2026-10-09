@@ -374,24 +374,71 @@ async function deleteSession(id) {
     return res.rowsAffected > 0;
 }
 
+// Every session (any status) this device is a boat in.
+async function sessionsForDevice(deviceId) {
+    if (!deviceId) return [];
+    const client = getClient();
+    const out = [];
+    if (!client) {
+        for (const s of memSessions.values()) {
+            const boats = memBoats.get(s.id) || [];
+            if (!boats.some(b => b.deviceId === deviceId)) continue;
+            const full = { ...s, boats };
+            full.status = await deriveStatus(full);
+            out.push(full);
+        }
+        return out;
+    }
+    await initDb();
+    const res = await client.execute({
+        sql: `SELECT s.* FROM sessions s JOIN session_boats b ON b.sessionId = s.id
+              WHERE b.deviceId = ? ORDER BY s.id ASC`,
+        args: [deviceId],
+    });
+    for (const r of res.rows) {
+        const full = rowToSession(r, await getBoats(r.id));
+        full.status = await deriveStatus(full);
+        out.push(full);
+    }
+    return out;
+}
+
+// Active = scheduled or live (a boat can't be in two at once). `exceptId`
+// skips the session being joined/re-added so re-adding is not a conflict.
+async function activeSessionsForDevice(deviceId, exceptId = null) {
+    const list = await sessionsForDevice(deviceId);
+    return list.filter(s => s.id !== exceptId && (s.status === "scheduled" || s.status === "live"));
+}
+
+function boatBusyError(conflict) {
+    const label = conflict.name ? ` "${conflict.name}"` : "";
+    return Object.assign(
+        new Error(`boat is already in an active session (#${conflict.id}${label}) — finish or abandon it first`),
+        { status: 409 }
+    );
+}
+
 async function addBoat(sessionId, deviceId, startOffsetSec = 0) {
     const cur = await getSession(sessionId);
     if (!cur) return null;
     if (typeof deviceId !== "string" || !deviceId.trim()) {
         throw Object.assign(new Error("deviceId required"), { status: 400 });
     }
+    const dev = deviceId.trim();
+    const conflicts = await activeSessionsForDevice(dev, cur.id);
+    if (conflicts.length) throw boatBusyError(conflicts[0]);
     const off = Number(startOffsetSec) || 0;
     const client = getClient();
     if (!client) {
         const list = memBoats.get(cur.id) || [];
-        if (!list.some(x => x.deviceId === deviceId.trim())) list.push({ deviceId: deviceId.trim(), startOffsetSec: off });
+        if (!list.some(x => x.deviceId === dev)) list.push({ deviceId: dev, startOffsetSec: off });
         memBoats.set(cur.id, list);
         return getSession(cur.id);
     }
     await initDb();
     await client.execute({
         sql: "INSERT OR REPLACE INTO session_boats (sessionId, deviceId, startOffsetSec) VALUES (?, ?, ?)",
-        args: [cur.id, deviceId.trim(), off],
+        args: [cur.id, dev, off],
     });
     return getSession(cur.id);
 }
@@ -419,6 +466,12 @@ async function repeatSession(id, { date, mode, name } = {}) {
     if (!cur) return null;
     if (!date || !DATE_RE.test(date)) {
         throw Object.assign(new Error("date must be YYYY-MM-DD"), { status: 400 });
+    }
+    // A boat can't be in two concurrent sessions: only repeat once every
+    // boat is free (source finished/abandoned).
+    for (const b of cur.boats) {
+        const conflicts = await activeSessionsForDevice(b.deviceId);
+        if (conflicts.length) throw boatBusyError(conflicts[0]);
     }
     const cleanMode = mode && MODES.includes(mode) ? mode : cur.mode;
     const now = new Date().toISOString();
@@ -486,6 +539,8 @@ module.exports = {
     addBoat,
     removeBoat,
     repeatSession,
+    sessionsForDevice,
+    activeSessionsForDevice,
     getActiveSessionForDevice,
 };
 

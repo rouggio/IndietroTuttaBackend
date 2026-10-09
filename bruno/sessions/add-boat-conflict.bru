@@ -1,0 +1,37 @@
+meta {
+  name: Add boat (conflict 409)
+  type: http
+  seq: 26
+}
+
+post {
+  url: {{baseUrl}}/sessions/:id/boats
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "deviceId": "{{deviceId}}",
+    "startOffsetSec": 0
+  }
+}
+
+docs {
+  Join a SECOND session with a boat already in another scheduled/live session.
+
+  Expect 409 with the blocking session named, e.g.
+  {"error":"boat is already in an active session (#N \"...\") — finish or abandon it first"}
+  Finish (all boats uploaded a run) or abandon the blocking session, then retry.
+
+  Side note: when the added boat is currently in mock, this same endpoint also
+  auto-creates its scripted sim run (same as POST /sim/runs {sessionId, deviceId}).
+}

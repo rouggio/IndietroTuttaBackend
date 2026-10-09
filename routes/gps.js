@@ -14,6 +14,7 @@ const {
 const {
     upsertDevice,
     getDevice,
+    setDeviceMock,
     sanitizeUsername
 } = require("../store/deviceStore");
 
@@ -72,6 +73,16 @@ router.post("/gps", async (req, res) => {
     // --------------------------------------------------
 
     const device = await upsertDevice(deviceId, { username, firmware: firmware || bodyFirmware || fw, ip: req.ip });
+
+    // Keep the assumed mock flag in sync with what the device actually
+    // reports: simulated uploads mean mock is on, real ones mean it's off.
+    // Writes only on a transition, never per upload.
+    if (device && deviceId) {
+        const isSim = simulated === true ? 1 : 0;
+        if (device.mock !== isSim) {
+            try { await setDeviceMock(deviceId, isSim); } catch (e) { /* ignore */ }
+        }
+    }
 
     // --------------------------------------------------
     // Store point — simulated uploads NEVER touch Turso: they live in

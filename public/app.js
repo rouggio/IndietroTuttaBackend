@@ -3181,11 +3181,15 @@ async function renderSessionDetail() {
         document.getElementById("sess-add-btn").addEventListener("click", async () => {
             const id = document.getElementById("sess-add-boat").value;
             const off = Number(document.getElementById("sess-add-off").value) || 0;
+            const errBox = document.getElementById("sess-detail-err");
             if (!id) return;
-            await fetch(`/sessions/${s.id}/boats`, {
+            const r = await fetch(`/sessions/${s.id}/boats`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ deviceId: id, startOffsetSec: off }),
             });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) { if (errBox) errBox.textContent = j.error || "Could not add boat."; return; }
+            if (errBox) errBox.textContent = "";
             loadSessions(s.id);
         });
         el.querySelectorAll("[data-unboat]").forEach(a => a.addEventListener("click", async e => {
