@@ -441,8 +441,8 @@ module.exports = {
 const WANDER_KN = 6;
 const WANDER_LEASH_M = 500;
 const WANDER_RESEED_M = 750; // pushed anchor jumped further → fresh walk
-const WANDER_MIN_KN = 4; // wander speed breathes around 6 ± 2kn
-const WANDER_MAX_KN = 8;
+const WANDER_MIN_KN = 4; // wander speed breathes between 4 and 13kn
+const WANDER_MAX_KN = 13;
 const wanders = new Map(); // deviceId -> { aLat,aLon,lat,lon,head,spd,t,free }
 
 async function wanderAnchorFor(deviceId) {
