@@ -1764,7 +1764,12 @@ if (sessionsBtn && sessionPanel) {
         const open = cp && cp.style.display !== "none" && cp.style.display !== "";
         sessionsBtn.classList.toggle("active", open);
     };
-    sessionsBtn.addEventListener("click", () => { openSessionCreate(); });
+    // Real toggle: a second click closes the pane (it used to re-open and
+    // re-render, so the button felt dead).
+    sessionsBtn.addEventListener("click", () => {
+        if (panelVisible(document.getElementById("session-create-panel"))) closeSessionCreate();
+        else openSessionCreate();
+    });
     new MutationObserver(syncSessionsBtn).observe(document.getElementById("session-create-panel"), { attributes: true, attributeFilter: ["style"] });
     syncSessionsBtn();
     document.getElementById("sessionClose")?.addEventListener("click", () => {
@@ -1789,23 +1794,24 @@ if (sessionsTopBtn && sessionPanel) {
 // New-session pane (creation form split out of the list panel).
 const sessionCreatePanel = document.getElementById("session-create-panel");
 function openSessionCreate() {
-    // New session owns the map preview: stand down the template library
-    // and the builder so their layers don't fight the draft.
-    const tp = document.getElementById("template-panel");
-    if (tp) tp.style.display = "none";
+    // The Course pane stays open — it holds the template library you pick the
+    // day's template from. Only the builder stands down: its live map layers
+    // would fight the session draft preview.
     if (typeof closeBuilder === "function") closeBuilder();
     if (sessionCreatePanel && !panelVisible(sessionCreatePanel)) toggleEl("session-create-panel");
     if (sessionCreatePanel) avoidPanelOverlap(sessionCreatePanel);
     saveUI();
     renderSessionCreate();
 }
+function closeSessionCreate() {
+    if (!sessionCreatePanel) return;
+    sessionCreatePanel.style.display = "none";
+    disarmSessMove();
+    clearSessPreview();
+    saveUI();
+}
 if (sessionCreatePanel) {
-    document.getElementById("sessionCreateClose")?.addEventListener("click", () => {
-        sessionCreatePanel.style.display = "none";
-        disarmSessMove();
-        clearSessPreview();
-        saveUI();
-    });
+    document.getElementById("sessionCreateClose")?.addEventListener("click", closeSessionCreate);
 }
 
 let courseTemplatesCache = null;
