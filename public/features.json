@@ -18,7 +18,6 @@
     { "n": 14, "cost": 1, "title": "Drop the Simulate button, keep a mock traces toggle" },
     { "n": 15, "cost": 1, "title": "Move Abandon next to Delete at the bottom" },
     { "n": 16, "cost": 3, "title": "Race finishes on the line cross, only after every mark is cleared" },
-    { "n": 17, "cost": 1, "title": "DEV badge in the top bar when running against the dev backend" },
     { "n": 18, "cost": 1, "title": "Simplify or remove the crowded top-right date/count/selected label" }
   ]
 }
