@@ -12,6 +12,23 @@ html, body {
     margin-top: 48px;
 }
 
+/* committee signal toast (ABANDON / RECALL): bottom-center, auto-dismiss */
+#sess-toast {
+    position: absolute;
+    left: 50%;
+    bottom: 64px;
+    transform: translateX(-50%);
+    z-index: 3000;
+    background: #0f172a;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 8px 16px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.35);
+    white-space: nowrap;
+}
+
 .gps-info {
     background: white;
     padding: 10px;

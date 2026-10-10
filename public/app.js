@@ -820,8 +820,25 @@ let lastDevices = [];
 async function refreshDevices() {
     try {
         const res = await fetch("/boats");
-        const devices = await res.json();
-        lastDevices = devices;
+        lastDevices = await res.json();
+        renderDevices();
+    } catch (e) {
+        console.error("devices refresh failed", e);
+    }
+}
+// Patch one known boat in place (no fetch): event-driven updates re-render
+// the list from lastDevices. Returns false when the boat isn't cached —
+// the caller then falls back to a full refreshDevices().
+function patchBoat(deviceId, patch) {
+    const d = lastDevices.find(x => x.deviceId === deviceId);
+    if (!d) return false;
+    Object.assign(d, patch);
+    renderDevices();
+    return true;
+}
+function renderDevices() {
+    try {
+        const devices = lastDevices;
         // Prune ghost selections: a device deleted from the DB stays in the
         // persisted selection Set forever, and refresh()/pollLiveSim() would
         // keep polling it every cycle for rows that can never come back.
@@ -1105,7 +1122,11 @@ refresh(true);
 refreshDevices();
 
 setInterval(() => {
-    refreshDevices();
+    // Boat list rides the event stream while subscribed to boat topics
+    // (boat.mock/created/deleted, device.status); otherwise it polls — but
+    // only while the Boats pane is actually visible. Nothing open, no requests.
+    const boatsOpen = panelVisible(document.getElementById("device-panel"));
+    if (boatsOpen && !sessSubbed("boat")) refreshDevices();
     if (isLive && !playbackTimer) refresh();
 }, 5000);
 
@@ -1611,11 +1632,11 @@ const boatsBtn = document.getElementById("boatsToggleBtn");
 const devicePanel = document.getElementById("device-panel");
 if (boatsBtn && devicePanel) {
     const syncBoatsBtn = () => boatsBtn.classList.toggle("active", devicePanel.style.display !== "none" && devicePanel.style.display !== "");
-    boatsBtn.addEventListener("click", () => { toggleEl("device-panel"); avoidPanelOverlap(devicePanel); syncBoatsBtn(); saveUI(); });
+    boatsBtn.addEventListener("click", () => { toggleEl("device-panel"); avoidPanelOverlap(devicePanel); syncBoatsBtn(); saveUI(); if (panelVisible(devicePanel)) refreshDevices(); syncEventStream(); });
     // keep in sync if panel toggled elsewhere
     new MutationObserver(syncBoatsBtn).observe(devicePanel, { attributes:true, attributeFilter:["style"] });
 }
-document.getElementById("deviceClose")?.addEventListener("click", () => toggleEl("device-panel", false));
+document.getElementById("deviceClose")?.addEventListener("click", () => { toggleEl("device-panel", false); syncEventStream(); });
 const timelineBtn = document.getElementById("timelineToggleBtn");
 const playbackEl = document.getElementById("playback");
 if (timelineBtn && playbackEl) {
@@ -1929,6 +1950,7 @@ if (sessionsBtn && sessionPanel) {
     syncSessionsBtn();
     document.getElementById("sessionClose")?.addEventListener("click", () => {
         sessionPanel.style.display = "none";
+        closeSessStream();
         endSessMove();
         clearSessPreview();
         syncSessionsBtn();
@@ -1942,8 +1964,11 @@ if (sessionsTopBtn && sessionPanel) {
         const open = sessionPanel.style.display !== "none" && sessionPanel.style.display !== "";
         sessionsTopBtn.classList.toggle("active", open);
     };
-    sessionsTopBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncTopBtn(); saveUI(); loadSessions(); if (!panelVisible(sessionPanel)) { endSessMove(); clearSessPreview(); } });
+    sessionsTopBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncTopBtn(); saveUI(); if (panelVisible(sessionPanel)) { openSessStream(); loadSessions(); } else { closeSessStream(); endSessMove(); clearSessPreview(); } });
     new MutationObserver(syncTopBtn).observe(sessionPanel, { attributes: true, attributeFilter: ["style"] });
+    // The stream follows visibility, not the open call: loadUI() restores
+    // panels directly, bypassing openSessionsPanel entirely.
+    new MutationObserver(() => { syncEventStream(); }).observe(sessionPanel, { attributes: true, attributeFilter: ["style"] });
     syncTopBtn();
 }
 // New-session pane (creation form split out of the list panel).
@@ -2824,8 +2849,106 @@ function openSessionsPanel(selectId) {
     const sb = document.getElementById("sessionsTopBtn");
     if (sb && panel) sb.classList.toggle("active", panelVisible(panel));
     saveUI();
+    openSessStream();
     loadSessions(selectId);
 }
+
+// --- Live event stream (todo 2): one connection, panes subscribe by topic
+// (?topics=session,signal,boat,device). Reload-on-event (not patch-level):
+// payloads are small and the full fetch is the fallback anyway. Polls pause
+// per-topic while subscribed and resume on drop (EventSource reconnects).
+let sessEventSrc = null;
+let sessTopics = new Set(); // topics of the live connection
+function sessToast(msg) {
+    const t = document.getElementById("sess-toast");
+    if (!t) return;
+    t.textContent = msg;
+    t.style.display = "block";
+    clearTimeout(sessToast._t);
+    sessToast._t = setTimeout(() => { t.style.display = "none"; }, 6000);
+}
+function sessWantTopics() {
+    // Baseline is always signal+device (rare, cheap); panes add their own.
+    // Resubscribing reconnects the single connection — never a second one.
+    const t = new Set(["signal", "device"]);
+    if (panelVisible(document.getElementById("session-panel"))) t.add("session");
+    if (panelVisible(document.getElementById("device-panel"))) t.add("boat");
+    return t;
+}
+function sessSubbed(topic) {
+    return !!(sessEventSrc && sessEventSrc.readyState === 1 && sessTopics.has(topic));
+}
+function closeSessStream() {
+    if (sessEventSrc) {
+        try { sessEventSrc.close(); } catch {}
+        sessEventSrc = null;
+    }
+    sessTopics = new Set();
+}
+function syncEventStream() {
+    const want = sessWantTopics();
+    const same = sessEventSrc && want.size === sessTopics.size && [...want].every(x => sessTopics.has(x));
+    if (same && sessEventSrc.readyState !== 2) return; // 2 = CLOSED; connecting/open stays
+    closeSessStream();
+    if (typeof EventSource === "undefined") return;
+    sessTopics = want;
+    const src = new EventSource("/events?topics=" + [...want].join(","));
+    sessEventSrc = src;
+    const reloadList = () => {
+        if (panelVisible(document.getElementById("session-panel"))) loadSessions();
+    };
+    src.addEventListener("session.created", reloadList);
+    src.addEventListener("session.updated", reloadList);
+    src.addEventListener("session.deleted", reloadList);
+    src.addEventListener("session.boats", reloadList);
+    src.addEventListener("session.runs", () => {
+        if (panelVisible(document.getElementById("session-detail-panel"))) loadSessions(selectedSessionId);
+    });
+    src.addEventListener("session.status", e => {
+        try {
+            const d = JSON.parse(e.data || "{}");
+            if (d.id) loadSessions(d.id === selectedSessionId ? d.id : undefined);
+            else reloadList();
+        } catch { reloadList(); }
+    });
+    src.addEventListener("signal.raised", e => {
+        try {
+            const d = JSON.parse(e.data || "{}");
+            if (panelVisible(document.getElementById("session-detail-panel"))) loadSessions(selectedSessionId);
+            else reloadList();
+            if (d.kind === "ABANDON") sessToast(`ABANDON — session ${d.sessionId}`);
+            else if (d.kind === "RECALL") sessToast(`RECALL — session ${d.sessionId}`);
+        } catch {}
+    });
+    src.addEventListener("boat.mock", e => {
+        try {
+            const d = JSON.parse(e.data || "{}");
+            if (d.deviceId && !patchBoat(d.deviceId, { mock: !!d.mock })) refreshDevices();
+        } catch {}
+    });
+    src.addEventListener("boat.created", () => { try { refreshDevices(); } catch {} }); // full row needed
+    src.addEventListener("boat.deleted", e => {
+        try {
+            const d = JSON.parse(e.data || "{}");
+            if (d.deviceId) {
+                lastDevices = lastDevices.filter(x => x.deviceId !== d.deviceId);
+                selectedDeviceIds.delete(d.deviceId);
+                renderDevices();
+            }
+        } catch {}
+    });
+    src.addEventListener("device.status", e => {
+        try {
+            const d = JSON.parse(e.data || "{}");
+            if (!d.deviceId) { refreshDevices(); return; }
+            const patch = { status: d.status };
+            if (d.lastSeen) patch.lastSeen = d.lastSeen;
+            if (!patchBoat(d.deviceId, patch)) refreshDevices();
+        } catch {}
+    });
+    src.onerror = () => { /* EventSource reconnects; polls cover the gap */ };
+}
+function openSessStream() { syncEventStream(); }
 
 // Session editor pane (detail for the selected session, split from the list).
 const sessionDetailPanel = document.getElementById("session-detail-panel");
@@ -3517,6 +3640,8 @@ async function renderSessionDetail() {
         // Status is inferred server-side (gun passed → live, all boats in →
         // finished): refresh just the badge so the committee sees flips.
         const tickStatus = async () => {
+            // SSE owns status while subscribed; this is the fallback.
+            if (sessSubbed("session")) return;
             try {
                 const sj = await (await fetch(`/sessions/${s.id}`)).json();
                 if (sj && sj.status && sj.status !== s.status) {
@@ -3620,6 +3745,7 @@ avoidPanelOverlap(document.getElementById("device-panel"));
 // populate panels restored visible (their content loads on toggle otherwise)
 if (panelVisible(document.getElementById("course-panel"))) loadCourses();
 if (panelVisible(document.getElementById("session-panel"))) loadSessions();
+syncEventStream(); // baseline topics from boot; panes resubscribe on toggle
 if (panelVisible(document.getElementById("wind-panel"))) refreshWind();
 if (panelVisible(document.getElementById("session-create-panel"))) renderSessionCreate();
 if (panelVisible(document.getElementById("features-panel"))) {
