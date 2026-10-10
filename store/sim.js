@@ -142,8 +142,8 @@ function scriptWaypoints(session) {
     return ordered;
 }
 
-function compileScript(session, { speedKn = 10, startInSec = 60, nowMs = Date.now() } = {}) {
-    const v = Math.max(1, Math.min(15, Number(speedKn) || 10)) * KN_TO_MS; // m/s
+function compileScript(session, { speedKn = 17, startInSec = 60, nowMs = Date.now() } = {}) {
+    const v = Math.max(1, Math.min(20, Number(speedKn) || 17)) * KN_TO_MS; // m/s
     const wps = scriptWaypoints(session);
     if (wps.length < 2) throw Object.assign(new Error("session has no sailable route"), { status: 400 });
 
@@ -323,7 +323,7 @@ async function createRun({ sessionId, deviceId, speedKn, startInSec }) {
     const run = {
         id, deviceId: deviceId.trim(), sessionId: session.id,
         createdMs: nowMs, startMs: nowMs, gunMs: nowMs + gunSec * 1000,
-        speedKn: Math.max(1, Math.min(15, Number(speedKn) || 10)),
+        speedKn: Math.max(1, Math.min(20, Number(speedKn) || 17)),
         samples, gunSec, durationSec,
         echoes: [], // device-reported receipts {t,lat,lon,speed,course,at}
     };
