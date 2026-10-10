@@ -3357,9 +3357,10 @@ async function renderSessionDetail() {
                     <input id="sess-add-off" type="number" value="0" title="Pursuit offset (s)" style="max-width:70px">
                     <button id="sess-add-btn">Add</button>
                 </div>
+                ${["finished", "abandoned"].includes(s.status) ? "" : `
                 <div class="builder-row">
                     <button id="sess-sim-preview" title="Show/hide the scripted mock traces on the map">Mock traces</button>
-                </div>
+                </div>`}
                 ${s.status === "live" ? `
                 <div class="builder-row"><b>Committee</b></div>
                 <div class="builder-row">
@@ -3380,6 +3381,8 @@ async function renderSessionDetail() {
                 <div class="builder-row">
                     ${s.status === "abandoned"
                         ? `<button id="sess-reopen" title="Clear abandon, back to inferred status">Re-open</button>`
+                        : s.status === "finished"
+                        ? ""
                         : `<button id="sess-abandon" title="Void the race AND tell the fleet now" style="color:#dc2626">Abandon race</button>`}
                     <button id="sess-del" style="color:#dc2626">Delete session</button>
                 </div>
