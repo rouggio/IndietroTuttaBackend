@@ -3325,9 +3325,6 @@ async function renderSimOverlay(fit) {
     L.polyline(latlngs, { color: "#f97316", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(simOverlay);
     if (fit) map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
 }
-// Last repeat-day pick (survives detail re-renders, which would reset the
-// date input to today and silently land repeats on the wrong day).
-let sessRepeatDate = "";
 async function renderSessionDetail() {
     const el = document.getElementById("tab-session-detail");
     if (!el) return;    clearSessDetailTimers();
@@ -3350,35 +3347,19 @@ async function renderSessionDetail() {
                     <tr><td>Gun</td><td id="sess-countdown">—</td></tr>
                     <tr><td>Boats</td><td>${s.boats.length ? s.boats.map(b => `${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))}${b.startOffsetSec ? ` (+${b.startOffsetSec}s)` : ""} <a href="#" data-unboat="${escHtml(b.deviceId)}" style="color:#dc2626">×</a>`).join(", ") : "—"}</td></tr>
                 </table>
-                <div class="builder-row">
-                    ${s.status === "abandoned"
-                        ? `<button id="sess-reopen" title="Clear abandon, back to inferred status">Re-open</button>`
-                        : `<button id="sess-abandon" title="Void the race AND tell the fleet now" style="color:#dc2626">Abandon race</button>`}
-                </div>
-                <div class="builder-row">
-                    <button id="sess-seq" title="Set the gun 5 minutes from now">Gun in 5:00</button>
-                    <button id="sess-post" title="Push the existing gun 5 minutes later">Postpone +5:00</button>
-                </div>
-                <div class="builder-row">
-                    <input id="sess-start-custom" type="time" value="${s.startTime ? toLocalDatetimeValue(new Date(s.startTime)).slice(11, 16) : ""}" title="Start time on ${escHtml(s.date)}">
-                    <button id="sess-start-apply">Set start</button>
-                </div>
+                ${s.status !== "abandoned" && (!s.startTime || Date.now() < new Date(s.startTime).getTime()) ? `
+                <div class="builder-row" id="sess-post-row">
+                    <input id="sess-post-mins" type="number" value="5" min="1" max="120" title="Minutes to push the gun" style="max-width:70px">
+                    <button id="sess-post" title="Push the gun later by this many minutes (pre-start only)">Postpone</button>
+                </div>` : ""}
                 <div class="builder-row">
                     <select id="sess-add-boat">${lastDevices.map(d => `<option value="${escHtml(d.deviceId)}">${escHtml(d.username || d.deviceId.slice(-5))}</option>`).join("")}</select>
                     <input id="sess-add-off" type="number" value="0" title="Pursuit offset (s)" style="max-width:70px">
                     <button id="sess-add-btn">Add</button>
                 </div>
                 <div class="builder-row">
-                    <input id="sess-repeat-date" type="date" value="${sessRepeatDate || todayStr()}" title="Repeat this session on a new day">
-                    <button id="sess-repeat" title="Same course, boats and wind on a new day">Repeat</button>
+                    <button id="sess-sim-preview" title="Show/hide the scripted mock traces on the map">Mock traces</button>
                 </div>
-                <div class="builder-row">
-                    <button id="sess-sim" title="Script a mock-GPS run for all boats (indoor testing)">Simulate</button>
-                    <button id="sess-sim-preview" title="Show/hide the scripted route preview on the map">Preview</button>
-                </div>
-                <div id="sess-runs" class="device-meta"></div>
-                <div class="builder-row"><b>Results</b><button id="sess-res-refresh" title="Reload results">↻</button></div>
-                <div id="sess-results" class="device-meta">no runs yet</div>
                 <div class="builder-row"><b>Committee</b></div>
                 <div class="builder-row">
                     <select id="sess-sig-boat">${s.boats.length ? s.boats.map(b => `<option value="${escHtml(b.deviceId)}">${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))}</option>`).join("") : ""}</select>
@@ -3393,7 +3374,12 @@ async function renderSessionDetail() {
                     <button data-sig="RECALL" title="General recall (fleet)">Recall</button>
                 </div>
                 <div id="sess-signals" class="device-meta"></div>
+                <div class="builder-row"><b>Results</b><button id="sess-res-refresh" title="Reload results">↻</button></div>
+                <div id="sess-results" class="device-meta">no runs yet</div>
                 <div class="builder-row">
+                    ${s.status === "abandoned"
+                        ? `<button id="sess-reopen" title="Clear abandon, back to inferred status">Re-open</button>`
+                        : `<button id="sess-abandon" title="Void the race AND tell the fleet now" style="color:#dc2626">Abandon race</button>`}
                     <button id="sess-del" style="color:#dc2626">Delete session</button>
                 </div>
                 <div id="sess-detail-err" class="boat-info-err"></div>
@@ -3419,16 +3405,10 @@ async function renderSessionDetail() {
             loadSessions(s.id);
         });
         document.getElementById("sess-reopen")?.addEventListener("click", () => put({ status: "scheduled" }));
-        document.getElementById("sess-seq").addEventListener("click", () =>
-            put({ startTime: new Date(Date.now() + 5 * 60 * 1000).toISOString(), status: "scheduled" }));
-        document.getElementById("sess-post").addEventListener("click", () => {
-            const base = s.startTime ? new Date(s.startTime).getTime() : Date.now() + 5 * 60 * 1000;
-            put({ startTime: new Date(base + 5 * 60 * 1000).toISOString() });
-        });
-        document.getElementById("sess-start-apply").addEventListener("click", () => {
-            const v = document.getElementById("sess-start-custom").value;
-            if (!v) return;
-            put({ startTime: new Date(`${s.date}T${v}`).toISOString() });
+        document.getElementById("sess-post")?.addEventListener("click", () => {
+            const mins = Math.min(120, Math.max(1, Number(document.getElementById("sess-post-mins").value) || 5));
+            const base = s.startTime ? Math.max(new Date(s.startTime).getTime(), Date.now()) : Date.now();
+            put({ startTime: new Date(base + mins * 60 * 1000).toISOString() });
         });
         document.getElementById("sess-add-btn").addEventListener("click", async () => {
             const id = document.getElementById("sess-add-boat").value;
@@ -3449,19 +3429,6 @@ async function renderSessionDetail() {
             await fetch(`/sessions/${s.id}/boats/${encodeURIComponent(a.getAttribute("data-unboat"))}`, { method: "DELETE" });
             loadSessions(s.id);
         }));
-        document.getElementById("sess-repeat-date").addEventListener("change", e => { sessRepeatDate = e.target.value; });
-        document.getElementById("sess-repeat").addEventListener("click", async () => {
-            const date = document.getElementById("sess-repeat-date").value;
-            if (!date) return;
-            sessRepeatDate = date;
-            const r = await fetch(`/sessions/${s.id}/repeat`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ date }),
-            });
-            const j = await r.json();
-            if (!r.ok) document.getElementById("sess-detail-err").textContent = j.error || "Repeat failed.";
-            else loadSessions(j.id);
-        });
         document.getElementById("sess-del").addEventListener("click", async () => {
             if (!confirm("Delete this session?")) return;
             await fetch(`/sessions/${s.id}`, { method: "DELETE" });
@@ -3475,26 +3442,6 @@ async function renderSessionDetail() {
             document.getElementById("session-detail-panel").style.display = "none";
             loadSessions();
         });
-        const refreshRuns = async () => {
-            const box = document.getElementById("sess-runs");
-            if (!box) return;
-            try {
-                const runs = await (await fetch(`/sim/runs?sessionId=${s.id}`)).json();
-                const nowMs = Date.now();
-                box.innerHTML = runs.length ? runs.map(r => {
-                    const el = Math.max(0, Math.floor((nowMs - r.startMs) / 1000));
-                    const state = el >= r.durationSec ? "done" : `${el}s / ${r.durationSec}s`;
-                    const echo = r.echoCount ? ` · echo ${r.echoCount}${r.lastDevM != null ? ` Δ${r.lastDevM}m` : ""}` : "";
-                    return `<div>${escHtml(r.deviceId.slice(-5))} · ${r.speedKn}kn · gun T+${r.gunSec}s · ${state}${echo} <a href="#" data-stoprun="${escHtml(r.id)}" style="color:#dc2626">stop</a></div>`;
-                }).join("") : "no sim runs";
-                box.querySelectorAll("[data-stoprun]").forEach(a => a.addEventListener("click", async e => {
-                    e.preventDefault();
-                    await fetch(`/sim/runs/${encodeURIComponent(a.getAttribute("data-stoprun"))}`, { method: "DELETE" });
-                    refreshRuns();
-                    renderSimOverlay(false);
-                }));
-            } catch { box.textContent = "runs unavailable"; }
-        };
         const boatName = id => escHtml((lastDevices.find(d => d.deviceId === id) || {}).username || id.slice(-5));
         const fmtEl = sec => sec == null ? "—" : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
         const refreshResults = async () => {
@@ -3538,26 +3485,6 @@ async function renderSessionDetail() {
             if (!r.ok) document.getElementById("sess-detail-err").textContent = j.error || "Signal failed.";
             else refreshSignals();
         }));
-        document.getElementById("sess-sim").addEventListener("click", async () => {
-            const errBox = document.getElementById("sess-detail-err");
-            try {
-                const existing = await (await fetch(`/sim/runs?sessionId=${s.id}`)).json();
-                for (const r of existing) {
-                    try { await fetch(`/sim/runs/${encodeURIComponent(r.id)}`, { method: "DELETE" }); } catch {}
-                }
-            } catch {}
-            const r = await fetch("/sim/runs", {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sessionId: s.id }),
-            });
-            const j = await r.json();
-            if (!r.ok) { if (errBox) errBox.textContent = j.error || "Simulate failed."; return; }
-            refreshRuns();
-            showSimPreview = true;
-            try { saveUI(); } catch {}
-            syncSimPreviewBtn();
-            renderSimOverlay(true);
-        });
         const syncSimPreviewBtn = () => {
             const b = document.getElementById("sess-sim-preview");
             if (b) b.classList.toggle("active", !!showSimPreview);
@@ -3569,7 +3496,6 @@ async function renderSessionDetail() {
             renderSimOverlay(false);
         });
         syncSimPreviewBtn();
-        refreshRuns();
         renderSimOverlay(false);
         const gunMs = s.startTime ? new Date(s.startTime).getTime() : 0;
         const tickCountdown = () => {
@@ -3579,6 +3505,8 @@ async function renderSessionDetail() {
             const d = Math.floor((gunMs - Date.now()) / 1000);
             const mmss = `${Math.floor(Math.abs(d) / 60)}:${String(Math.abs(d) % 60).padStart(2, "0")}`;
             box.innerHTML = d >= 0 ? `Gun in <b>${mmss}</b>` : `<b style="color:#16a34a">LIVE +${mmss}</b>`;
+            // The gun just fired under an open pane: postpone is over.
+            if (d < 0) document.getElementById("sess-post-row")?.remove();
         };
         tickCountdown();
         sessDetailTimers.push(setInterval(tickCountdown, 1000));
