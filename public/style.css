@@ -889,6 +889,45 @@ html, body {
 .feature-cost.c3 { background: #d97706; }
 .feature-cost.c4, .feature-cost.c5 { background: #dc2626; }
 
+/* priority marker: 1-2 first (blue), 3-5 pack (slate), 6+ low (pale) */
+.feature-pri {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 8px;
+    white-space: nowrap;
+    color: #fff;
+    background: #64748b;
+}
+
+.feature-pri.p1, .feature-pri.p2 { background: #2563eb; }
+.feature-pri.p6, .feature-pri.p7, .feature-pri.p8 { background: #cbd5e1; color: #475569; }
+
+/* sort header: one button per column, click cycles asc -> desc -> computed */
+.feat-sort {
+    display: flex;
+    gap: 6px;
+    margin: 2px 0 4px;
+}
+.feat-sort button {
+    flex: 1;
+    padding: 2px 4px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.feat-sort button.active {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+}
+
 .setting-row label {
     display: block;
     font-weight: bold;

@@ -1770,18 +1770,56 @@ function renderFeatures(data) {
     const list = document.getElementById("features-list");
     const legend = document.getElementById("features-legend");
     if (!list || !legend) return;
-    legend.textContent = `${data.scale || ""} - ${data.features.length} open, ordered by dependency/priority/cost`;
-    list.innerHTML = sortFeatures(data.features).map(f => {
+    legend.textContent = `${data.scale || ""} - ${data.features.length} open, ordered by dependency/priority/cost (P = build priority, 1 first)`;
+    const rows = (featSortKey ? manualSortFeatures(data.features) : sortFeatures(data.features)).map(f => {
         const deps = [...new Set(f.deps || [])].filter(d => d !== f.n);
         const depHint = deps.length ? ` (depends on ${deps.join(", ")})` : "";
+        const pri = Math.max(1, Number(f.priority) || 5);
         return `
         <div class="feature-row">
             <span class="feature-n">${escHtml(f.n)}</span>
             <span class="feature-title" title="${escHtml("todo " + f.n + depHint)}">${escHtml(f.title)}</span>
+            <span class="feature-pri p${Math.min(8, pri)}" title="Build priority ${pri} of 8 (1 first)${depHint}">P${pri}</span>
             <span class="feature-cost c${Math.min(5, Math.max(1, Number(f.cost) || 1))}" title="Cost ${escHtml(f.cost)} of 5">${escHtml(f.cost)}</span>
         </div>`;
     }).join("");
+    list.innerHTML = rows;
 }
+// Manual column sort for the features pane. Click a header: ascending,
+// again: descending, third click: back to computed order (featSortKey null).
+// Session-only, not persisted.
+let featSortKey = null; // "n" | "title" | "priority" | "cost" | null
+let featSortDir = 1;
+function manualSortFeatures(feats) {
+    const dir = featSortDir;
+    const priOf = f => Math.max(1, Number(f.priority) || 5);
+    const cmp = {
+        n: (a, b) => a.n - b.n,
+        title: (a, b) => String(a.title).localeCompare(String(b.title)),
+        priority: (a, b) => priOf(a) - priOf(b) || (a.cost ?? 5) - (b.cost ?? 5) || a.n - b.n,
+        cost: (a, b) => (a.cost ?? 5) - (b.cost ?? 5) || a.n - b.n,
+    }[featSortKey] || ((a, b) => 0);
+    return [...feats].sort((a, b) => cmp(a, b) * dir);
+}
+function syncFeatSortBtns() {
+    document.querySelectorAll("#features-sort button[data-sort]").forEach(b => {
+        const k = b.getAttribute("data-sort");
+        const on = featSortKey === k;
+        b.classList.toggle("active", on);
+        const base = { n: "#", title: "Title", priority: "P", cost: "Cost" }[k] || k;
+        b.textContent = on ? `${base} ${featSortDir > 0 ? "▲" : "▼"}` : base;
+    });
+}
+document.querySelectorAll("#features-sort button[data-sort]").forEach(b => {
+    b.addEventListener("click", async () => {
+        const k = b.getAttribute("data-sort");
+        if (featSortKey !== k) { featSortKey = k; featSortDir = 1; }
+        else if (featSortDir > 0) { featSortDir = -1; }
+        else { featSortKey = null; featSortDir = 1; }
+        syncFeatSortBtns();
+        try { renderFeatures(await loadFeatures()); } catch {}
+    });
+});
 const featuresBtn = document.getElementById("featuresToggleBtn");
 const featuresPanel = document.getElementById("features-panel");
 if (featuresBtn && featuresPanel) {
