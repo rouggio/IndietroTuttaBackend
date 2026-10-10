@@ -3360,6 +3360,7 @@ async function renderSessionDetail() {
                 <div class="builder-row">
                     <button id="sess-sim-preview" title="Show/hide the scripted mock traces on the map">Mock traces</button>
                 </div>
+                ${s.status === "live" ? `
                 <div class="builder-row"><b>Committee</b></div>
                 <div class="builder-row">
                     <select id="sess-sig-boat">${s.boats.length ? s.boats.map(b => `<option value="${escHtml(b.deviceId)}">${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))}</option>`).join("") : ""}</select>
@@ -3372,7 +3373,7 @@ async function renderSessionDetail() {
                     <input id="sess-sig-scp" type="number" value="120" title="SCP seconds" style="max-width:70px">
                     <button data-sig="SCP" title="Scoring penalty: add seconds">SCP</button>
                     <button data-sig="RECALL" title="General recall (fleet)">Recall</button>
-                </div>
+                </div>` : ""}
                 <div id="sess-signals" class="device-meta"></div>
                 <div class="builder-row"><b>Results</b><button id="sess-res-refresh" title="Reload results">↻</button></div>
                 <div id="sess-results" class="device-meta">no runs yet</div>
