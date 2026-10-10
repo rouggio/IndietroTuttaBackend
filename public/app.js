@@ -380,7 +380,9 @@ const liveSim = new Map(); // deviceId -> { pts: [], cursor: ms, line, dot }
 const liveSimLoadMs = Date.now();
 function liveSimScope() {
     if (selectedDeviceIds.size) return [...selectedDeviceIds];
-    return (typeof lastDevices !== "undefined" ? lastDevices : []).map(d => d.deviceId).filter(Boolean);
+    // No selection: only boats with open panels stay live. Nothing selected
+    // and nothing open means quiet — no polling boats the user can't see.
+    return [...boatPanels.values()].filter(p => p.open).map(p => p.id);
 }
 function drawLiveSim(id) {
     const st = liveSim.get(id);
@@ -403,7 +405,17 @@ function drawLiveSim(id) {
 }
 async function pollLiveSim() {
     if (!isLive || document.hidden) return;
-    for (const id of liveSimScope()) {
+    const scope = liveSimScope();
+    // teardown: drop overlay layers for boats that left the scope (unticked,
+    // pruned, or deleted) — otherwise their line+arrow haunt the map forever.
+    for (const [id, st] of liveSim) {
+        if (!scope.includes(id)) {
+            if (st.line) { liveSimLayer.removeLayer(st.line); st.line = null; }
+            if (st.arrow) { liveSimLayer.removeLayer(st.arrow); st.arrow = null; }
+            liveSim.delete(id);
+        }
+    }
+    for (const id of scope) {
         let st = liveSim.get(id);
         if (!st) { st = { pts: [], cursor: liveSimLoadMs, line: null, dot: null }; liveSim.set(id, st); }
         try {
