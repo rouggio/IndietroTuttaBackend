@@ -44,6 +44,9 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
 - `bruno/` mirrors routes: `health/ gps/ devices/` (incl. `devices-rename.bru`, `devices-mock.bru`), `courses/`, `sessions/` (incl. snapshot + repeat + `add-boat-conflict.bru`), `sim/` (incl. `wander.bru`), `wind/` + `environments/local.bru (:3000)` + `production.bru (onrender)`. Rule: new endpoint → new `.bru`, test both envs.
 - Local check (`sl`): `node server.js` → `curl localhost:3000/health /devices /boats /courses /gps?date=YYYY-MM-DD`; removed routes return 404 (`/templates/*`, `/races`).
 - Deploy (`sc`): commit + push `main`, then `POST $REDPLOY_HOOK_URL` (push alone does NOT redeploy), verify `/devices`. OTA publish comes from the device repo `make dist` (= `dc`), which commits firmware into `public/ota/` here — note it re-fires the same hook, so `sc` then `dc` double-deploys and `dc` alone covers both.
+- Working mode (`devl` / `devc`, defined in the root `AGENTS.md`): `devl` = this backend
+  runs at `:3000` and the device points at it (`POST /server?mode=dev&host=<ip>:3000`);
+  `devc` = Render serves the code. Either way the DB is the same live Turso.
 - No auth anywhere — identity is `DeviceId` MAC header. Keep validation + username whitelist in sync with firmware.
 - **Destructive schema changes: never drop a column while the OLD build is still live.**
   2026-10-09: dropping `gps_points.flagged` locally killed prod (`SQL_INPUT_ERROR: no such
