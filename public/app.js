@@ -1717,17 +1717,58 @@ async function loadFeatures() {
     featuresData = await r.json();
     return featuresData;
 }
+// Pane order is computed, not numeric: topological by deps, then priority,
+// then cost, then n (Kahn's algorithm, ready set kept sorted). Unknown deps
+// are ignored; a dependency cycle falls back to plain rank order.
+function sortFeatures(feats) {
+    const byN = new Map(feats.map(f => [f.n, f]));
+    const indeg = new Map();
+    const adj = new Map();
+    for (const f of feats) {
+        const deps = [...new Set(f.deps || [])].filter(d => byN.has(d) && d !== f.n);
+        indeg.set(f.n, deps.length);
+        for (const d of deps) {
+            if (!adj.has(d)) adj.set(d, []);
+            adj.get(d).push(f.n);
+        }
+    }
+    const cmpF = (a, b) => (a.priority ?? 5) - (b.priority ?? 5) ||
+        (a.cost ?? 5) - (b.cost ?? 5) || a.n - b.n;
+    const ready = feats.filter(f => indeg.get(f.n) === 0).sort(cmpF);
+    const out = [];
+    while (ready.length) {
+        const f = ready.shift();
+        out.push(f);
+        for (const m of (adj.get(f.n) || [])) {
+            indeg.set(m, indeg.get(m) - 1);
+            if (indeg.get(m) === 0) {
+                const mf = byN.get(m);
+                let i = ready.findIndex(g => cmpF(mf, g) < 0);
+                if (i < 0) i = ready.length;
+                ready.splice(i, 0, mf);
+            }
+        }
+    }
+    if (out.length < feats.length) {
+        for (const f of feats.filter(f => !out.includes(f)).sort(cmpF)) out.push(f);
+    }
+    return out;
+}
 function renderFeatures(data) {
     const list = document.getElementById("features-list");
     const legend = document.getElementById("features-legend");
     if (!list || !legend) return;
-    legend.textContent = `${data.scale || ""} - ${data.features.length} open`;
-    list.innerHTML = data.features.map(f => `
+    legend.textContent = `${data.scale || ""} - ${data.features.length} open, ordered by dependency/priority/cost`;
+    list.innerHTML = sortFeatures(data.features).map(f => {
+        const deps = [...new Set(f.deps || [])].filter(d => d !== f.n);
+        const depHint = deps.length ? ` (depends on ${deps.join(", ")})` : "";
+        return `
         <div class="feature-row">
             <span class="feature-n">${escHtml(f.n)}</span>
-            <span class="feature-title">${escHtml(f.title)}</span>
+            <span class="feature-title" title="${escHtml("todo " + f.n + depHint)}">${escHtml(f.title)}</span>
             <span class="feature-cost c${Math.min(5, Math.max(1, Number(f.cost) || 1))}" title="Cost ${escHtml(f.cost)} of 5">${escHtml(f.cost)}</span>
-        </div>`).join("");
+        </div>`;
+    }).join("");
 }
 const featuresBtn = document.getElementById("featuresToggleBtn");
 const featuresPanel = document.getElementById("features-panel");
