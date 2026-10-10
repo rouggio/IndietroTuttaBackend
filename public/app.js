@@ -2836,7 +2836,7 @@ let selectedSessionId = null;
 
 // --- Session creation draft: course + placement previewed on the chart ---
 // Courses are N-wind shapes (+y = upwind = north at windDir 0), so the
-// draft also assumes 0° until Suggest (or the hand) sets the day's wind.
+// draft also assumes 0° until Align upwind (or the hand) sets the day's wind.
 const SESSDRAFT = { course: null, sel: null, origin: null, windDir: 0, windSpeed: 0, scale: 1, placing: null, gunSec: 60 };
 let sessPreview = null;
 let sessMove = null;
@@ -3041,9 +3041,9 @@ async function renderSessionCreate() {
                 <button id="sess-move" title="Drag the course on the map">Move</button>
             </div>
             <div class="builder-row">
-                <label class="device-meta" style="flex:1">Wind <input id="sess-wind" type="number" min="0" max="359" step="1" style="max-width:64px" title="Wind from (deg)"></label>
+                <label class="device-meta" style="flex:1">Bearing <input id="sess-wind" type="number" min="0" max="359" step="1" style="max-width:64px" title="Bearing the wind comes from (deg)"></label>
                 <label class="device-meta" style="flex:1">Scale <input id="sess-scale" type="number" min="0.1" max="5" step="0.1" style="max-width:64px"></label>
-                <button id="sess-wind-suggest" title="Suggest wind from nearby stations">Suggest</button>
+                <button id="sess-wind-suggest" title="Align the draft course upwind from nearby stations">Align upwind</button>
             </div>
             <div class="device-meta" id="sess-wind-src"></div>
             <div class="builder-row">
