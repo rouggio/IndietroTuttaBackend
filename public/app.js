@@ -2837,7 +2837,7 @@ let selectedSessionId = null;
 // --- Session creation draft: course + placement previewed on the chart ---
 // Courses are N-wind shapes (+y = upwind = north at windDir 0), so the
 // draft also assumes 0° until Suggest (or the hand) sets the day's wind.
-const SESSDRAFT = { course: null, sel: null, origin: null, windDir: 0, windSpeed: 0, scale: 1, placing: null };
+const SESSDRAFT = { course: null, sel: null, origin: null, windDir: 0, windSpeed: 0, scale: 1, placing: null, gunSec: 60 };
 let sessPreview = null;
 let sessMove = null;
 let sessSuppressClick = false;
@@ -3047,10 +3047,16 @@ async function renderSessionCreate() {
             </div>
             <div class="device-meta" id="sess-wind-src"></div>
             <div class="builder-row">
-                <input id="sess-date" type="date" value="${todayStr()}">
                 <select id="sess-mode"><option value="practice">Practice</option><option value="race">Race</option></select>
             </div>
-            <div class="builder-row"><label class="device-meta" style="flex:1">Start <input id="sess-start" type="time" title="Start time on session date (optional)"></label></div>
+            <div class="builder-row" id="sess-gun-row">
+                <span class="device-meta" title="Gun fires this long after Create session is pressed">Gun</span>
+                <button data-gun="10" title="Gun 10 seconds after Create">0:10</button>
+                <button data-gun="30" title="Gun 30 seconds after Create">0:30</button>
+                <button data-gun="60" title="Gun 1 minute after Create">1:00</button>
+                <button data-gun="120" title="Gun 2 minutes after Create">2:00</button>
+                <button data-gun="300" title="Gun 5 minutes after Create">5:00</button>
+            </div>
             <div style="margin:4px 0">${boatChecks || '<span class="device-meta">No boats known yet.</span>'}</div>
             <div class="builder-row"><button id="sess-create" class="primary">Create session</button></div>
             <div id="sess-create-err" class="boat-info-err"></div>`;
@@ -3080,6 +3086,14 @@ async function renderSessionCreate() {
             SESSDRAFT.placing = "move";
             document.getElementById("sess-move")?.classList.add("arming");
         });
+        document.querySelectorAll("#sess-gun-row button[data-gun]").forEach(b => {
+            if (Number(b.getAttribute("data-gun")) === (SESSDRAFT.gunSec || 60)) b.classList.add("active");
+            b.addEventListener("click", () => {
+                SESSDRAFT.gunSec = Number(b.getAttribute("data-gun")) || 60;
+                document.querySelectorAll("#sess-gun-row button[data-gun]").forEach(x =>
+                    x.classList.toggle("active", x === b));
+            });
+        });
         document.getElementById("sess-wind-suggest").addEventListener("click", async () => {
             const src = document.getElementById("sess-wind-src");
             const at = SESSDRAFT.origin || (() => { const m = map.getCenter(); return { lat: m.lat, lon: m.lng }; })();
@@ -3099,14 +3113,14 @@ async function renderSessionCreate() {
         });
         document.getElementById("sess-create").addEventListener("click", async () => {
             const errEl = document.getElementById("sess-create-err");
-            const date = document.getElementById("sess-date").value;
+            const date = todayStr();
             const mode = document.getElementById("sess-mode").value;
-            const startVal = document.getElementById("sess-start").value;
-            const startISO = startVal ? new Date(`${date}T${startVal}`).toISOString() : null;
+            // Gun countdown: the gun fires gunSec after THIS press, so the
+            // start is always anchored at creation, never a stale clock time.
+            const startISO = new Date(Date.now() + (SESSDRAFT.gunSec || 60) * 1000).toISOString();
             const t0 = SESSDRAFT.course;
             if (!t0) { errEl.textContent = "Pick a course first."; return; }
             if (!SESSDRAFT.origin) { errEl.textContent = "Place the origin first (Center here)."; return; }
-            if (!date) { errEl.textContent = "Pick a session date."; return; }
             // Sessions encapsulate: every course is a DB row now (built-ins included),
             // so lineage always passes courseId.
             const shapeBody = { courseId: t0.id };
