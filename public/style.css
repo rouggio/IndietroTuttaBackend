@@ -125,14 +125,11 @@ html, body {
     color: white;
 }
 
-/* every top-bar pane toggle highlights the same way (keep new ids here) */
-#topbar-menu #boatsToggleBtn.active,
-#topbar-menu #windToggleBtn.active,
-#topbar-menu #timelineToggleBtn.active,
-#topbar-menu #coursesToggleBtn.active,
-#topbar-menu #sessionsToggleBtn.active,
-#topbar-menu #sessionsTopBtn.active,
-#topbar-menu #settingsToggleBtn.active {
+/* Every top-bar pane toggle highlights the same. Class-driven, NOT an id list:
+   adding a new pane button used to mean appending its id here, and forgetting
+   made the button fall through to the near-black rule above (a "toggled but
+   black" button). Give the button class="dropbtn pane-toggle" and it just works. */
+#topbar-menu .pane-toggle.active {
     background: #2563eb;
     color: white;
 }
@@ -818,6 +815,79 @@ html, body {
 .setting-row {
     margin-bottom: 10px;
 }
+
+/* Open-features pane: numbered list + cost badge (1 cheap .. 5 heavy) */
+#features-panel {
+    position: absolute;
+    top: 58px;
+    right: 10px;
+    z-index: 1000;
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    min-width: 300px;
+    max-width: 380px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+#features-panel h4 {
+    margin: -10px -10px 10px -10px;
+    padding: 7px 10px;
+    background: #e5e7eb;
+    border-bottom: 1px solid #d1d5db;
+    border-radius: 8px 8px 0 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#features-legend {
+    margin-bottom: 8px;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.feature-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 12px;
+    line-height: 1.35;
+    color: #1f2937;
+}
+
+.feature-row:last-child { border-bottom: none; }
+
+.feature-n {
+    flex-shrink: 0;
+    min-width: 16px;
+    color: #94a3b8;
+    font-variant-numeric: tabular-nums;
+}
+
+.feature-title { flex: 1; }
+
+/* cost badge: 1-2 cheap (green), 3 medium (amber), 4-5 heavy (red) */
+.feature-cost {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 8px;
+    white-space: nowrap;
+    color: #fff;
+}
+
+.feature-cost.c1, .feature-cost.c2 { background: #16a34a; }
+.feature-cost.c3 { background: #d97706; }
+.feature-cost.c4, .feature-cost.c5 { background: #dc2626; }
 
 .setting-row label {
     display: block;

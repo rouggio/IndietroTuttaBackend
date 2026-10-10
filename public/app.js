@@ -619,9 +619,10 @@ function saveUI() {
                 "session-panel": document.getElementById("session-panel")?.style.display,
                 "session-create-panel": document.getElementById("session-create-panel")?.style.display,
                 "settings-panel": document.getElementById("settings-panel")?.style.display,
+                "features-panel": document.getElementById("features-panel")?.style.display,
                 "session-detail-panel": document.getElementById("session-detail-panel")?.style.display,
             },
-            panelPos: ["device-panel", "wind-panel", "course-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "builder-panel"].reduce((acc, id) => {
+            panelPos: ["device-panel", "wind-panel", "course-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "features-panel", "builder-panel"].reduce((acc, id) => {
                 const el = document.getElementById(id);
                 if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
                 return acc;
@@ -866,7 +867,7 @@ async function refreshDevices() {
                     </div>
                     <div style="text-align:right">
                         <div class="device-meta" style="color:${statusColor};font-weight:600">${status} <span class="boat-cal-btn" data-cal="${d.deviceId}" title="Sailing days calendar">📅…</span></div>
-                        <div class="device-meta">${lastSeen}${d.firmware ? ` • v${d.firmware}` : ""}${d.mock ? ` • MOCK` : ""}</div>
+                        <div class="device-meta">${lastSeen}${d.mock ? ` • MOCK` : ""}</div>
                     </div>
                 </div>
             `;
@@ -1677,6 +1678,52 @@ if (settingsBtn && settingsPanel) {
     syncSettingsBtn();
 }
 document.getElementById("settingsClose")?.addEventListener("click", () => toggleEl("settings-panel", false));
+
+// Open-features pane: the parked roadmap with a cost score per item.
+// Data lives in public/features.json (mirrors PLAN.md § Todo), fetched lazily
+// on first open and cached - it changes with the repo, not with the session.
+let featuresData = null;
+async function loadFeatures() {
+    if (featuresData) return featuresData;
+    const r = await fetch("/features.json");
+    if (!r.ok) throw new Error("features.json " + r.status);
+    featuresData = await r.json();
+    return featuresData;
+}
+function renderFeatures(data) {
+    const list = document.getElementById("features-list");
+    const legend = document.getElementById("features-legend");
+    if (!list || !legend) return;
+    legend.textContent = `${data.scale || ""} - ${data.features.length} open`;
+    list.innerHTML = data.features.map(f => `
+        <div class="feature-row">
+            <span class="feature-n">${escHtml(f.n)}</span>
+            <span class="feature-title">${escHtml(f.title)}</span>
+            <span class="feature-cost c${Math.min(5, Math.max(1, Number(f.cost) || 1))}" title="Cost ${escHtml(f.cost)} of 5">${escHtml(f.cost)}</span>
+        </div>`).join("");
+}
+const featuresBtn = document.getElementById("featuresToggleBtn");
+const featuresPanel = document.getElementById("features-panel");
+if (featuresBtn && featuresPanel) {
+    const syncFeaturesBtn = () => featuresBtn.classList.toggle("active", panelVisible(featuresPanel));
+    featuresBtn.addEventListener("click", async () => {
+        toggleEl("features-panel");
+        avoidPanelOverlap(featuresPanel);
+        syncFeaturesBtn();
+        saveUI();
+        const list = document.getElementById("features-list");
+        if (list && !list.childElementCount) {
+            try {
+                renderFeatures(await loadFeatures());
+            } catch (e) {
+                if (list) list.innerHTML = `<div class="device-meta">Could not load features.json (${escHtml(e.message)})</div>`;
+            }
+        }
+    });
+    new MutationObserver(syncFeaturesBtn).observe(featuresPanel, { attributes: true, attributeFilter: ["style"] });
+    syncFeaturesBtn();
+}
+document.getElementById("featuresClose")?.addEventListener("click", () => toggleEl("features-panel", false));
 function syncSettingsForm() {
     const p = document.getElementById("setWindProvider");
     const r = document.getElementById("setWindRefresh");
@@ -3489,6 +3536,7 @@ makeFloatingDraggable(document.getElementById("session-panel"));
 makeFloatingDraggable(document.getElementById("session-create-panel"));
 makeFloatingDraggable(document.getElementById("session-detail-panel"));
 makeFloatingDraggable(document.getElementById("settings-panel"));
+makeFloatingDraggable(document.getElementById("features-panel"));
 makeFloatingDraggable(document.getElementById("builder-panel"));
 // fix any overlap restored from a previous session
 avoidPanelOverlap(document.getElementById("course-panel"));

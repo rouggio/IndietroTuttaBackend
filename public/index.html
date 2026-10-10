@@ -17,13 +17,14 @@
     </div>
     <div style="display:flex;align-items:center;gap:12px;margin-left:auto">
         <div id="topbar-menu">
-            <button id="boatsToggleBtn" class="dropbtn">Boats</button>
-            <button id="windToggleBtn" class="dropbtn">Wind</button>
-            <button id="timelineToggleBtn" class="dropbtn">Timeline</button>
-            <button id="sessionsTopBtn" class="dropbtn">Sessions</button>
-            <button id="coursesToggleBtn" class="dropbtn">Courses</button>
-            <button id="sessionsToggleBtn" class="dropbtn">New session</button>
-            <button id="settingsToggleBtn" class="dropbtn">Settings</button>
+            <button id="boatsToggleBtn" class="dropbtn pane-toggle">Boats</button>
+            <button id="windToggleBtn" class="dropbtn pane-toggle">Wind</button>
+            <button id="timelineToggleBtn" class="dropbtn pane-toggle">Timeline</button>
+            <button id="sessionsTopBtn" class="dropbtn pane-toggle">Sessions</button>
+            <button id="coursesToggleBtn" class="dropbtn pane-toggle">Courses</button>
+            <button id="sessionsToggleBtn" class="dropbtn pane-toggle">New session</button>
+            <button id="settingsToggleBtn" class="dropbtn pane-toggle">Settings</button>
+    <button id="featuresToggleBtn" class="dropbtn pane-toggle" title="Open/ongoing features and their cost">Features</button>
         </div>
         <div id="topbar-controls">
             <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
@@ -98,9 +99,15 @@
             <option value="0">Off (manual only)</option>
         </select>
     </div>
-    <div class="device-meta">Provider applies to the wind pane and the course wind suggestion.
-        The refresh rate only runs while the wind pane is open.</div>
-</div>
+<div class="device-meta">Provider applies to the wind pane and the course wind suggestion.
+  The refresh rate only runs while the wind pane is open.</div>
+  </div>
+
+  <div id="features-panel" style="display:none">
+  <h4>Open features <span id="featuresClose" class="pane-close">&times;</span></h4>
+  <div class="device-meta" id="features-legend">Loading&hellip;</div>
+  <div id="features-list"></div>
+  </div>
 
 <div id="builder-panel" style="display:none">
     <h4>Edit course <span class="pane-close" id="builderClose">×</span></h4>

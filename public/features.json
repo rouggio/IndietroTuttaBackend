@@ -1,0 +1,23 @@
+{
+  "scale": "Cost: 1 trivial - 5 large / cross-system",
+  "source": "Mirrors the Todo list in PLAN.md (root) - keep both in step.",
+  "features": [
+    { "n": 1, "cost": 2, "title": "Live map: cursor-based GPS fetch instead of full re-pull every 5s" },
+    { "n": 2, "cost": 4, "title": "Realtime push (SSE): sessions, signals, boats without polling" },
+    { "n": 3, "cost": 3, "title": "Rankings / leaderboard across boats in a session" },
+    { "n": 4, "cost": 4, "title": "Replay: per-session playback with leaderboard snapshot" },
+    { "n": 5, "cost": 5, "title": "Auth: replace the bare MAC header identity" },
+    { "n": 6, "cost": 2, "title": "Screen capture in bands so it works on a prod-connected device" },
+    { "n": 7, "cost": 3, "title": "Persist simulated runs (wiped by every Render redeploy today)" },
+    { "n": 8, "cost": 1, "title": "Gun banner and audio cue at the start" },
+    { "n": 9, "cost": 3, "title": "Store GPS of mock boats while a session is live" },
+    { "n": 10, "cost": 3, "title": "Sessions pane: status filter plus calendar" },
+    { "n": 11, "cost": 1, "title": "Hide committee controls unless the session is live" },
+    { "n": 12, "cost": 1, "title": "Move the Results pane to the bottom of session detail" },
+    { "n": 13, "cost": 4, "title": "Remove pursuit offsets (all boats start on the same gun)" },
+    { "n": 14, "cost": 1, "title": "Drop the Simulate button, keep a mock traces toggle" },
+    { "n": 15, "cost": 1, "title": "Move Abandon next to Delete at the bottom" },
+    { "n": 16, "cost": 3, "title": "Race finishes on the line cross, only after every mark is cleared" },
+    { "n": 17, "cost": 1, "title": "DEV badge in the top bar when running against the dev backend" }
+  ]
+}
