@@ -1929,7 +1929,7 @@ if (sessionsBtn && sessionPanel) {
     syncSessionsBtn();
     document.getElementById("sessionClose")?.addEventListener("click", () => {
         sessionPanel.style.display = "none";
-        disarmSessMove();
+        endSessMove();
         clearSessPreview();
         syncSessionsBtn();
         saveUI();
@@ -1942,7 +1942,7 @@ if (sessionsTopBtn && sessionPanel) {
         const open = sessionPanel.style.display !== "none" && sessionPanel.style.display !== "";
         sessionsTopBtn.classList.toggle("active", open);
     };
-    sessionsTopBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncTopBtn(); saveUI(); loadSessions(); if (!panelVisible(sessionPanel)) { disarmSessMove(); clearSessPreview(); } });
+    sessionsTopBtn.addEventListener("click", () => { toggleEl("session-panel"); avoidPanelOverlap(sessionPanel); syncTopBtn(); saveUI(); loadSessions(); if (!panelVisible(sessionPanel)) { endSessMove(); clearSessPreview(); } });
     new MutationObserver(syncTopBtn).observe(sessionPanel, { attributes: true, attributeFilter: ["style"] });
     syncTopBtn();
 }
@@ -1961,7 +1961,7 @@ function openSessionCreate() {
 function closeSessionCreate() {
     if (!sessionCreatePanel) return;
     sessionCreatePanel.style.display = "none";
-    disarmSessMove();
+    endSessMove();
     clearSessPreview();
     saveUI();
 }
@@ -2849,28 +2849,87 @@ let selectedSessionId = null;
 // --- Session creation draft: course + placement previewed on the chart ---
 // Courses are N-wind shapes (+y = upwind = north at windDir 0), so the
 // draft also assumes 0° until Align upwind (or the hand) sets the day's wind.
-const SESSDRAFT = { course: null, sel: null, origin: null, windDir: 0, windSpeed: 0, scale: 1, placing: null, gunSec: 60 };
+const SESSDRAFT = { course: null, sel: null, origin: null, windDir: 0, windSpeed: 0, scale: 1, gunSec: 60 };
 let sessPreview = null;
 let sessMove = null;
 let sessSuppressClick = false;
-function disarmSessMove() {
+// The draft course is directly draggable on the map while the create pane is
+// open — no arming button (todo 20). The grab region is a padded box around
+// the preview geometry: a press inside grabs the course (cursor: move),
+// anywhere else the map pans as normal. Create freezes the snapshot.
+const SESS_BOX_PAD_PX = 20;
+function sessPreviewBox() {
+    if (!sessPreview) return null;
+    let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9, n = 0;
+    const eat = (ll) => {
+        const p = map.latLngToContainerPoint(ll);
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+        n++;
+    };
+    sessPreview.eachLayer(layer => {
+        if (typeof layer.getLatLngs === "function") {
+            const g = layer.getLatLngs();
+            (Array.isArray(g[0]) ? g.flat() : g).forEach(eat);
+        } else if (typeof layer.getLatLng === "function") {
+            const c = layer.getLatLng();
+            eat(c);
+            if (typeof layer.getRadius === "function") {
+                // include the mark circle edge in the box
+                const dLat = layer.getRadius() / 111320;
+                const dLon = layer.getRadius() / (111320 * Math.max(0.2, Math.cos(c.lat * Math.PI / 180)));
+                eat(L.latLng(c.lat + dLat, c.lng)); eat(L.latLng(c.lat - dLat, c.lng));
+                eat(L.latLng(c.lat, c.lng + dLon)); eat(L.latLng(c.lat, c.lng - dLon));
+            }
+        }
+    });
+    if (!n) return null;
+    return { x0: minX - SESS_BOX_PAD_PX, y0: minY - SESS_BOX_PAD_PX, x1: maxX + SESS_BOX_PAD_PX, y1: maxY + SESS_BOX_PAD_PX };
+}
+function sessBoxActive() {
+    return !!SESSDRAFT.origin && !!sessPreview &&
+        panelVisible(document.getElementById("session-create-panel"));
+}
+function endSessMove() {
     sessMove = null;
-    if (SESSDRAFT.placing === "move") SESSDRAFT.placing = null;
     if (map.dragging) map.dragging.enable();
-    document.getElementById("sess-move")?.classList.remove("arming");
+    try {
+        const c = map.getContainer();
+        if (c && c.style.cursor === "move") c.style.cursor = "";
+        document.body.classList.remove("sess-placing");
+    } catch {}
 }
 if (typeof map !== "undefined" && map.getContainer) {
     const sessBox = map.getContainer();
     sessBox.addEventListener("pointerdown", e => {
-        if (SESSDRAFT.placing !== "move" || !SESSDRAFT.origin) return;
-        if (!panelVisible(document.getElementById("session-create-panel"))) { disarmSessMove(); return; }
-        if (e.target.closest(".leaflet-marker-icon, .leaflet-tooltip, .leaflet-control, button, input, select, a")) return;
+        if (!sessBoxActive()) { if (!panelVisible(document.getElementById("session-create-panel"))) endSessMove(); return; }
+        // The course's own mark labels are markers too — they grab like the
+        // rest of the preview. Every other marker/icon keeps map behavior.
+        if (e.target.closest(".leaflet-tooltip, .leaflet-control, button, input, select, a")) return;
+        if (e.target.closest(".leaflet-marker-icon") && !e.target.closest(".builder-mark-label")) return;
+        // Grab the course only inside its box — elsewhere the map pans.
+        const pt = map.mouseEventToContainerPoint(e);
+        const box = sessPreviewBox();
+        if (!box || pt.x < box.x0 || pt.x > box.x1 || pt.y < box.y0 || pt.y > box.y1) return;
         e.stopPropagation();
         e.preventDefault();
         if (map.dragging) map.dragging.disable();
         const p = map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
         sessMove = { lastLat: p.lat, lastLon: p.lng };
         try { sessBox.setPointerCapture(e.pointerId); } catch {}
+    });
+    sessBox.addEventListener("pointermove", e => {
+        if (sessMove || e.buttons) return; // dragging (or pressed): leave the cursor alone
+        // Body flag drives the mark-label cursor (labels are markers: the
+        // container cursor alone doesn't reach them).
+        document.body.classList.toggle("sess-placing", sessBoxActive());
+        if (!sessBoxActive()) { if (sessBox.style.cursor) sessBox.style.cursor = ""; return; }
+        const pt = map.mouseEventToContainerPoint(e);
+        const box = sessPreviewBox();
+        const inside = box && pt.x >= box.x0 && pt.x <= box.x1 && pt.y >= box.y0 && pt.y <= box.y1;
+        sessBox.style.cursor = inside ? "move" : "";
     });
     sessBox.addEventListener("pointermove", e => {
         if (!sessMove) return;
@@ -2885,10 +2944,8 @@ if (typeof map !== "undefined" && map.getContainer) {
     const sessUp = () => {
         if (!sessMove) return;
         sessMove = null;
-        SESSDRAFT.placing = null;
         sessSuppressClick = true;
         if (map.dragging) map.dragging.enable();
-        document.getElementById("sess-move")?.classList.remove("arming");
     };
     sessBox.addEventListener("pointerup", sessUp);
     sessBox.addEventListener("pointercancel", sessUp);
@@ -3050,7 +3107,7 @@ async function renderSessionCreate() {
             <div class="builder-row"><select id="sess-course">${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)}${c.builtinKey ? " (built-in)" : ""}</option>`).join("")}</select></div>
             <div class="builder-row">
                 <span id="sess-origin" class="device-meta" style="flex:2">Origin: —</span>
-                <button id="sess-move" title="Drag the course on the map">Move</button>
+                <span class="device-meta" title="Press-drag the course itself to place it; drag anywhere else to pan">drag course to place</span>
             </div>
             <div class="builder-row">
                 <label class="device-meta" style="flex:1">Bearing <input id="sess-wind" type="number" min="0" max="359" step="1" style="max-width:64px" title="Bearing the wind comes from (deg)"></label>
@@ -3087,17 +3144,6 @@ async function renderSessionCreate() {
             e.target.value = SESSDRAFT.scale;
             renderSessPreview();
         });
-        document.getElementById("sess-move").addEventListener("click", () => {
-            if (SESSDRAFT.placing === "move") { disarmSessMove(); return; }
-            if (!SESSDRAFT.origin) {
-                const m = map.getCenter();
-                SESSDRAFT.origin = { lat: Math.round(m.lat * 1e5) / 1e5, lon: Math.round(m.lng * 1e5) / 1e5 };
-                syncSessForm();
-                renderSessPreview();
-            }
-            SESSDRAFT.placing = "move";
-            document.getElementById("sess-move")?.classList.add("arming");
-        });
         document.querySelectorAll("#sess-gun-row button[data-gun]").forEach(b => {
             if (Number(b.getAttribute("data-gun")) === (SESSDRAFT.gunSec || 60)) b.classList.add("active");
             b.addEventListener("click", () => {
@@ -3132,7 +3178,7 @@ async function renderSessionCreate() {
             const startISO = new Date(Date.now() + (SESSDRAFT.gunSec || 60) * 1000).toISOString();
             const t0 = SESSDRAFT.course;
             if (!t0) { errEl.textContent = "Pick a course first."; return; }
-            if (!SESSDRAFT.origin) { errEl.textContent = "Place the origin first (Center here)."; return; }
+            if (!SESSDRAFT.origin) { errEl.textContent = "Drag the map to place the course first."; return; }
             // Sessions encapsulate: every course is a DB row now (built-ins included),
             // so lineage always passes courseId.
             const shapeBody = { courseId: t0.id };
@@ -3154,7 +3200,7 @@ async function renderSessionCreate() {
                 const j = await res.json();
                 if (!res.ok) { errEl.textContent = j.error || "Create failed."; return; }
                 if (sessionCreatePanel) sessionCreatePanel.style.display = "none";
-                disarmSessMove();
+                endSessMove();
                 clearSessPreview();
                 openSessionsPanel(j.id);
             } catch { errEl.textContent = "Network error."; }
@@ -3423,7 +3469,7 @@ async function renderSessionDetail() {
             clearSelPreview();
             clearSimOverlay();
             clearSessPreview();
-            disarmSessMove();
+            endSessMove();
             clearSessDetailTimers();
             document.getElementById("tab-session-detail").innerHTML = "";
             document.getElementById("session-detail-panel").style.display = "none";

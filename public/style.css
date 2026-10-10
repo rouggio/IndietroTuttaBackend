@@ -1028,6 +1028,10 @@ html, body {
     border: 2px solid white;
     box-shadow: 0 1px 4px rgba(0,0,0,.4);
 }
+/* Session setup: the draft's own labels grab like the rest of the course. */
+body.sess-placing .builder-mark-label {
+    cursor: move;
+}
 
 .pile-count {
     position: absolute;
