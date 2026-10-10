@@ -39,19 +39,27 @@ async function addPoint(point) {
 
 async function getPoints(filter = {}) {
     const client = getClient();
-    const { date, deviceId, start, end } = filter;
+    const { date, deviceId, start, end, since } = filter;
+    // Live-append cursor: exclusive tail, capped like the sim-live precedent.
+    const SINCE_CAP = 2000;
 
     if (!client) {
         let pts = memPoints;
-        if (start) {
-            const s = new Date(start).getTime();
-            if (!isNaN(s)) pts = pts.filter(p => new Date(p.timestamp || p.receivedAt || 0).getTime() >= s);
+        if (since) {
+            const s = new Date(since).getTime();
+            if (!isNaN(s)) pts = pts.filter(p => new Date(p.timestamp || p.receivedAt || 0).getTime() > s);
+        } else {
+            if (start) {
+                const s = new Date(start).getTime();
+                if (!isNaN(s)) pts = pts.filter(p => new Date(p.timestamp || p.receivedAt || 0).getTime() >= s);
+            }
+            if (end) {
+                const e = new Date(end).getTime();
+                if (!isNaN(e)) pts = pts.filter(p => new Date(p.timestamp || p.receivedAt || 0).getTime() <= e);
+            } else if (date) pts = pts.filter(p => (p.timestamp || p.receivedAt || "").slice(0, 10) === date);
         }
-        if (end) {
-            const e = new Date(end).getTime();
-            if (!isNaN(e)) pts = pts.filter(p => new Date(p.timestamp || p.receivedAt || 0).getTime() <= e);
-        } else if (date) pts = pts.filter(p => (p.timestamp || p.receivedAt || "").slice(0, 10) === date);
         if (deviceId) pts = pts.filter(p => p.deviceId === deviceId);
+        if (since) pts = pts.slice(-SINCE_CAP);
         return pts;
     }
 
@@ -60,24 +68,31 @@ async function getPoints(filter = {}) {
     let sql = "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, simulated, timestamp, receivedAt FROM gps_points WHERE 1=1";
     const args = [];
 
-    if (start) {
-        // ISO timestamp range filter — takes precedence over date
-        sql += " AND timestamp >= ?";
-        args.push(new Date(start).toISOString());
-    }
-    if (end) {
-        sql += " AND timestamp <= ?";
-        args.push(new Date(end).toISOString());
-    }
-    if (!start && !end && date) {
-        sql += " AND substr(timestamp,1,10) = ?";
-        args.push(date);
+    if (since) {
+        // Live-append mode: `since` wins over start/end/date (exclusive cursor).
+        sql += " AND timestamp > ?";
+        args.push(new Date(since).toISOString());
+    } else {
+        if (start) {
+            // ISO timestamp range filter — takes precedence over date
+            sql += " AND timestamp >= ?";
+            args.push(new Date(start).toISOString());
+        }
+        if (end) {
+            sql += " AND timestamp <= ?";
+            args.push(new Date(end).toISOString());
+        }
+        if (!start && !end && date) {
+            sql += " AND substr(timestamp,1,10) = ?";
+            args.push(date);
+        }
     }
     if (deviceId) {
         sql += " AND deviceId = ?";
         args.push(deviceId);
     }
     sql += " ORDER BY id ASC";
+    if (since) sql += ` LIMIT ${SINCE_CAP}`;
 
     const res = await client.execute({ sql, args });
     return res.rows.map(r => ({ ...r, simulated: Number(r.simulated) ? 1 : 0 }));

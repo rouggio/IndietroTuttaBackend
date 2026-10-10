@@ -1,0 +1,16 @@
+meta {
+  name: Get GPS points since cursor
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/gps
+  body: none
+  auth: none
+}
+
+params:query {
+  deviceId: 08:D1:F9:C8:4D:24
+  since: 2026-10-10T00:00:00.000Z
+}

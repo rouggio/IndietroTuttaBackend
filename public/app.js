@@ -318,7 +318,7 @@ window.boatCalPick = function (dayStr) {
     if (startPicker) startPicker.value = customStart;
     if (endPicker) endPicker.value = customEnd;
     updateTimeControlsVisibility();
-    syncDateLabel();
+
     saveUI();
     playbackTime = new Date(customStart).getTime();
     refresh(true);
@@ -677,7 +677,6 @@ const startPicker = document.getElementById("startPicker");
 const endPicker = document.getElementById("endPicker");
 const applyRangeBtn = document.getElementById("applyRangeBtn");
 const rangeSep = document.getElementById("rangeSep");
-const dateLabel = document.getElementById("dateLabel");
 // compat: old datePicker removed — keep variable for legacy code
 const datePicker = { value: "" };
 
@@ -708,14 +707,6 @@ function computeRangeForPreset(preset, cStart, cEnd){
     }
     return { start: startOfDay(now).getTime(), end: endOfDay(now).getTime() };
 }
-function formatRangeLabel(startMs, endMs){
-    const s=new Date(startMs), e=new Date(endMs);
-    const sameDay = s.toDateString()===e.toDateString();
-    const sd = s.toLocaleDateString(); const st=s.toLocaleTimeString().slice(0,5);
-    const ed = e.toLocaleDateString(); const et=e.toLocaleTimeString().slice(0,5);
-    if(sameDay) return `${sd} ${st} → ${et}`;
-    return `${sd} ${st} → ${ed} ${et}`;
-}
 
 let isLive = true;
 let showSimPreview = true; // scripted-route preview on the map (persisted)
@@ -744,16 +735,6 @@ function updateTimeControlsVisibility(){
     if(applyRangeBtn) applyRangeBtn.style.display = isCustom ? "" : "none";
     if(presetSelect) presetSelect.disabled = !!isLive;
 }
-function syncDateLabel(count){
-    const suffix = typeof count==="number" ? ` (${count})` : "";
-    if(isLive){ dateLabel.textContent = `Live — Today${suffix}`; return; }
-    const range = computeRangeForPreset(timePreset, customStart, customEnd);
-    if(timePreset==="today") dateLabel.textContent = `Today${suffix}`;
-    else if(timePreset==="yesterday") dateLabel.textContent = `Yesterday${suffix}`;
-    else if(timePreset==="thisWeek") dateLabel.textContent = `This week${suffix}`;
-    else if(timePreset==="custom") dateLabel.textContent = `${formatRangeLabel(range.start, range.end)}${suffix}`;
-    else dateLabel.textContent = `${formatRangeLabel(range.start, range.end)}${suffix}`;
-}
 function getCurrentRange(){
     if(isLive){
         const now=new Date(); return { start: startOfDay(now).getTime(), end: endOfDay(now).getTime() };
@@ -762,7 +743,6 @@ function getCurrentRange(){
 }
 
 updateTimeControlsVisibility();
-syncDateLabel();
 if (isLive) liveBtn.classList.add("active"); else liveBtn.classList.remove("active");
 if (presetSelect) presetSelect.value = timePreset;
 
@@ -774,13 +754,13 @@ liveBtn.addEventListener("click", () => {
     if(isLive){
         liveBtn.classList.add("active");
         updateTimeControlsVisibility();
-        syncDateLabel();
+
         saveUI();
         refresh(true);
     } else {
         liveBtn.classList.remove("active");
         updateTimeControlsVisibility();
-        syncDateLabel();
+
         saveUI();
         refresh(true);
     }
@@ -798,7 +778,7 @@ if(presetSelect) presetSelect.addEventListener("change", () => {
     // keep compat selectedDate for custom
     if(timePreset==="custom"){ const r=computeRangeForPreset(timePreset, customStart, customEnd); selectedDate=new Date(r.start).toISOString().slice(0,10); }
     updateTimeControlsVisibility();
-    syncDateLabel();
+
     saveUI();
     refresh(true);
 });
@@ -809,7 +789,7 @@ function applyCustomRange(){
     if(timePreset!=="custom"){ timePreset="custom"; if(presetSelect) presetSelect.value="custom"; }
     isLive=false; liveBtn.classList.remove("active");
     updateTimeControlsVisibility();
-    syncDateLabel();
+
     saveUI();
     refresh(true);
 }
@@ -830,6 +810,13 @@ async function refreshDevices() {
         const res = await fetch("/boats");
         const devices = await res.json();
         lastDevices = devices;
+        // Prune ghost selections: a device deleted from the DB stays in the
+        // persisted selection Set forever, and refresh()/pollLiveSim() would
+        // keep polling it every cycle for rows that can never come back.
+        const known = new Set(devices.map(d => d.deviceId));
+        for (const id of [...selectedDeviceIds]) {
+            if (!known.has(id)) selectedDeviceIds.delete(id);
+        }
         const list = document.getElementById("device-list");
         const filterEl = document.getElementById("boatFilter");
         const q = filterEl ? filterEl.value.toLowerCase().trim() : "";
@@ -910,6 +897,14 @@ async function refreshDevices() {
     }
 }
 
+// Live cursor cache: per-boat points retained across 5s ticks so the live
+// loop appends only the tail (GET /gps?since=) instead of re-pulling the
+// whole range. Any selection/range change (or explicit recenter) invalidates
+// the key and falls back to a full range fetch.
+let liveKey = null;            // selection+range fingerprint of the cache
+let liveCache = new Map();     // deviceId -> points[]
+function liveCacheKey(ids, range) { return ids.join(",") + "|" + range.start + "-" + range.end; }
+function livePointKey(p) { return p.id != null ? "id:" + p.id : "t:" + (p.timestamp || p.receivedAt) + ":" + p.lat + "," + p.lon; }
 let firstFit = !restoredMapView; // viewport moves only on explicit recenter or first load (skipped when restoring last position)
 async function refresh(recenter = false) {
 
@@ -918,17 +913,53 @@ async function refresh(recenter = false) {
         try {
             const ids = [...selectedDeviceIds];
             const range = getCurrentRange();
+            const key = liveCacheKey(ids, range);
+            // Cursor path: live mode, no playback, same selection+range as the
+            // cached fetch, and the cache actually holds those boats.
+            const useCursor = !recenter && isLive && !playbackTimer && liveKey === key &&
+                ids.every(id => liveCache.has(id));
             const all = await Promise.all(ids.map(async id => {
                 const params = new URLSearchParams();
                 params.set("deviceId", id);
-                // use rich range (start/end ISO) — backend filters by timestamp
-                params.set("start", new Date(range.start).toISOString());
-                params.set("end", new Date(range.end).toISOString());
+                if (useCursor) {
+                    const cur = liveCache.get(id);
+                    const last = cur.length ? cur[cur.length - 1] : null;
+                    params.set("since", new Date(last ? (last.timestamp || last.receivedAt) : range.start).toISOString());
+                } else {
+                    // use rich range (start/end ISO) — backend filters by timestamp
+                    params.set("start", new Date(range.start).toISOString());
+                    params.set("end", new Date(range.end).toISOString());
+                }
                 const r = await fetch(`/gps?${params.toString()}`);
                 if (!r.ok) return [];
                 return r.json();
             }));
-            points = all.flat().sort((a,b) => new Date(a.timestamp||a.receivedAt) - new Date(b.timestamp||b.receivedAt));
+            if (useCursor) {
+                // append + dedupe per boat, then drop anything outside the range
+                ids.forEach((id, i) => {
+                    const cur = liveCache.get(id);
+                    const seen = new Set(cur.map(livePointKey));
+                    for (const p of (all[i] || [])) {
+                        const k = livePointKey(p);
+                        if (!seen.has(k)) { seen.add(k); cur.push(p); }
+                    }
+                    liveCache.set(id, cur.filter(p => {
+                        const t = new Date(p.timestamp || p.receivedAt).getTime();
+                        return !isNaN(t) && t >= range.start && t <= range.end;
+                    }));
+                });
+                points = [...liveCache.values()].flat();
+            } else {
+                liveCache = new Map();
+                for (const id of ids) liveCache.set(id, []);
+                for (const p of all.flat()) {
+                    if (!liveCache.has(p.deviceId)) liveCache.set(p.deviceId, []);
+                    liveCache.get(p.deviceId).push(p);
+                }
+                liveKey = key;
+                points = all.flat();
+            }
+            points = points.sort((a,b) => new Date(a.timestamp||a.receivedAt) - new Date(b.timestamp||b.receivedAt));
             // client-side guard: only keep points inside selected time range
             const _range = getCurrentRange();
             points = points.filter(p => {
@@ -944,10 +975,6 @@ async function refresh(recenter = false) {
     }
 
     allPoints = points;
-    // Update label with count — rich selector
-    const filterSuffix = selectedDeviceIds.size ? ` • ${selectedDeviceIds.size} selected` : "";
-    syncDateLabel(points.length);
-    if (filterSuffix) dateLabel.textContent += filterSuffix;
 
     if (points.length === 0) {
         if (polyline) { map.removeLayer(polyline); polyline = null; }
@@ -1489,7 +1516,7 @@ window.addEventListener("mouseup", e => {
         if(startPicker) startPicker.value = customStart;
         if(endPicker) endPicker.value = customEnd;
         updateTimeControlsVisibility();
-        syncDateLabel();
+
         saveUI();
         playbackTime = selStart;
         hideTimelineSelection();
@@ -1533,7 +1560,7 @@ window.addEventListener("touchend", e => {
         isLive = false; liveBtn.classList.remove("active"); timePreset="custom"; if(presetSelect) presetSelect.value="custom";
         customStart = toLocalDatetimeValue(new Date(selStart)); customEnd = toLocalDatetimeValue(new Date(selEnd));
         if(startPicker) startPicker.value=customStart; if(endPicker) endPicker.value=customEnd;
-        updateTimeControlsVisibility(); syncDateLabel(); saveUI(); playbackTime=selStart; hideTimelineSelection();
+        updateTimeControlsVisibility(); saveUI(); playbackTime=selStart; hideTimelineSelection();
         refresh().then(()=>{ updateTimelineTracks(); playbackTime=selStart; updatePlaybackSlider(); showTime(selStart); });
     } else {
         hideTimelineSelection();

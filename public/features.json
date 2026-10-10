@@ -2,7 +2,6 @@
   "scale": "Cost: 1 trivial - 5 large / cross-system",
   "source": "Mirrors the numbered actionable todos in ROADMAP.md (root) - keep both in step.",
   "features": [
-    { "n": 1, "cost": 2, "title": "Live map: cursor-based GPS fetch instead of full re-pull every 5s" },
     { "n": 2, "cost": 4, "title": "Realtime push (SSE): sessions, signals, boats without polling" },
     { "n": 3, "cost": 3, "title": "Rankings / leaderboard across boats in a session" },
     { "n": 4, "cost": 4, "title": "Replay: per-session playback with leaderboard snapshot" },
@@ -18,6 +17,6 @@
     { "n": 14, "cost": 1, "title": "Drop the Simulate button, keep a mock traces toggle" },
     { "n": 15, "cost": 1, "title": "Move Abandon next to Delete at the bottom" },
     { "n": 16, "cost": 3, "title": "Race finishes on the line cross, only after every mark is cleared" },
-    { "n": 18, "cost": 1, "title": "Simplify or remove the crowded top-right date/count/selected label" }
+    { "n": 19, "cost": 3, "title": "Race-screen variant focused on the next target" }
   ]
 }

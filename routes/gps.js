@@ -138,13 +138,17 @@ router.get("/gps/sim-live", async (req, res) => {
 // --------------------------------------------------
 
 router.get("/gps", async (req, res) => {
-    const { date, deviceId, start, end } = req.query;
+    const { date, deviceId, start, end, since } = req.query;
     if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
         return res.status(400).json({ error: "deviceId query param required" });
     }
     const cleanDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
     const cleanDeviceId = deviceId.trim();
-    let cleanStart = null, cleanEnd = null;
+    let cleanStart = null, cleanEnd = null, cleanSince = null;
+    if (since) {
+        const s = new Date(since);
+        if (!isNaN(s.getTime())) cleanSince = s.toISOString();
+    }
     if (start) {
         const s = new Date(start);
         if (!isNaN(s.getTime())) cleanStart = s.toISOString();
@@ -153,8 +157,12 @@ router.get("/gps", async (req, res) => {
         const e = new Date(end);
         if (!isNaN(e.getTime())) cleanEnd = e.toISOString();
     }
-    // if range provided, it takes precedence over date
-    if (cleanStart || cleanEnd) {
+    // Live-append mode: a valid `since` wins over start/end/date. Exclusive
+    // cursor, capped tail, same row shape as the range path.
+    if (cleanSince) {
+        res.json(await getPoints({ deviceId: cleanDeviceId, since: cleanSince }));
+    } else if (cleanStart || cleanEnd) {
+        // if range provided, it takes precedence over date
         res.json(await getPoints({ deviceId: cleanDeviceId, start: cleanStart, end: cleanEnd }));
     } else {
         res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId }));
