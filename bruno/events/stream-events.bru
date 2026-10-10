@@ -1,0 +1,15 @@
+meta {
+  name: Subscribe to session events
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/events
+  body: none
+  auth: none
+}
+
+docs {
+  NOTES: SSE stream — session/boat/signal events, never GPS. curl to watch: curl -N {{baseUrl}}/events
+}

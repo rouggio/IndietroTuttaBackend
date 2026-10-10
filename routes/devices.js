@@ -2,6 +2,10 @@ const express = require("express");
 const fetch = require("node-fetch");
 
 const {
+    emit,
+} = require("./events");
+
+const {
     getDevices,
     getDevice,
     renameDevice,
@@ -56,6 +60,7 @@ router.delete("/devices/:id", async (req, res) => {
     const { deleteDevice } = require("../store/deviceStore");
     const ok = await deleteDevice(req.params.id);
     if (!ok) return res.status(404).json({ error: "Device not found" });
+    emit("boat.deleted", { deviceId: req.params.id });
     res.json({ status: "deleted" });
 });
 
@@ -88,6 +93,7 @@ async function handleMock(req, res) {
         return res.status(502).json({ error: "device portal unreachable" });
     }
     const updated = await setDeviceMock(req.params.id, on);
+    emit("boat.mock", { deviceId: req.params.id, mock: on });
     res.json({ deviceId: req.params.id, mock: on, ip: updated?.ip || device.ip });
 }
 
@@ -106,6 +112,7 @@ router.delete("/boats/:id", async (req, res) => {
     const { deleteDevice } = require("../store/deviceStore");
     const ok = await deleteDevice(req.params.id);
     if (!ok) return res.status(404).json({ error: "Device not found" });
+    emit("boat.deleted", { deviceId: req.params.id });
     res.json({ status: "deleted" });
 });
 module.exports = router;

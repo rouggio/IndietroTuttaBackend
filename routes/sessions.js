@@ -29,6 +29,12 @@ const {
     createRun,
 } = require("../store/sim");
 
+const {
+    emit,
+    scheduleGun,
+    clearGun,
+} = require("./events");
+
 const router = express.Router();
 
 function sendErr(res, e) {
@@ -78,6 +84,8 @@ router.post("/sessions", async (req, res) => {
         if (Array.isArray((req.body || {}).boats)) {
             await autoSimMockBoats(s, req.body.boats.map((b) => (typeof b === "string" ? b : b && b.deviceId)));
         }
+        emit("session.created", { id: s.id });
+        scheduleGun(s.id, s.startTime);
         res.status(201).json(s);
     } catch (e) {
         sendErr(res, e);
@@ -107,6 +115,8 @@ router.put("/sessions/:id", async (req, res) => {
     try {
         const s = await updateSession(req.params.id, req.body || {});
         if (!s) return res.status(404).json({ error: "session not found" });
+        emit("session.updated", { id: s.id, status: s.status });
+        scheduleGun(s.id, s.startTime);
         res.json(s);
     } catch (e) {
         sendErr(res, e);
@@ -121,6 +131,8 @@ router.delete("/sessions/:id", async (req, res) => {
     try {
         const ok = await deleteSession(req.params.id);
         if (!ok) return res.status(404).json({ error: "session not found" });
+        clearGun(req.params.id);
+        emit("session.deleted", { id: Number(req.params.id) });
         res.json({ status: "deleted" });
     } catch (e) {
         sendErr(res, e);
@@ -137,6 +149,8 @@ router.post("/sessions/:id/repeat", async (req, res) => {
         const { date, mode, name } = req.body || {};
         const s = await repeatSession(req.params.id, { date, mode, name });
         if (!s) return res.status(404).json({ error: "session not found" });
+        emit("session.created", { id: s.id });
+        scheduleGun(s.id, s.startTime);
         res.status(201).json(s);
     } catch (e) {
         sendErr(res, e);
@@ -154,6 +168,7 @@ router.post("/sessions/:id/boats", async (req, res) => {
         const s = await addBoat(req.params.id, deviceId, startOffsetSec);
         if (!s) return res.status(404).json({ error: "session not found" });
 await autoSimMockBoats(s, typeof deviceId === "string" ? [deviceId] : []);
+    emit("session.boats", { id: s.id });
     res.status(201).json(s);
     } catch (e) {
         sendErr(res, e);
@@ -168,6 +183,7 @@ router.delete("/sessions/:id/boats/:deviceId", async (req, res) => {
     try {
         const s = await removeBoat(req.params.id, req.params.deviceId);
         if (!s) return res.status(404).json({ error: "session not found" });
+        emit("session.boats", { id: s.id });
         res.json(s);
     } catch (e) {
         sendErr(res, e);
@@ -185,7 +201,9 @@ router.post("/sessions/:id/runs", async (req, res) => {
     try {
         const s = await getSession(req.params.id);
         if (!s) return res.status(404).json({ error: "session not found" });
-        res.status(201).json(await submitRun({ ...(req.body || {}), sessionId: s.id }));
+        const run = await submitRun({ ...(req.body || {}), sessionId: s.id });
+        emit("session.runs", { id: s.id });
+        res.status(201).json(run);
     } catch (e) {
         sendErr(res, e);
     }
@@ -211,7 +229,13 @@ router.post("/sessions/:id/signals", async (req, res) => {
     try {
         const s = await getSession(req.params.id);
         if (!s) return res.status(404).json({ error: "session not found" });
-        res.status(201).json(await raiseSignal(s.id, req.body || {}));
+        const sig = await raiseSignal(s.id, req.body || {});
+        emit("signal.raised", { sessionId: s.id, kind: sig.kind, deviceId: sig.deviceId || null });
+        if ((req.body || {}).kind === "ABANDON") {
+            clearGun(s.id);
+            emit("session.status", { id: s.id, status: "abandoned" });
+        }
+        res.status(201).json(sig);
     } catch (e) {
         sendErr(res, e);
     }

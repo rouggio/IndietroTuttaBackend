@@ -11,6 +11,7 @@ const coursesRoutes = require("./routes/courses");
 const sessionsRoutes = require("./routes/sessions");
 const simRoutes = require("./routes/sim");
 const windRoutes = require("./routes/wind");
+const { router: eventsRoutes, primeGuns, primeBoats } = require("./routes/events");
 
 const app = express();
 
@@ -37,12 +38,15 @@ app.use("/", coursesRoutes);
 app.use("/", sessionsRoutes);
 app.use("/", simRoutes);
 app.use("/", windRoutes);
+app.use("/", eventsRoutes);
 
 // --------------------------------------------------
 // Start server
 // --------------------------------------------------
 
 initDb().then(() => {
+    primeGuns();
+    primeBoats();
     app.listen(PORT, () => {
         console.log(`IndietroTutta server listening on port ${PORT}`);
     });

@@ -576,6 +576,7 @@ module.exports = {
     activeSessionsForDevice,
     getActiveSessionForDevice,
     abandonMemorySession,
+    deriveStatus,
 };
 
 // In-memory twin of the ABANDON signal's UPDATE (no-DB fallback mode).
