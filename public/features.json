@@ -3,10 +3,10 @@
   "source": "Mirrors the numbered actionable todos in ROADMAP.md (root) - keep both in step.",
   "order": "Pane order is computed, not numeric: topological by deps, then priority, then cost, then n.",
   "features": [
-    { "n": 3, "cost": 3, "priority": 2, "deps": [16], "title": "Rankings / leaderboard across boats in a session" },
+    { "n": 3, "cost": 3, "priority": 8, "deps": [16], "title": "Rankings / leaderboard across boats in a session" },
     { "n": 4, "cost": 4, "priority": 2, "deps": [3], "title": "Replay: per-session playback with leaderboard snapshot" },
     { "n": 5, "cost": 5, "priority": 8, "deps": [], "title": "Auth: replace the bare MAC header identity" },
-    { "n": 6, "cost": 2, "priority": 5, "deps": [], "title": "Screen capture in bands so it works on a prod-connected device" },
+    { "n": 6, "cost": 2, "priority": 7, "deps": [], "title": "Screen capture in bands so it works on a prod-connected device" },
     { "n": 7, "cost": 3, "priority": 5, "deps": [], "title": "Persist simulated runs (wiped by every Render redeploy today)" },
     { "n": 8, "cost": 1, "priority": 5, "deps": [], "title": "Gun banner and audio cue at the start" },
     { "n": 9, "cost": 3, "priority": 5, "deps": [7], "title": "Store GPS of mock boats while a session is live" },
