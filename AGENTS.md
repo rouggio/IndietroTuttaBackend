@@ -51,6 +51,25 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
   DB-backed route 500'd until `sd` redeployed the new code. Safe order: (1) deploy code that
   stops using the column, (2) drop it in a later deploy (or keep it one release). Local
   `:3000` shares the LIVE Turso DB, so a local migration IS a prod migration.
+- **A RENAME cuts both ways: the old build renames the table BACK on every cold start.**
+  2026-10-10: renaming `templates`→`courses` locally worked, then Render spun the instance
+  down; the wake-up ran the deployed build's `ALTER TABLE courses RENAME TO templates` +
+  `sessions.templateId`, silently reverting the migration. Prod stayed healthy (old code +
+  old names = self-consistent) while **local `:3000` broke** with `no such table: courses`.
+  Lesson: a hard rename has a hard deploy dependency — the backend must ship in the same
+  round as the schema. Until then local DB work is a treadmill (each prod cold start undoes
+  it), so verify with `SELECT name FROM sqlite_master` + a `PRAGMA table_info`, not with
+  `/health` (health doesn't read the renamed tables and looks fine).
+- **`ALTER TABLE ... RENAME COLUMN` breaks on a table grown by many `ADD COLUMN`s.**
+  SQLite re-parses the accumulated schema and fails with `duplicate column name:
+  courseShapeVersion`. `initDb` now **rebuilds** `sessions` into its canonical shape
+  (rename → `sessions_legacy`, copy with per-column source aliases, drop) whenever a
+  legacy `template*` column is still present. Prefer a rebuild over a rename for tables
+  that have been migrated repeatedly.
+- **`ABANDON` is session-scoped, so raising it stores `status='abandoned'`.**
+  Status is otherwise inferred on read, so without that an abandoned session kept being
+  inferred scheduled/live: it stayed on the health piggyback (a device that walked away was
+  handed the session straight back) and kept the boat blocked from starting a new one.
 - **Never rewrite `public/*.js|css|html` with PowerShell `Set-Content`/`Out-File`** — they
   default to a legacy codepage and silently double-encode every non-ASCII char (UTF-8 → CP1252
   → UTF-8), so `·` becomes `Â·`, `→` becomes `â†’`, `×` becomes `Ã—`. The file stays *valid*
