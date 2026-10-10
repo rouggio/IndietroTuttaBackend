@@ -3550,6 +3550,12 @@ if (panelVisible(document.getElementById("course-panel"))) loadCourses();
 if (panelVisible(document.getElementById("session-panel"))) loadSessions();
 if (panelVisible(document.getElementById("wind-panel"))) refreshWind();
 if (panelVisible(document.getElementById("session-create-panel"))) renderSessionCreate();
+if (panelVisible(document.getElementById("features-panel"))) {
+    loadFeatures().then(renderFeatures).catch(e => {
+        const list = document.getElementById("features-list");
+        if (list) list.innerHTML = `<div class="device-meta">Could not load features.json (${escHtml(e.message)})</div>`;
+    });
+}
 // The detail pane's selection is not persisted, so a pane restored visible has
 // nothing to render (and loadSessions() only runs when the LIST panel is open).
 // Hide it rather than leaving an empty "Session details" box.
