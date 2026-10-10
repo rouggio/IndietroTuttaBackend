@@ -42,13 +42,13 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
 ## Bruno / verify / deploy
 
 - `bruno/` mirrors routes: `health/ gps/ devices/` (incl. `devices-rename.bru`, `devices-mock.bru`), `courses/`, `sessions/` (incl. snapshot + repeat + `add-boat-conflict.bru`), `sim/` (incl. `wander.bru`), `wind/` + `environments/local.bru (:3000)` + `production.bru (onrender)`. Rule: new endpoint → new `.bru`, test both envs.
-- Local check: `node server.js` → `curl localhost:3000/health /devices /boats /courses /gps?date=YYYY-MM-DD`; removed routes return 404 (`/templates/*`, `/races`).
-- Deploy (`sd`): commit + push `main`, then `POST $REDPLOY_HOOK_URL` (push alone does NOT redeploy), verify `/devices`. OTA publish comes from device repo `make dist` which commits firmware into `public/ota/` here.
+- Local check (`sl`): `node server.js` → `curl localhost:3000/health /devices /boats /courses /gps?date=YYYY-MM-DD`; removed routes return 404 (`/templates/*`, `/races`).
+- Deploy (`sc`): commit + push `main`, then `POST $REDPLOY_HOOK_URL` (push alone does NOT redeploy), verify `/devices`. OTA publish comes from the device repo `make dist` (= `dc`), which commits firmware into `public/ota/` here — note it re-fires the same hook, so `sc` then `dc` double-deploys and `dc` alone covers both.
 - No auth anywhere — identity is `DeviceId` MAC header. Keep validation + username whitelist in sync with firmware.
 - **Destructive schema changes: never drop a column while the OLD build is still live.**
   2026-10-09: dropping `gps_points.flagged` locally killed prod (`SQL_INPUT_ERROR: no such
   column: flagged` at `store/db.js:94`) because the deployed build still selected it — every
-  DB-backed route 500'd until `sd` redeployed the new code. Safe order: (1) deploy code that
+  DB-backed route 500'd until `sc` redeployed the new code. Safe order: (1) deploy code that
   stops using the column, (2) drop it in a later deploy (or keep it one release). Local
   `:3000` shares the LIVE Turso DB, so a local migration IS a prod migration.
 - **A RENAME cuts both ways: the old build renames the table BACK on every cold start.**
