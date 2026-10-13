@@ -1774,6 +1774,13 @@ function toggleEl(id, show) {
     if (typeof show === "boolean") el.style.display = show ? "block" : "none";
     else el.style.display = el.style.display === "none" || !el.style.display ? "block" : "none";
     saveUI();
+    // Re-check the whole set when a pane becomes visible: it may collide
+    // with one that was already open. Deferred a frame so the newly shown
+    // pane has a real box to measure (a zero-size box would cascade to a
+    // bogus position).
+    if (panelVisible(el)) {
+        requestAnimationFrame(() => { if (panelVisible(el)) settleAllPanels(); });
+    }
 }
 const boatsBtn = document.getElementById("boatsToggleBtn");
 const devicePanel = document.getElementById("device-panel");
@@ -3904,29 +3911,78 @@ function panelVisible(el) {
 function rectsOverlap(a, b) {
     return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
+// Every floating pane, in the canonical order used for cascading. Keep this
+// list complete: a pane missing here is invisible to the overlap logic.
+const PANEL_IDS = [
+    "device-panel", "wind-panel", "course-panel", "session-panel",
+    "session-create-panel", "session-detail-panel", "settings-panel",
+    "clean-panel", "features-panel", "builder-panel",
+];
+
 // If el (just shown/grown) covers another open floating panel, cascade it
 // below; if that runs off-screen, dock it right of the other panel instead.
 // Panels the user dragged themselves are never auto-moved.
+//
+// Returns true when the panel was actually relocated. When there is no room
+// to clear the collision the panel is left exactly where it is — a pane
+// that jitters between positions every time one is restored is worse than a
+// pane that overlaps once.
 function avoidPanelOverlap(el) {
-    if (!panelVisible(el) || el.dataset.moved) return;
-    const others = ["device-panel", "wind-panel", "course-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "clean-panel", "builder-panel"]
-        .map(id => document.getElementById(id))
-        .filter(o => o && o !== el && panelVisible(o));
+    if (!el || !panelVisible(el) || el.dataset.moved) return false;
     let moved = false;
-    for (const o of others) {
-        const r = el.getBoundingClientRect(), q = o.getBoundingClientRect();
+    for (const id of PANEL_IDS) {
+        if (id === el.id) continue;
+        const o = document.getElementById(id);
+        if (!o || !panelVisible(o) || o.dataset.moved) continue;
+        const r = el.getBoundingClientRect();
+        // Not laid out yet (display just switched on, or content not
+        // populated): acting on a zero-size box cascades to a bogus spot.
+        if (!r.width || !r.height) continue;
+        const q = o.getBoundingClientRect();
         if (!rectsOverlap(r, q)) continue;
+
         const below = q.bottom + 8;
-        if (below + Math.min(r.height, 300) > window.innerHeight) {
+        const fitsBelow = below + r.height <= window.innerHeight - 8;
+        const fitsRight = q.right + 8 + r.width <= window.innerWidth - 8;
+        if (fitsBelow) {
             el.style.right = "auto"; // left wins over CSS right dock
-            el.style.left = Math.min(q.right + 8, Math.max(0, window.innerWidth - r.width - 8)) + "px";
+            el.style.left = Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8)) + "px";
+            el.style.top = below + "px";
+        } else if (fitsRight) {
+            el.style.right = "auto";
+            el.style.left = (q.right + 8) + "px";
             el.style.top = "58px";
         } else {
-            el.style.top = below + "px";
+            break; // no room anywhere — leave it, stop trying
         }
         moved = true;
     }
+    return moved;
+}
+
+// Full pass over every visible pane, in PANEL_IDS order, so the outcome does
+// not depend on which pane happened to be restored or opened first.
+// Used after loadUI() restores visibility: at that point several panes can
+// come back at the same stale coordinates.
+function settleAllPanels() {
+    let moved = false;
+    for (const id of PANEL_IDS) {
+        const el = document.getElementById(id);
+        if (!el || !panelVisible(el) || el.dataset.moved) continue;
+        if (avoidPanelOverlap(el)) moved = true;
+    }
     if (moved) { try { saveUI(); } catch {} }
+    return moved;
+}
+
+// Panes restore their content asynchronously (loadCourses, loadFeatures,
+// refreshWind), so their heights grow after the DOM settles. Two passes:
+// one as soon as layout is real, one after the async content has landed.
+function settleAllPanelsWhenReady() {
+    requestAnimationFrame(() => {
+        settleAllPanels();
+        setTimeout(settleAllPanels, 400);
+    });
 }
 makeFloatingDraggable(document.getElementById("device-panel"));
 makeFloatingDraggable(document.getElementById("wind-panel"));
@@ -3938,13 +3994,10 @@ makeFloatingDraggable(document.getElementById("settings-panel"));
 makeFloatingDraggable(document.getElementById("clean-panel"));
 makeFloatingDraggable(document.getElementById("features-panel"));
 makeFloatingDraggable(document.getElementById("builder-panel"));
-// fix any overlap restored from a previous session
-avoidPanelOverlap(document.getElementById("course-panel"));
-avoidPanelOverlap(document.getElementById("session-panel"));
-avoidPanelOverlap(document.getElementById("session-create-panel"));
-avoidPanelOverlap(document.getElementById("settings-panel"));
-avoidPanelOverlap(document.getElementById("session-detail-panel"));
-avoidPanelOverlap(document.getElementById("device-panel"));
+// Panes restored visible by loadUI() can come back at the same stale
+// coordinates. Settle them once layout is real — and again after the async
+// content below has populated, since that grows their heights.
+settleAllPanelsWhenReady();
 // populate panels restored visible (their content loads on toggle otherwise)
 if (panelVisible(document.getElementById("course-panel"))) loadCourses();
 if (panelVisible(document.getElementById("session-panel"))) loadSessions();
