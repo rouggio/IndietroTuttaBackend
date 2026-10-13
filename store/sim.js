@@ -1,4 +1,5 @@
 const { getSession } = require("./sessionStore");
+const { getLatestPoint } = require("./gpsStore");
 
 // ------------------------------------------------------------------
 // Scripted sim runs (in-memory test rig — lost on restart, by design).
@@ -423,7 +424,7 @@ function activeRunForDevice(deviceId, nowMs = Date.now()) {
 module.exports = {
     createRun, getRun, listRuns, deleteRun, echoSample, nextSample, activeRunForDevice, runMeta,
     compileScript, // exported for unit checks
-    wanderSample, wanderAnchorFor, setPushedAnchor,
+    wanderSample, wanderAnchorFor, wanderNext, setPushedAnchor,
 };
 
 // ------------------------------------------------------------------
@@ -470,33 +471,37 @@ function pushedAnchor() {
     return { lat: pushed.lat, lon: pushed.lon };
 }
 
-function wanderSample(deviceId, anchor, nowMs = Date.now()) {
+function wanderSample(deviceId, seed, nowMs = Date.now()) {
     let s = wanders.get(deviceId);
+    const liveAnchor = seed && seed.source === "anchor" ? seed : null;
+
     if (!s) {
-        // Nothing to walk from: seed at the pushed anchor, else null
-        // (caller 404s, device holds) until the browser pushes one.
-        if (!anchor) return null;
+        // First poll for this boat: seed the walk wherever we can point at.
+        if (!seed) return null; // caller 404s, device holds
         s = {
-            aLat: anchor.lat, aLon: anchor.lon,
-            lat: anchor.lat, lon: anchor.lon,
+            aLat: seed.lat, aLon: seed.lon,
+            lat: seed.lat, lon: seed.lon,
             head: Math.random() * 360, spd: WANDER_KN, t: nowMs,
-            free: false,
+            free: false, seededFrom: seed.source,
         };
         wanders.set(deviceId, s);
-    } else if (anchor && distM(s, anchor) > WANDER_RESEED_M) {
+    } else if (liveAnchor && distM(s, liveAnchor) > WANDER_RESEED_M) {
         // Viewport jumped far: fresh walk at the new center.
-        s.aLat = anchor.lat; s.aLon = anchor.lon;
-        s.lat = anchor.lat; s.lon = anchor.lon;
+        s.aLat = liveAnchor.lat; s.aLon = liveAnchor.lon;
+        s.lat = liveAnchor.lat; s.lon = liveAnchor.lon;
         s.head = Math.random() * 360; s.spd = WANDER_KN; s.t = nowMs;
-        s.free = false;
+        s.free = false; s.seededFrom = "anchor";
     }
-    if (anchor) {
+    if (liveAnchor) {
         // Anchored mode: adopt the pushed center, steer home past the leash.
-        s.aLat = anchor.lat; s.aLon = anchor.lon;
+        s.aLat = liveAnchor.lat; s.aLon = liveAnchor.lon;
         s.free = false;
     } else {
         // Browser gone: totally random walk from the last position —
-        // heading and speed keep breathing, nothing recenters or clamps.
+        // heading and speed keep breathing, nothing recentres or clamps.
+        // A DB seed only ever positions the START of the walk; it is not
+        // re-applied per poll, so a stale fix can't leash the boat to an
+        // old mooring forever.
         s.free = true;
     }
     const dt = Math.min(Math.max((nowMs - s.t) / 1000, 0), 30);
@@ -530,5 +535,36 @@ function wanderSample(deviceId, anchor, nowMs = Date.now()) {
         speed: +s.spd.toFixed(1),
         course: Math.round(s.head),
         anchor: { lat: +s.aLat.toFixed(7), lon: +s.aLon.toFixed(7) },
+        // Where the walk was started from: 'anchor' (browser map),
+        // 'last-fix' (this boat's own newest stored point), or
+        // 'last-fix-any' (newest point in the DB, this boat has none).
+        seededFrom: s.seededFrom || null,
     };
+}
+
+// One step of the walk, resolving where to start it. Seed priority:
+//   1. the map viewport the browser pushed (live intent)
+//   2. this boat's own newest stored GPS point
+//   3. the newest GPS point in the DB at all
+// (2) and (3) are ONLY consulted on the first poll for a boat, when there
+// is no walk state yet — the 1Hz poll never touches the DB, so this costs
+// at most one lookup per boat per process lifetime.
+async function wanderNext(deviceId, nowMs = Date.now()) {
+    const anchor = await wanderAnchorFor(deviceId);
+    let seed = anchor ? { lat: anchor.lat, lon: anchor.lon, source: "anchor" } : null;
+
+    if (!seed && !wanders.has(deviceId)) {
+        let p = null;
+        try { p = await getLatestPoint(deviceId); } catch {}
+        let source = "last-fix";
+        if (!p) {
+            try { p = await getLatestPoint(); } catch {}
+            source = "last-fix-any";
+        }
+        if (p && typeof p.lat === "number" && typeof p.lon === "number"
+            && Number.isFinite(p.lat) && Number.isFinite(p.lon)) {
+            seed = { lat: p.lat, lon: p.lon, source };
+        }
+    }
+    return wanderSample(deviceId, seed, nowMs);
 }

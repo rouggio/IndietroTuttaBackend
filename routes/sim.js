@@ -10,6 +10,7 @@ const {
     getRun,
     wanderSample,
     wanderAnchorFor,
+    wanderNext,
     setPushedAnchor,
 } = require("../store/sim");
 
@@ -74,11 +75,10 @@ router.get("/sim/next", async (req, res) => {
             deleteRun(run.id); // exhausted: fall through to the walk below
         }
         if (!deviceId) return res.status(404).json({ error: "no live run" });
-        const anchor = await wanderAnchorFor(deviceId);
-        const sample = wanderSample(deviceId, anchor);
-        // Null: no walk state yet and browser pushed no anchor — the
-        // device holds until the map is opened somewhere.
-        if (!sample) return res.status(404).json({ error: "no wander anchor" });
+        const sample = await wanderNext(deviceId, nowMs);
+        // Null only when there is no walk state AND nothing to seed from:
+        // no browser anchor and no stored point for this boat or any boat.
+        if (!sample) return res.status(404).json({ error: "no wander seed available" });
         res.json(sample);
     } catch (e) {
         sendErr(res, e);
@@ -147,9 +147,8 @@ router.get("/sim/wander", async (req, res) => {
     try {
         const { deviceId } = req.query;
         if (!deviceId) return res.status(400).json({ error: "deviceId required" });
-        const anchor = await wanderAnchorFor(deviceId);
-        const sample = wanderSample(deviceId, anchor);
-        if (!sample) return res.status(404).json({ error: "no wander anchor" });
+        const sample = await wanderNext(deviceId);
+        if (!sample) return res.status(404).json({ error: "no wander seed available" });
         res.json(sample);
     } catch (e) {
         sendErr(res, e);

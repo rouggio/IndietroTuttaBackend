@@ -9,3 +9,15 @@ get {
   body: none
   auth: none
 }
+
+docs {
+  200 { wander:true, free, lat, lon, speed, course, anchor, seededFrom }
+
+  Seed priority: browser anchor (seededFrom "anchor"), else this boat's
+  own newest stored point ("last-fix"), else the newest point in the DB
+  ("last-fix-any"). 404 only when the DB is empty entirely.
+
+  With no browser anchor the walk is seeded ONCE and then goes free, so a
+  stale fix cannot leash the boat to an old mooring. The DB is consulted
+  only on a boat's first poll, never on the 1Hz path.
+}

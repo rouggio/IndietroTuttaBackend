@@ -1,0 +1,28 @@
+meta {
+  name: GPS delete - refuses when ENABLE_GPS_EDIT is unset
+  type: http
+  seq: 45
+}
+
+delete {
+  url: {{baseUrl}}/gps
+  body: none
+  auth: none
+}
+
+params:query {
+  deviceId: 08:D1:F9:C8:4D:24
+}
+
+docs {
+  No time window at all, so this trips the env gate first.
+
+  Expect 403: GPS editing is disabled on this server.
+  If your local server has ENABLE_GPS_EDIT=true in .env, expect 400
+  instead (see delete-no-window.bru) — that is the next guard, not a
+  failure of this check.
+
+  There is no auth in this app (identity is a spoofable MAC header), so
+  the endpoint is refused unless the flag is deliberately enabled. Prod
+  keeps working untouched until it is.
+}

@@ -1,0 +1,25 @@
+meta {
+  name: GPS delete - refuses an unbounded delete
+  type: http
+  seq: 46
+}
+
+delete {
+  url: {{baseUrl}}/gps
+  body: none
+  auth: none
+}
+
+params:query {
+  deviceId: 08:D1:F9:C8:4D:24
+}
+
+docs {
+  Guard rail: a deviceId-only delete would wipe the boat's ENTIRE
+  history, so the route requires an explicit start and/or end.
+
+  Expect 400: start and/or end required — refusing to delete unbounded
+  history.
+
+  Only reached when ENABLE_GPS_EDIT is set on the server.
+}

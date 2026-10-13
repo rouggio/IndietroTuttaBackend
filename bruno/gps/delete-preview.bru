@@ -1,0 +1,30 @@
+meta {
+  name: GPS delete - PREVIEW (safe, deletes nothing)
+  type: http
+  seq: 44
+}
+
+delete {
+  url: {{baseUrl}}/gps
+  body: none
+  auth: none
+}
+
+params:query {
+  deviceId: 08:D1:F9:C8:4D:24
+  start: 2026-10-10T15:00:00.000Z
+  end: 2026-10-10T23:30:00.000Z
+  preview: 1
+}
+
+docs {
+  Run this FIRST. Counts the rows a real delete would remove and deletes
+  nothing.
+
+  Expect 200: { count: <n>, preview: true }
+  Expect 403: ENABLE_GPS_EDIT is not set on the target server.
+
+  Use a narrow window around what you actually want gone. Remember local
+  :3000 shares the LIVE Turso DB, so a local delete is a production
+  delete — there is no separate dev database.
+}

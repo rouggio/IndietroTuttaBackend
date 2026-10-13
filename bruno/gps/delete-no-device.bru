@@ -1,0 +1,26 @@
+meta {
+  name: GPS delete - refuses without a deviceId
+  type: http
+  seq: 47
+}
+
+delete {
+  url: {{baseUrl}}/gps
+  body: none
+  auth: none
+}
+
+params:query {
+  start: 2026-10-10T15:00:00.000Z
+  end: 2026-10-10T23:30:00.000Z
+}
+
+docs {
+  deviceId is mandatory and repeatable — there is deliberately no
+  "delete everything" form.
+
+  Expect 400: deviceId query param required.
+
+  To target several boats, repeat the param in one URL:
+  &deviceId=A&deviceId=B
+}

@@ -1,0 +1,32 @@
+meta {
+  name: GPS delete - PERMANENT, run delete-preview first
+  type: http
+  seq: 48
+}
+
+delete {
+  url: {{baseUrl}}/gps
+  body: none
+  auth: none
+}
+
+params:query {
+  deviceId: 08:D1:F9:C8:4D:24
+  start: 2026-10-10T15:00:00.000Z
+  end: 2026-10-10T23:30:00.000Z
+}
+
+docs {
+  THE REAL DELETE. Permanent, no undo.
+
+  Check delete-preview.bru first and confirm its count matches what you
+  intend to remove. That preview is what the map's Clean panel shows in
+  its confirm dialog.
+
+  Expect 200: { deleted: <n> } — equal to the preview count.
+  Expect 403: ENABLE_GPS_EDIT not set on the target server.
+
+  Reminder: local :3000 shares the LIVE Turso DB, so this deletes
+  production data. Only the Turso-backed rows go; the ephemeral sim slot
+  has no history and cannot be deleted.
+}

@@ -10,11 +10,16 @@ get {
   auth: none
 }
 
-params {
+params:query {
   provider: om
 }
 
-params:provider {
-  value: om
-  description: auto | wu | wc | om — forces one source instead of the chain
+docs {
+  The provider param forces one source instead of walking the
+  auto chain: auto | wu | wc | om.
+
+  An unknown name returns 400; a known provider with no data returns 502.
+
+  The URL already carries ?provider=om, so this params:query block is
+  documentation rather than a second source of truth.
 }
