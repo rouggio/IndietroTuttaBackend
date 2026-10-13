@@ -23,6 +23,7 @@
             <button id="sessionsTopBtn" class="dropbtn pane-toggle">Sessions</button>
             <button id="coursesToggleBtn" class="dropbtn pane-toggle">Courses</button>
             <button id="sessionsToggleBtn" class="dropbtn pane-toggle">New session</button>
+            <button id="cleanToggleBtn" class="dropbtn pane-toggle" title="Delete GPS points in a selected time range">Clean</button>
             <button id="settingsToggleBtn" class="dropbtn pane-toggle">Settings</button>
     <button id="featuresToggleBtn" class="dropbtn pane-toggle" title="Open/ongoing features and their cost">Features</button>
         </div>
@@ -32,6 +33,7 @@
                 <option value="today">Today</option>
                 <option value="yesterday">Yesterday</option>
                 <option value="thisWeek">This week</option>
+                <option value="lastWeek">Last week</option>
                 <option value="custom">Custom…</option>
             </select>
             <input type="datetime-local" id="startPicker" title="Start date & time" style="display:none">
@@ -77,6 +79,13 @@
 <div id="session-create-panel" style="display:none">
     <h4>New session <span id="sessionCreateClose" class="pane-close">×</span></h4>
     <div id="tab-session-create" class="course-tab"></div>
+</div>
+
+<div id="clean-panel" style="display:none">
+    <h4>Clean track <span id="cleanClose" class="pane-close">×</span></h4>
+    <div class="device-meta">Drag a range on the timeline below the map to select the points to delete. Deletion is permanent.</div>
+    <div id="clean-body"><div class="device-meta">No range selected.</div></div>
+    <div id="clean-msg" class="boat-info-err"></div>
 </div>
 
 <div id="settings-panel" style="display:none">

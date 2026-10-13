@@ -64,6 +64,17 @@ function boatDisplayName(id, fallbackPoint) {
 function fmtTime(ts) {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
+// Date + time, short numeric date: "10/10/2026, 23:14:09".
+// A track can span days (or, for a multi-day range, weeks), so a bare
+// clock time is ambiguous about which day the fix belongs to.
+function fmtDateTime(ts) {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "-";
+    return d.toLocaleString([], {
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+    });
+}
 function getBoatPanel(id) {
     let panel = boatPanels.get(id);
     if (!panel) {
@@ -95,7 +106,7 @@ function renderBoatPanel(panel) {
         <table>
             <tr><td>Speed</td><td>${typeof p.speed === "number" ? p.speed.toFixed(1) : "-"} knots</td></tr>
             <tr><td>Course</td><td>${p.course ?? "-"}&deg;</td></tr>
-            <tr><td>Time</td><td>${fmtTime(p.timestamp || p.receivedAt)}</td></tr>
+            <tr><td>Time</td><td>${fmtDateTime(p.timestamp || p.receivedAt)}</td></tr>
             ${boatRecord(panel.id)?.boat ? `<tr><td>Boat</td><td>${boatRecord(panel.id).boat}</td></tr>` : ""}
             ${panel.expanded ? `
             <tr><td>Lat</td><td>${p.lat.toFixed(6)}</td></tr>
@@ -631,10 +642,11 @@ function saveUI() {
                 "session-panel": document.getElementById("session-panel")?.style.display,
                 "session-create-panel": document.getElementById("session-create-panel")?.style.display,
                 "settings-panel": document.getElementById("settings-panel")?.style.display,
+                "clean-panel": document.getElementById("clean-panel")?.style.display,
                 "features-panel": document.getElementById("features-panel")?.style.display,
                 "session-detail-panel": document.getElementById("session-detail-panel")?.style.display,
             },
-            panelPos: ["device-panel", "wind-panel", "course-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "features-panel", "builder-panel"].reduce((acc, id) => {
+            panelPos: ["device-panel", "wind-panel", "course-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "clean-panel", "features-panel", "builder-panel"].reduce((acc, id) => {
                 const el = document.getElementById(id);
                 if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
                 return acc;
@@ -713,6 +725,15 @@ function computeRangeForPreset(preset, cStart, cEnd){
     if(preset==="today") return { start: startOfDay(now).getTime(), end: endOfDay(now).getTime() };
     if(preset==="yesterday"){ const y=new Date(now); y.setDate(y.getDate()-1); return { start: startOfDay(y).getTime(), end: endOfDay(y).getTime() }; }
     if(preset==="thisWeek") return { start: startOfWeek(now).getTime(), end: endOfDay(now).getTime() };
+    if(preset==="lastWeek"){
+        // The week BEFORE the current one: Monday 00:00:00.000 through the
+        // Sunday that ends just before this week starts. Not "the last 7
+        // days" — a stable Mon–Sun window, matching thisWeek's Monday start.
+        const thisMon = startOfWeek(now);
+        const lastMon = new Date(thisMon); lastMon.setDate(lastMon.getDate() - 7);
+        const lastSun = new Date(thisMon); lastSun.setDate(lastSun.getDate() - 1); lastSun.setHours(23,59,59,999);
+        return { start: lastMon.getTime(), end: lastSun.getTime() };
+    }
     if(preset==="custom" && cStart && cEnd){
         const s=new Date(cStart), e=new Date(cEnd);
         if(!isNaN(s.getTime()) && !isNaN(e.getTime())) return { start: s.getTime(), end: e.getTime() };
@@ -1455,6 +1476,15 @@ playSpeedSel.addEventListener("change", e => {
 const timelineEl = document.getElementById("timeline");
 const timelineSelectionEl = document.getElementById("timeline-selection");
 let timelineDrag = null;
+
+// Range captured from a timeline drag, kept ONLY so the Clean panel can
+// act on it. The drag itself is consumed as a view filter (it overwrites
+// customStart/customEnd and calls refresh()), so these bounds would
+// otherwise be lost. Deliberately NOT derived from customStart/customEnd:
+// those persist after the view moves on, which would let the panel delete
+// a range the user can no longer see selected.
+let timelineSelStart = null;
+let timelineSelEnd = null;
 function getTimelineRatio(clientX){
     const rect = timelineEl.getBoundingClientRect();
     return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
@@ -1462,6 +1492,121 @@ function getTimelineRatio(clientX){
 function hideTimelineSelection(){
     if(timelineSelectionEl){ timelineSelectionEl.style.display="none"; timelineSelectionEl.style.left="0%"; timelineSelectionEl.style.width="0%"; }
     if(timelineEl) timelineEl.classList.remove("dragging");
+}
+
+// --------------------------------------------------
+// Clean panel: delete the points inside a timeline-selected range.
+// --------------------------------------------------
+const cleanPanel = document.getElementById("clean-panel");
+const cleanBody = document.getElementById("clean-body");
+const cleanMsg = document.getElementById("clean-msg");
+let cleanPendingCount = null;
+let cleanBusy = false;
+
+function captureTimelineSelection(start, end) {
+    timelineSelStart = start;
+    timelineSelEnd = end;
+    cleanPendingCount = null;
+    if (cleanMsg) cleanMsg.textContent = "";
+    renderCleanPanel();
+}
+
+function clearTimelineSelection() {
+    timelineSelStart = null;
+    timelineSelEnd = null;
+    cleanPendingCount = null;
+    if (cleanMsg) cleanMsg.textContent = "";
+    renderCleanPanel();
+}
+
+// Only the boats the user has selected can be deleted — an empty
+// selection means "nothing visible", never "every boat".
+function cleanTargetIds() {
+    return selectedDeviceIds.size ? [...selectedDeviceIds] : [];
+}
+
+function renderCleanPanel() {
+    if (!cleanBody) return;
+    const ids = cleanTargetIds();
+    if (!timelineSelStart || !timelineSelEnd) {
+        cleanBody.innerHTML = `<div class="device-meta">No range selected. Drag on the timeline under the map.</div>`;
+        return;
+    }
+    if (ids.length === 0) {
+        cleanBody.innerHTML = `<div class="device-meta">Range ${fmtDateTime(timelineSelStart)} &rarr; ${fmtDateTime(timelineSelEnd)}<br><b>No boat selected.</b> Pick a boat first — only selected boats are ever deleted.</div>`;
+        return;
+    }
+    const names = ids.map(id => escHtml(boatDisplayName(id))).join(", ");
+    // Count what is actually loaded for those boats in the window; the
+    // server is asked for the authoritative number before confirming.
+    const inRange = allPoints.filter(p => ids.includes(p.deviceId) &&
+        (() => { const t = new Date(p.timestamp || p.receivedAt).getTime(); return t >= timelineSelStart && t <= timelineSelEnd; })());
+    const count = cleanPendingCount != null ? cleanPendingCount : inRange.length;
+    cleanBody.innerHTML = `
+        <div class="device-meta">
+            <b>${escHtml(names)}</b><br>
+            ${fmtDateTime(timelineSelStart)} &rarr; ${fmtDateTime(timelineSelEnd)}<br>
+            <b style="font-size:15px">${count}</b> point${count === 1 ? "" : "s"} will be deleted.
+        </div>
+        <div class="builder-row" style="margin-top:8px">
+            <button id="cleanGo" ${cleanBusy ? "disabled" : ""}>Delete points&hellip;</button>
+            <button id="cleanClear">Clear range</button>
+        </div>
+        <div class="device-meta">Permanent — there is no undo. Server must have <code>ENABLE_GPS_EDIT</code> set.</div>
+    `;
+    document.getElementById("cleanGo")?.addEventListener("click", () => confirmCleanDelete(ids));
+    document.getElementById("cleanClear")?.addEventListener("click", clearTimelineSelection);
+}
+
+// Ask the server how many rows it would remove, then confirm with the
+// real number rather than the client-side guess.
+async function confirmCleanDelete(ids) {
+    if (cleanBusy) return;
+    const params = new URLSearchParams();
+    params.set("start", new Date(timelineSelStart).toISOString());
+    params.set("end", new Date(timelineSelEnd).toISOString());
+    ids.forEach(id => params.append("deviceId", id));
+    params.set("preview", "1");
+    cleanBusy = true;
+    if (cleanMsg) { cleanMsg.textContent = "Checking…"; cleanMsg.style.color = ""; }
+    renderCleanPanel();
+    try {
+        const r = await fetch(`/gps?${params.toString()}`, { method: "DELETE" });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || `http ${r.status}`);
+        cleanPendingCount = data.count || 0;
+        if (cleanPendingCount === 0) {
+            cleanBusy = false;
+            if (cleanMsg) { cleanMsg.textContent = "Nothing to delete in that range."; cleanMsg.style.color = ""; }
+            renderCleanPanel();
+            return;
+        }
+        const names = ids.map(id => boatDisplayName(id)).join(", ");
+        const ok = window.confirm(
+            `Delete ${cleanPendingCount} point${cleanPendingCount === 1 ? "" : "s"} for ${names}?\n\n` +
+            `${fmtDateTime(timelineSelStart)} → ${fmtDateTime(timelineSelEnd)}\n\n` +
+            `This cannot be undone.`);
+        if (!ok) {
+            cleanBusy = false;
+            if (cleanMsg) { cleanMsg.textContent = "Cancelled."; cleanMsg.style.color = ""; }
+            renderCleanPanel();
+            return;
+        }
+        params.delete("preview");
+        const del = await fetch(`/gps?${params.toString()}`, { method: "DELETE" });
+        const out = await del.json().catch(() => ({}));
+        if (!del.ok) throw new Error(out.error || `http ${del.status}`);
+        cleanBusy = false;
+        clearTimelineSelection();
+        if (cleanMsg) { cleanMsg.textContent = `Deleted ${out.deleted} point${out.deleted === 1 ? "" : "s"}.`; cleanMsg.style.color = "#16a34a"; }
+        liveCache = new Map();
+        await refresh();
+        updateTimelineTracks();
+    } catch (e) {
+        cleanBusy = false;
+        if (cleanMsg) { cleanMsg.textContent = String(e.message || e); cleanMsg.style.color = "#dc2626"; }
+        renderCleanPanel();
+    }
 }
 if(timelineEl){
     timelineEl.addEventListener("mousedown", e => {
@@ -1539,6 +1684,7 @@ window.addEventListener("mouseup", e => {
         let selStart = bounds.start + minR * duration;
         let selEnd = bounds.start + maxR * duration;
         if(selEnd - selStart < 60000) selEnd = selStart + 60000; // at least 1min
+        captureTimelineSelection(selStart, selEnd);
         // apply as custom range
         isLive = false;
         liveBtn.classList.remove("active");
@@ -1590,6 +1736,7 @@ window.addEventListener("touchend", e => {
         let selStart = bounds.start + minR * duration;
         let selEnd = bounds.start + maxR * duration;
         if(selEnd - selStart < 60000) selEnd = selStart + 60000;
+        captureTimelineSelection(selStart, selEnd);
         isLive = false; liveBtn.classList.remove("active"); timePreset="custom"; if(presetSelect) presetSelect.value="custom";
         customStart = toLocalDatetimeValue(new Date(selStart)); customEnd = toLocalDatetimeValue(new Date(selEnd));
         if(startPicker) startPicker.value=customStart; if(endPicker) endPicker.value=customEnd;
@@ -1727,6 +1874,23 @@ function setWindProvider(p) {
 }
 document.getElementById("windRefresh")?.addEventListener("click", () => { refreshWind(); });
 applyWindRefresh();
+
+// --- Clean (delete points) pane ---------------------------------------
+const cleanBtn = document.getElementById("cleanToggleBtn");
+if (cleanBtn && cleanPanel) {
+    cleanBtn.addEventListener("click", () => {
+        toggleEl("clean-panel");
+        avoidPanelOverlap(cleanPanel);
+        cleanBtn.classList.toggle("active", panelVisible(cleanPanel));
+        saveUI();
+        renderCleanPanel();
+    });
+    document.getElementById("cleanClose")?.addEventListener("click", () => {
+        toggleEl("clean-panel", false);
+        cleanBtn.classList.remove("active");
+        saveUI();
+    });
+}
 
 // --- Settings pane ---------------------------------------------------
 const settingsBtn = document.getElementById("settingsToggleBtn");
@@ -3745,7 +3909,7 @@ function rectsOverlap(a, b) {
 // Panels the user dragged themselves are never auto-moved.
 function avoidPanelOverlap(el) {
     if (!panelVisible(el) || el.dataset.moved) return;
-    const others = ["device-panel", "wind-panel", "course-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "builder-panel"]
+    const others = ["device-panel", "wind-panel", "course-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "clean-panel", "builder-panel"]
         .map(id => document.getElementById(id))
         .filter(o => o && o !== el && panelVisible(o));
     let moved = false;
@@ -3771,6 +3935,7 @@ makeFloatingDraggable(document.getElementById("session-panel"));
 makeFloatingDraggable(document.getElementById("session-create-panel"));
 makeFloatingDraggable(document.getElementById("session-detail-panel"));
 makeFloatingDraggable(document.getElementById("settings-panel"));
+makeFloatingDraggable(document.getElementById("clean-panel"));
 makeFloatingDraggable(document.getElementById("features-panel"));
 makeFloatingDraggable(document.getElementById("builder-panel"));
 // fix any overlap restored from a previous session
