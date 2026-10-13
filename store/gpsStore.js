@@ -163,6 +163,95 @@ async function getPointCount() {
 }
 
 // ------------------------------------------------------------------
+// DESTRUCTIVE: hard-delete stored points in a time window for one or
+// more boats. Only ever touches Turso-backed rows — the ephemeral sim
+// slot (memSim) has no history to remove and is left alone.
+//
+// start/end are ISO strings; both are required-ish but either may be
+// omitted to leave that side open (matches the GET /gps filter shape).
+// deviceIds is a non-empty list — never "delete everything".
+// ------------------------------------------------------------------
+async function deletePoints({ deviceIds, start, end }) {
+    const ids = (deviceIds || []).filter(id => typeof id === "string" && id.trim());
+    if (ids.length === 0) {
+        return { deleted: 0, error: "deviceIds required" };
+    }
+    const s = start ? new Date(start) : null;
+    const e = end ? new Date(end) : null;
+    if (s && isNaN(s.getTime())) return { deleted: 0, error: "bad start" };
+    if (e && isNaN(e.getTime())) return { deleted: 0, error: "bad end" };
+    if (s && e && s.getTime() > e.getTime()) return { deleted: 0, error: "start after end" };
+
+    const client = getClient();
+
+    if (!client) {
+        let removed = 0;
+        for (let i = memPoints.length - 1; i >= 0; i--) {
+            const p = memPoints[i];
+            if (!ids.includes(p.deviceId)) continue;
+            const t = new Date(p.timestamp || p.receivedAt || 0).getTime();
+            if (s && t < s.getTime()) continue;
+            if (e && t > e.getTime()) continue;
+            memPoints.splice(i, 1);
+            removed++;
+        }
+        return { deleted: removed };
+    }
+
+    await initDb();
+
+    const placeholders = ids.map(() => "?").join(",");
+    let sql = `DELETE FROM gps_points WHERE deviceId IN (${placeholders})`;
+    const args = [...ids];
+    if (s) { sql += " AND timestamp >= ?"; args.push(s.toISOString()); }
+    if (e) { sql += " AND timestamp <= ?"; args.push(e.toISOString()); }
+
+    const res = await client.execute({ sql, args });
+    // libSQL reports affected rows as rowsAffected (0|1); fall back to a
+    // recount so the caller always gets a truthful count back.
+    let deleted = Number(res.rowsAffected ?? 0);
+    if (!deleted) {
+        let countSql = `SELECT COUNT(*) as cnt FROM gps_points WHERE deviceId IN (${placeholders})`;
+        const countArgs = [...ids];
+        if (s) { countSql += " AND timestamp >= ?"; countArgs.push(s.toISOString()); }
+        if (e) { countSql += " AND timestamp <= ?"; countArgs.push(e.toISOString()); }
+        const c = await client.execute({ sql: countSql, args: countArgs });
+        deleted = Number(c.rows[0].cnt);
+    }
+    return { deleted };
+}
+
+// Count what a delete WOULD remove, without deleting — powers the
+// confirm dialog so the operator sees a real number, not a guess.
+async function countPoints({ deviceIds, start, end }) {
+    const ids = (deviceIds || []).filter(id => typeof id === "string" && id.trim());
+    if (ids.length === 0) return 0;
+    const s = start ? new Date(start) : null;
+    const e = end ? new Date(end) : null;
+    if ((s && isNaN(s.getTime())) || (e && isNaN(e.getTime()))) return 0;
+
+    const client = getClient();
+    if (!client) {
+        return memPoints.filter(p => {
+            if (!ids.includes(p.deviceId)) return false;
+            const t = new Date(p.timestamp || p.receivedAt || 0).getTime();
+            if (s && t < s.getTime()) return false;
+            if (e && t > e.getTime()) return false;
+            return true;
+        }).length;
+    }
+
+    await initDb();
+    const placeholders = ids.map(() => "?").join(",");
+    let sql = `SELECT COUNT(*) as cnt FROM gps_points WHERE deviceId IN (${placeholders})`;
+    const args = [...ids];
+    if (s) { sql += " AND timestamp >= ?"; args.push(s.toISOString()); }
+    if (e) { sql += " AND timestamp <= ?"; args.push(e.toISOString()); }
+    const res = await client.execute({ sql, args });
+    return Number(res.rows[0].cnt);
+}
+
+// ------------------------------------------------------------------
 // Ephemeral sim slot: mock uploads live here ONLY (never Turso).
 // One latest point per boat — no history anywhere, so a refresh can
 // only ever pick up upcoming fixes. Lost on restart.
@@ -181,5 +270,5 @@ function getSimSince(deviceId) {
     return p ? [p] : [];
 }
 
-module.exports = { addPoint, getPoints, getLatestPoint, getPointCount, getActiveDays, pushSimPoint, getSimSince };
+module.exports = { addPoint, getPoints, getLatestPoint, getPointCount, getActiveDays, deletePoints, countPoints, pushSimPoint, getSimSince };
 

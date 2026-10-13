@@ -833,6 +833,34 @@ html, body {
     margin-bottom: 10px;
 }
 
+/* Clean pane: delete the points in a timeline-selected range */
+#clean-panel {
+    position: absolute;
+    top: 58px;
+    right: 10px;
+    z-index: 1000;
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    min-width: 240px;
+    max-width: 320px;
+}
+
+#clean-panel h4 {
+    margin: -10px -10px 8px -10px;
+    padding: 7px 10px;
+    background: #e5e7eb;
+    border-bottom: 1px solid #d1d5db;
+    border-radius: 8px 8px 0 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 /* Open-features pane: numbered list + cost badge (1 cheap .. 5 heavy) */
 #features-panel {
     position: absolute;

@@ -6,6 +6,8 @@ const {
     getLatestPoint,
     getActiveDays,
     getPointCount,
+    deletePoints,
+    countPoints,
     pushSimPoint,
     getSimSince
 } = require("../store/gpsStore");
@@ -167,6 +169,66 @@ router.get("/gps", async (req, res) => {
     } else {
         res.json(await getPoints({ date: cleanDate, deviceId: cleanDeviceId }));
     }
+});
+
+// --------------------------------------------------
+// DELETE /gps — DESTRUCTIVE: hard-delete stored points in a time
+// window for the given boats. Used by the map's "Clean" panel after a
+// range is selected on the timeline.
+//
+// There is NO auth anywhere in this app (identity is a spoofable MAC
+// header), so the endpoint is refused unless ENABLE_GPS_EDIT is set.
+// Prod keeps working untouched until the flag is deliberately enabled.
+//
+//   ?start=&end=      ISO bounds, inclusive; either may be omitted
+//   ?deviceId=A&deviceId=B   repeatable, at least one required
+//   ?preview=1        count only, deletes nothing
+// --------------------------------------------------
+
+router.delete("/gps", async (req, res) => {
+    if (!/^(1|true|yes|on)$/i.test(String(process.env.ENABLE_GPS_EDIT || ""))) {
+        return res.status(403).json({
+            error: "GPS editing is disabled on this server",
+            hint: "set ENABLE_GPS_EDIT=true to allow point deletion",
+        });
+    }
+
+    const rawIds = req.query.deviceId;
+    const ids = (Array.isArray(rawIds) ? rawIds : [rawIds])
+        .filter(v => typeof v === "string" && v.trim())
+        .map(v => v.trim());
+    if (ids.length === 0) {
+        return res.status(400).json({ error: "deviceId query param required" });
+    }
+
+    let start = null, end = null;
+    if (req.query.start) {
+        const s = new Date(req.query.start);
+        if (isNaN(s.getTime())) return res.status(400).json({ error: "bad start" });
+        start = s.toISOString();
+    }
+    if (req.query.end) {
+        const e = new Date(req.query.end);
+        if (isNaN(e.getTime())) return res.status(400).json({ error: "bad end" });
+        end = e.toISOString();
+    }
+    if (start && end && new Date(start) > new Date(end)) {
+        return res.status(400).json({ error: "start is after end" });
+    }
+    if (!start && !end) {
+        // Guard rail: a bare DELETE /gps?deviceId=x would wipe the boat's
+        // entire history. Require an explicit window.
+        return res.status(400).json({ error: "start and/or end required — refusing to delete unbounded history" });
+    }
+
+    const preview = /^(1|true|yes)$/i.test(String(req.query.preview || ""));
+    if (preview) {
+        return res.json({ count: await countPoints({ deviceIds: ids, start, end }), preview: true });
+    }
+
+    const { deleted, error } = await deletePoints({ deviceIds: ids, start, end });
+    if (error) return res.status(400).json({ error });
+    res.json({ deleted });
 });
 
 // --------------------------------------------------
