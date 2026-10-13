@@ -651,6 +651,9 @@ function saveUI() {
                 if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
                 return acc;
             }, {}),
+            // Positions chosen by avoidPanelOverlap rather than by hand, so a
+            // reload does not promote them to "user-owned" and freeze them.
+            panelAuto: [...document.querySelectorAll("[data-auto-placed]")].map(e => e.id),
             viewGpsVisible: undefined, // legacy compat (now per-boat panels)
             openPanels: [...boatPanels.values()].filter(p => p.open).map(p => p.id),
         };
@@ -677,15 +680,27 @@ function loadUI() {
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => {
             const el=document.getElementById(id); if(el && disp) el.style.display=disp;
         });
-        if (d.panelPos) Object.entries(d.panelPos).forEach(([id, pos]) => {
-            const el = document.getElementById(id);
-            if (el && pos && isFinite(parseFloat(pos.left)) && isFinite(parseFloat(pos.top))) {
-                el.style.left = Math.max(0, Math.min(parseFloat(pos.left), window.innerWidth - 60)) + "px";
-                el.style.top = Math.max(0, parseFloat(pos.top)) + "px";
-                el.style.right = "auto"; // restored left wins over CSS right dock
-                el.dataset.moved = "1"; // restored = user-owned, cascade leaves it alone
-            }
-        });
+        if (d.panelPos) {
+            // Which restored positions were ours rather than the user's.
+            // Without this, auto-placed panes look identical to hand-placed
+            // ones and the overlap cascade skips all of them — it was
+            // effectively inert on every reload after the first.
+            const autoPlaced = new Set(Array.isArray(d.panelAuto) ? d.panelAuto : []);
+            Object.entries(d.panelPos).forEach(([id, pos]) => {
+                const el = document.getElementById(id);
+                if (el && pos && isFinite(parseFloat(pos.left)) && isFinite(parseFloat(pos.top))) {
+                    el.style.left = Math.max(0, Math.min(parseFloat(pos.left), window.innerWidth - 60)) + "px";
+                    el.style.top = Math.max(0, parseFloat(pos.top)) + "px";
+                    el.style.right = "auto"; // restored left wins over CSS right dock
+                    if (autoPlaced.has(id)) {
+                        // Ours: keep it eligible for the next cascade pass.
+                        el.dataset.autoPlaced = "1";
+                    } else {
+                        el.dataset.moved = "1"; // user-owned, never auto-moved
+                    }
+                }
+            });
+        }
         // restore boats button active state
         const dp=document.getElementById("device-panel"), bb=document.getElementById("boatsToggleBtn");
         if(dp && bb) bb.classList.toggle("active", dp.style.display!=="none" && dp.style.display!=="");
@@ -1885,18 +1900,25 @@ applyWindRefresh();
 // --- Clean (delete points) pane ---------------------------------------
 const cleanBtn = document.getElementById("cleanToggleBtn");
 if (cleanBtn && cleanPanel) {
+    const syncCleanBtn = () => cleanBtn.classList.toggle("active", panelVisible(cleanPanel));
     cleanBtn.addEventListener("click", () => {
         toggleEl("clean-panel");
         avoidPanelOverlap(cleanPanel);
-        cleanBtn.classList.toggle("active", panelVisible(cleanPanel));
+        syncCleanBtn();
         saveUI();
         renderCleanPanel();
     });
     document.getElementById("cleanClose")?.addEventListener("click", () => {
         toggleEl("clean-panel", false);
-        cleanBtn.classList.remove("active");
+        syncCleanBtn();
         saveUI();
     });
+    // Same shape as every other pane button: keep the topbar state in step
+    // with the panel, whoever changed it. The initial call is what fixes a
+    // reload — loadUI() restores the panel's display, so without it the
+    // pane reappears while its button stays untoggled.
+    new MutationObserver(syncCleanBtn).observe(cleanPanel, { attributes: true, attributeFilter: ["style"] });
+    syncCleanBtn();
 }
 
 // --- Settings pane ---------------------------------------------------
@@ -3896,6 +3918,7 @@ function makeFloatingDraggable(el) {
         el.style.left = Math.max(0, Math.min(e.clientX - drag.dx, window.innerWidth - 60)) + "px";
         el.style.top = Math.max(0, e.clientY - drag.dy) + "px";
         el.dataset.moved = "1"; // user owns the position from here on
+        delete el.dataset.autoPlaced; // ...and it is no longer ours to move
     });
     const end = () => {
         if (!drag) return;
@@ -3928,25 +3951,38 @@ const PANEL_IDS = [
 // that jitters between positions every time one is restored is worse than a
 // pane that overlaps once.
 function avoidPanelOverlap(el) {
-    if (!el || !panelVisible(el) || el.dataset.moved) return false;
+    if (!el || !panelVisible(el)) return false;
+    // A pane the user dragged by hand stays exactly where it is — but it is
+    // still an OBSTACLE, so other panes must cascade around it.
+    const canMove = !el.dataset.moved;
     let moved = false;
-    for (const id of PANEL_IDS) {
-        if (id === el.id) continue;
-        const o = document.getElementById(id);
-        if (!o || !panelVisible(o) || o.dataset.moved) continue;
-        const r = el.getBoundingClientRect();
-        // Not laid out yet (display just switched on, or content not
-        // populated): acting on a zero-size box cascades to a bogus spot.
-        if (!r.width || !r.height) continue;
-        const q = o.getBoundingClientRect();
-        if (!rectsOverlap(r, q)) continue;
+    // One greedy pass is not enough: moving clear of obstacle A can drop the
+    // pane straight into obstacle B, which did not overlap a moment ago.
+    // Re-scan from the top after every move until nothing collides or we run
+    // out of attempts.
+    for (let pass = 0; pass < 6; pass++) {
+        let collision = null, rect = null;
+        for (const id of PANEL_IDS) {
+            if (id === el.id) continue;
+            const o = document.getElementById(id);
+            if (!o || !panelVisible(o)) continue;
+            const r = el.getBoundingClientRect();
+            // Not laid out yet (display just switched on, or content not
+            // populated): acting on a zero-size box cascades to a bogus spot.
+            if (!r.width || !r.height) return moved;
+            const q = o.getBoundingClientRect();
+            if (rectsOverlap(r, q)) { collision = q; rect = r; break; }
+        }
+        if (!collision) break;          // clear of everything
+        if (!canMove) break;            // hand-placed: it keeps its spot
 
+        const q = collision;
         const below = q.bottom + 8;
-        const fitsBelow = below + r.height <= window.innerHeight - 8;
-        const fitsRight = q.right + 8 + r.width <= window.innerWidth - 8;
+        const fitsBelow = below + rect.height <= window.innerHeight - 8;
+        const fitsRight = q.right + 8 + rect.width <= window.innerWidth - 8;
         if (fitsBelow) {
             el.style.right = "auto"; // left wins over CSS right dock
-            el.style.left = Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8)) + "px";
+            el.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8)) + "px";
             el.style.top = below + "px";
         } else if (fitsRight) {
             el.style.right = "auto";
@@ -3955,6 +3991,10 @@ function avoidPanelOverlap(el) {
         } else {
             break; // no room anywhere — leave it, stop trying
         }
+        // Ours, not the user's: record that so a reload keeps this pane
+        // eligible for the next cascade instead of freezing it in place.
+        el.dataset.autoPlaced = "1";
+        delete el.dataset.moved;
         moved = true;
     }
     return moved;
@@ -3968,7 +4008,7 @@ function settleAllPanels() {
     let moved = false;
     for (const id of PANEL_IDS) {
         const el = document.getElementById(id);
-        if (!el || !panelVisible(el) || el.dataset.moved) continue;
+        if (!el || !panelVisible(el)) continue;
         if (avoidPanelOverlap(el)) moved = true;
     }
     if (moved) { try { saveUI(); } catch {} }
