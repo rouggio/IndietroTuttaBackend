@@ -19,7 +19,50 @@ const {
     sanitizeUsername
 } = require("../store/deviceStore");
 
+const {
+    getActiveSessionForDevice,
+} = require("../store/sessionStore");
+
+const {
+    uploaders,
+} = require("../store/runStore");
+
+const {
+    terminalBoats,
+} = require("../store/signalStore");
+
 const router = express.Router();
+
+// --------------------------------------------------
+// Racing-mock persistence decision (todo 9): a simulated upload is ALSO
+// written to Turso when its boat is in a non-finished session and past
+// startTime - 120s. Per-boat end (run uploaded, terminal signal) stops
+// that boat even while the session stays live for others. Cached 10s per
+// device: at ~2s cadence this is one decision query per ~5 uploads, and
+// session joins/ends land within 10s. Event-driven invalidation needs no
+// extra work — expiry re-derives from the stores on the next upload.
+// --------------------------------------------------
+
+const RACE_CACHE_MS = 10000;
+const PRE_GUN_MS = 120000;
+const raceCache = new Map(); // deviceId -> { until, racing }
+
+async function racingPersist(deviceId) {
+    const now = Date.now();
+    const hit = raceCache.get(deviceId);
+    if (hit && hit.until > now) return hit.racing;
+    let racing = false;
+    try {
+        const s = await getActiveSessionForDevice(deviceId);
+        if (s && s.startTime && now >= new Date(s.startTime).getTime() - PRE_GUN_MS) {
+            const done = new Set(await uploaders(s.id));
+            for (const d of await terminalBoats(s.id)) done.add(d);
+            racing = !done.has(deviceId);
+        }
+    } catch {}
+    raceCache.set(deviceId, { until: now + RACE_CACHE_MS, racing });
+    return racing;
+}
 
 // --------------------------------------------------
 // POST /gps
@@ -74,12 +117,13 @@ router.post("/gps", async (req, res) => {
     }
 
     // --------------------------------------------------
-    // Store point — simulated uploads NEVER touch Turso: they live in
-    // the ephemeral memory buffer (map overlay only, gone on restart).
+    // Store point — simulated uploads ALWAYS feed the ephemeral overlay;
+    // they ALSO persist to Turso while the boat is racing (todo 9), tagged
+    // simulated so map styling and stats can tell them apart.
     // --------------------------------------------------
 
     if (simulated === true) {
-        pushSimPoint({
+        const point = {
             lat, lon, speed, course, altitude, sats,
             timestamp,
             receivedAt: new Date().toISOString(),
@@ -87,8 +131,18 @@ router.post("/gps", async (req, res) => {
             username: sanitizeUsername(username) ||
                       (device && device.username) ||
                       null
-        });
-        return res.json({ status: "ok", stored: false, simulated: true });
+        };
+        pushSimPoint(point);
+        let persisted = false;
+        if (deviceId) {
+            try {
+                if (await racingPersist(deviceId)) {
+                    await addPoint({ ...point, simulated: 1 });
+                    persisted = true;
+                }
+            } catch {}
+        }
+        return res.json({ status: "ok", stored: persisted, simulated: true, persisted });
     }
 
     await addPoint({
