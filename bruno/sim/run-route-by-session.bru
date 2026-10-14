@@ -1,0 +1,31 @@
+meta {
+  name: Session scripted route
+  type: http
+  seq: 43
+}
+
+get {
+  url: {{baseUrl}}/sim/routes/{{sessionId}}
+  body: none
+  auth: none
+}
+
+params {
+  sessionId: 1
+}
+
+docs {
+  200 { runId, sessionId, deviceId, startMs, gunMs, durationSec, points:[{t,lat,lon}] }
+  404 { error }
+
+  The scripted route the mock boat sailed for this SESSION, keyed by session
+  rather than by run id.
+
+  Keyed by session on purpose: the frontend only holds a selected session id,
+  so /sim/runs/:id/points is unreachable exactly when it is needed. A run is
+  pruned 10 minutes after it ends, and mock uploads never reach gps_points,
+  so a FINISHED session used to have no track to draw at all.
+
+  Serves the persisted route, so it also works across a backend restart.
+  points are downsampled 1:5 with the last sample always included.
+}

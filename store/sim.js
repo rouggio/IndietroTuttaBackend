@@ -360,6 +360,16 @@ async function createRun({ sessionId, deviceId, speedKn, startInSec }) {
         echoes: [], // device-reported receipts {t,lat,lon,speed,course,at}
     };
     runs.set(id, run);
+    // Persist the route so the session still has a track once this run is
+    // pruned (10 min after it ends). Fire-and-forget: a failure here must
+    // not stop a boat from sailing, it only costs the replay overlay.
+    Promise.resolve()
+        .then(() => require("./simRoute").saveRoute({
+            runId: id, sessionId: session.id, deviceId: run.deviceId,
+            startMs: run.startMs, gunMs: run.gunMs,
+            durationSec, samples,
+        }))
+        .catch(() => {});
     return runMeta(run, nowMs);
 }
 

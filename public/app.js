@@ -3990,24 +3990,34 @@ function clearSimOverlay() {
     if (simOverlay) { map.removeLayer(simOverlay); simOverlay = null; }
     simOverlayRun = null;
 }
-// Newest sim run for a session, drawn as dashed preview only (the live
-// boat triangle already marks the fed position — no second dot).
+// The scripted route a session's mock boat sailed, drawn as a dashed
+// preview only (the live boat triangle already marks the fed position — no
+// second dot).
+//
+// One call, keyed by SESSION. It used to be two calls by RUN id
+// (/sim/runs?sessionId= then /sim/runs/:id/points), and that worked while
+// the race was live and failed once it was over: runs are pruned 10 minutes
+// after they end and mock uploads never reach gps_points, so a FINISHED
+// session had no track to draw at all — selecting one showed an empty map.
+// The route is persisted per session and read back here.
 async function renderSimOverlay(fit) {
     clearSimOverlay();
     if (!showSimPreview) return;
     const box = document.getElementById("tab-session-detail");
     if (!box || !selectedSessionId) return;
-    let runs = [];
-    try { runs = await (await fetch(`/sim/runs?sessionId=${selectedSessionId}`)).json(); } catch { return; }
-    if (!runs.length || !document.getElementById("tab-session-detail")) return;
-    const run = runs[0];
+    const sid = selectedSessionId;
     let pts;
     try {
-        pts = await (await fetch(`/sim/runs/${encodeURIComponent(run.id)}/points`)).json();
+        const res = await fetch(`/sim/routes/${encodeURIComponent(sid)}`);
+        if (!res.ok) return;              // no scripted route for this session
+        pts = await res.json();
         if (!pts.points || !pts.points.length) return;
     } catch { return; }
+    // A newer selection may have landed while this was in flight.
+    if (String(selectedSessionId) !== String(sid)) return;
+    if (!document.getElementById("tab-session-detail")) return;
     simOverlay = L.layerGroup().addTo(map);
-    simOverlayRun = run.id;
+    simOverlayRun = pts.runId;
     const latlngs = pts.points.map(p => [p.lat, p.lon]);
     L.polyline(latlngs, { color: "#f97316", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(simOverlay);
     if (fit) map.fitBounds(L.latLngBounds(latlngs).pad(0.2));

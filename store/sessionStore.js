@@ -492,6 +492,12 @@ async function deleteSession(id) {
     await initDb();
     await client.execute({ sql: "DELETE FROM session_boats WHERE sessionId = ?", args: [Number(id)] });
     const res = await client.execute({ sql: "DELETE FROM sessions WHERE id = ?", args: [Number(id)] });
+    // The persisted mock route hangs off the session; without this the table
+    // accumulates orphans that nothing can reach (there is no run left to
+    // look them up by).
+    try {
+        await require("./simRoute").deleteRoutesForSession(id);
+    } catch { /* route cleanup must not fail the delete */ }
     return res.rowsAffected > 0;
 }
 

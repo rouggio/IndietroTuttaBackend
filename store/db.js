@@ -269,6 +269,23 @@ async function initDb() {
         `);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_signals_session ON signals(sessionId)`);
 
+        // The scripted route a mock boat sailed, one row per session.
+        // Runs themselves are in-memory and pruned 10 minutes after they
+        // end, and mock uploads never reach gps_points, so without this a
+        // FINISHED session has no track to draw at all.
+        await c.execute(`
+            CREATE TABLE IF NOT EXISTS sim_routes (
+                sessionId INTEGER PRIMARY KEY,
+                runId TEXT NOT NULL,
+                deviceId TEXT,
+                startMs INTEGER NOT NULL DEFAULT 0,
+                gunMs INTEGER NOT NULL DEFAULT 0,
+                durationSec INTEGER NOT NULL DEFAULT 0,
+                createdAt TEXT NOT NULL,
+                samples TEXT NOT NULL DEFAULT '[]'
+            )
+        `);
+
         // Built-in course shapes live in the `courses` table (builtinKey set),
         // read-only — the UI can only copy them. Seeded once, idempotently.
         try {

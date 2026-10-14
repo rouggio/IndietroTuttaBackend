@@ -16,6 +16,7 @@ const {
     nextBatch,
     SIM_BATCH_MAX,
 } = require("../store/sim");
+const { getRoutePoints } = require("../store/simRoute");
 
 const router = express.Router();
 
@@ -154,6 +155,30 @@ router.get("/sim/runs/:id/points", async (req, res) => {
             startMs: run.startMs, gunMs: run.gunMs, durationSec: run.durationSec,
             points: pts,
         });
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
+// GET /sim/routes/:sessionId — the scripted route a session's mock boat
+// sailed, by SESSION rather than by run id.
+//
+// Keyed by session because that is all the frontend knows: it holds a
+// selected session id. The run-id route above is unreachable at exactly the
+// moment it matters, because a run is pruned 10 minutes after it ends — so
+// asking for it by run id works while the race is live and 404s once the
+// race is over and someone actually wants to look at it. Reads the persisted
+// route, so it works after a restart too.
+// --------------------------------------------------
+
+router.get("/sim/routes/:sessionId", async (req, res) => {
+    try {
+        const sid = parseInt(req.params.sessionId, 10);
+        if (!sid) return res.status(400).json({ error: "sessionId required" });
+        const pts = await getRoutePoints(sid);
+        if (!pts) return res.status(404).json({ error: "no scripted route for this session" });
+        res.json(pts);
     } catch (e) {
         sendErr(res, e);
     }
