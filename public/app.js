@@ -2438,6 +2438,16 @@ if (sessionsTopBtn && sessionPanel) {
 // New-session pane (creation form split out of the list panel).
 const sessionCreatePanel = document.getElementById("session-create-panel");
 function openSessionCreate() {
+    // Starting a new session clears the previous selection so its course
+    // + route drop off the map (no leftover layers fight the draft).
+    selectedSessionId = null;
+    try { clearSelPreview(); } catch {}
+    try { clearSimOverlay(); } catch {}
+    try { clearSessDetailTimers(); } catch {}
+    const detail = document.getElementById("tab-session-detail");
+    if (detail) detail.innerHTML = "";
+    const dp = document.getElementById("session-detail-panel");
+    if (dp) dp.style.display = "none";
     // The Course pane stays open — it holds the course library you pick the
     // day's course from. Only the builder stands down: its live map layers
     // would fight the session draft preview.
