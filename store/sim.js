@@ -143,8 +143,11 @@ function scriptWaypoints(session) {
     return ordered;
 }
 
-function compileScript(session, { speedKn = 17, startInSec = 60, nowMs = Date.now() } = {}) {
-    const v = Math.max(1, Math.min(20, Number(speedKn) || 17)) * KN_TO_MS; // m/s
+function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.now() } = {}) {
+    // Clamp raised to 40kn (a fast dinghy is ~25-30); the default moved to
+    // 28 so an auto-created run sails at a realistic pace without the
+    // caller having to ask.
+    const v = Math.max(1, Math.min(40, Number(speedKn) || 28)) * KN_TO_MS; // m/s
     const wps = scriptWaypoints(session);
     if (wps.length < 2) throw Object.assign(new Error("session has no sailable route"), { status: 400 });
 
@@ -155,14 +158,24 @@ function compileScript(session, { speedKn = 17, startInSec = 60, nowMs = Date.no
         if (!isNaN(st) && st > nowMs + 15000) gunMs = st;
     }
     const startMs = nowMs;
-    // Pre-start: hold 100m behind the line (opposite the first leg), then
-    // approach to cross ~3s after the gun.
+    // Pre-start: hold WELL behind the line, then approach to cross after the
+    // gun.
+    //
+    // The hold distance must clear the device's CROSS_RANGE_M (150m): any
+    // side flip inside that band BEFORE the gun is scored OCS. Holding at
+    // 100m put the boat INSIDE the band for the whole wait, so the hold's
+    // own noise (±15% speed breathing plus per-sample jitter) could flip a
+    // side and raise an OCS that then stuck until a clean re-cross —
+    // observed as a race starting minutes after the gun.
+    const OCS_SAFE_HOLD_M = 300;
     const line = wps[0];
     const firstLegBrg = bearing(line, wps[1]);
-    const hold = destPt(line, (firstLegBrg + 180) % 360, 100);
+    const hold = destPt(line, (firstLegBrg + 180) % 360, OCS_SAFE_HOLD_M);
     const approachDist = distM(hold, line);
     const approachT = approachDist / v;
-    const crossAt = (gunMs + 3000 - startMs) / 1000; // seconds, script time
+    // Cross ~8s after the gun: 3s left no margin once sample times are
+    // rounded to whole seconds and the approach is a straight leg.
+    const crossAt = (gunMs + 8000 - startMs) / 1000; // seconds, script time
     const departAt = Math.max(2, crossAt - approachT);
 
     const rng = lcg(Math.floor(nowMs / 1000) + wps.length * 7919);
@@ -324,7 +337,7 @@ async function createRun({ sessionId, deviceId, speedKn, startInSec }) {
     const run = {
         id, deviceId: deviceId.trim(), sessionId: session.id,
         createdMs: nowMs, startMs: nowMs, gunMs: nowMs + gunSec * 1000,
-        speedKn: Math.max(1, Math.min(20, Number(speedKn) || 17)),
+        speedKn: Math.max(1, Math.min(40, Number(speedKn) || 28)),
         samples, gunSec, durationSec,
         echoes: [], // device-reported receipts {t,lat,lon,speed,course,at}
     };
