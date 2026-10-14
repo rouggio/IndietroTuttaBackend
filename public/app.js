@@ -418,6 +418,11 @@ function hideLiveSimTrace() {
 // never reach Turso, so the DB arrow is a stale fix from whenever the boat
 // was last real).
 function liveSimShown(id) {
+    // A finished/abandoned session's map is historical; the live arrow
+    // (which tracks where the boat is *now*) would show it a long way
+    // from the race it sailed. Suppress it.
+    const sx = selectedSessionId ? sessionsCache.find(x => String(x.id) === String(selectedSessionId)) : null;
+    if (sx && ["finished","abandoned"].includes(sx.status)) return false;
     const st = liveSim.get(id);
     return !!(st && st.shown);
 }
@@ -485,6 +490,19 @@ function selectedSessionFromMs() {
         if (!isNaN(d.getTime())) return d.getTime();
     }
     return 0;
+}
+// Upper bound of a finished/abandoned session's trace window. Sessions
+// do not record an end time, so approximate: races are minutes long but
+// real regattas can run an hour; we cap, so later wander (same deviceId
+// re-sailing) does not collect on a finished session's map.
+function selectedSessionEndMs() {
+    if (!selectedSessionId) return 0;
+    const s = sessionsCache.find(x => String(x.id) === String(selectedSessionId));
+    if (!s || !["finished", "abandoned"].includes(s.status)) return 0;
+    if (!s.startTime) return 0;
+    const t = new Date(s.startTime).getTime();
+    if (isNaN(t)) return 0;
+    return t + 90 * 60000;
 }
 function drawLiveSim(id) {
     const st = liveSim.get(id);
@@ -1185,9 +1203,16 @@ async function refresh(recenter = false) {
             // are not part of it.
             const _sessFrom = selectedSessionFromMs();
             if (_sessFrom) _lo = Math.max(_lo, _sessFrom);
+            // A finished/abandoned session is a CLOSED window: nothing
+            // after its race window belongs on the map. Without this the
+            // boat's later wander (same deviceId re-sails) shows up as a
+            // second, unrelated trail on the finished session view.
+            const _sessEnd = selectedSessionEndMs();
+            let _hi = _range.end;
+            if (_sessEnd) _hi = Math.min(_hi, _sessEnd);
             points = points.filter(p => {
                 const t = new Date(p.timestamp || p.receivedAt).getTime();
-                return !isNaN(t) && t >= _lo && t <= _range.end;
+                return !isNaN(t) && t >= _lo && t <= _hi;
             });
         } catch (e) {
             console.error("filtered fetch failed", e);
@@ -3855,7 +3880,7 @@ function renderSessionsList() {
                     <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boats · v${s.courseVersion}</div>
                 </div>
                 <div style="text-align:right">
-                    <div><a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">⚙</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
+                    <div><button type="button" class="sess-x" data-sess-x="${s.id}" title="Unselect — back to live" style="border:none;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:0;margin-right:6px;opacity:.7">✕</button><a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">⚙</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
                     <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
                 </div>
             </div>`).join("") : `<div class="device-meta">${sessionsCache.length ? "No sessions match the filter." : "No sessions yet."}</div>`) + `</div>`;
@@ -3866,18 +3891,47 @@ function renderSessionsList() {
 
 // Re-binds the row handlers after a re-render (the previous listeners
 // went with the innerHTML).
+function unselectSession() {
+    selectedSessionId = null;
+    clearSelPreview();
+    clearSimOverlay();
+    clearSessDetailTimers();
+    const b = document.getElementById("tab-session-detail");
+    if (b) b.innerHTML = "";
+    const p = document.getElementById("session-detail-panel");
+    if (p) p.style.display = "none";
+    isLive = true;
+    if (liveBtn) liveBtn.classList.add("active");
+    try { saveUI(); } catch {}
+    try { refresh(); } catch {}
+}
 function wireSessionRows(el) {
+    el.querySelectorAll("[data-sess-x]").forEach(btn => {
+        btn.addEventListener("click", e => {
+            e.stopPropagation();
+            e.preventDefault();
+            unselectSession();
+            const root = document.getElementById("tab-sessions");
+            if (root) renderSessionsList();
+        });
+    });
     el.querySelectorAll("[data-sess]").forEach(row => {
         row.addEventListener("click", () => {
             const id = Number(row.getAttribute("data-sess"));
             if (id === selectedSessionId) {
-                // toggle off: hide the detail pane
+                // toggle off: hide the detail pane, back to plain live mode
                 selectedSessionId = null;
                 clearSelPreview();
                 clearSimOverlay();
                 clearSessDetailTimers();
                 document.getElementById("tab-session-detail").innerHTML = "";
                 document.getElementById("session-detail-panel").style.display = "none";
+                // Now out of a session view, default to Live so the map tracks
+                // the boats (instead of a historical trace frozen on a race).
+                isLive = true;
+                if (liveBtn) liveBtn.classList.add("active");
+                try { saveUI(); } catch {}
+                try { refresh(); } catch {}
             } else {
                 selectedSessionId = id;
             }
@@ -4079,6 +4133,15 @@ async function renderSessionDetail() {
         const res = await fetch(`/sessions/${selectedSessionId}`);
         if (!res.ok) { el.innerHTML = ""; return; }
         const s = await res.json();
+        // Selecting a session scopes the map to its boats. Without this the
+        // DB-track pass (and the markers) ride on whatever was previously
+        // selected — usually "nothing", which shows all boats or none.
+        // The per-boat track and the latest-position arrow then belong
+        // to exactly the boat that sailed this race.
+        if (Array.isArray(s.boats) && s.boats.length) {
+            selectedDeviceIds = new Set(s.boats.map(b => b.deviceId));
+            if (typeof syncSelected === "function") syncSelected();
+        }
         renderSelectedPreview(s);
         fitMapToSession(s);
         el.innerHTML = `
