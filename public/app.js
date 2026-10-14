@@ -482,9 +482,13 @@ function selectedSessionFromMs() {
     if (!selectedSessionId) return 0;
     const s = sessionsCache.find(x => String(x.id) === String(selectedSessionId));
     if (!s) return 0;
+    // A race that has not yet started (gun in the future) should not
+    // floor history at the gun — nothing is recorded yet, which would
+    // only blank the map. Fall through to the date/00:00 floor so any
+    // live trace keeps resolving the boat pre-race.
     if (s.startTime) {
         const t = new Date(s.startTime).getTime();
-        if (!isNaN(t)) return t;
+        if (!isNaN(t) && t <= Date.now()) return t;
     }
     if (s.date) {
         const d = new Date(s.date + "T00:00");
