@@ -2448,6 +2448,7 @@ function openSessionCreate() {
     if (detail) detail.innerHTML = "";
     const dp = document.getElementById("session-detail-panel");
     if (dp) dp.style.display = "none";
+    try { renderSessionsList(); } catch {}
     // The Course pane stays open — it holds the course library you pick the
     // day's course from. Only the builder stands down: its live map layers
     // would fight the session draft preview.
