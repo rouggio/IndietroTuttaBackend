@@ -3967,7 +3967,7 @@ function wireSessionRows(el) {
         });
     });
     el.querySelectorAll("[data-sess]").forEach(row => {
-        row.addEventListener("click", () => {
+        row.addEventListener("click", async () => {
             const id = Number(row.getAttribute("data-sess"));
             if (id === selectedSessionId) {
                 // toggle off: hide the detail pane, back to plain live mode
@@ -3991,8 +3991,15 @@ function wireSessionRows(el) {
                 if (liveBtn) liveBtn.classList.remove("active");
                 timePreset = "custom";
                 if (presetSelect) presetSelect.value = "custom";
-                customStart = toLocalDatetimeValue(new Date(gun.getTime() - 2 * 60000));
-                customEnd = toLocalDatetimeValue(new Date(gun.getTime() + 40 * 60000));
+                customStart = toLocalDatetimeValue(new Date(gun.getTime() - 60000));
+                customEnd = toLocalDatetimeValue(new Date(gun.getTime() + 60000));
+                try {
+                    const rr = await (await fetch(`/sessions/${id}/runs`)).json();
+                    const splits = rr && rr.length ? (rr[0].splits || []) : [];
+                    const last = splits.length ? splits[splits.length - 1] : 0;
+                    if (last > 0) customEnd = toLocalDatetimeValue(new Date(gun.getTime() + (last + 60) * 1000));
+                    if (endPicker) endPicker.value = customEnd;
+                } catch {}
                 if (startPicker) startPicker.value = customStart;
                 if (endPicker) endPicker.value = customEnd;
                 updateTimeControlsVisibility();
