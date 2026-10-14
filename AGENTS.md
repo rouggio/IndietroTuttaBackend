@@ -65,6 +65,17 @@ Prod: `https://indietrotutta.onrender.com`. Local: `node server.js` → `:3000`.
   round as the schema. Until then local DB work is a treadmill (each prod cold start undoes
   it), so verify with `SELECT name FROM sqlite_master` + a `PRAGMA table_info`, not with
   `/health` (health doesn't read the renamed tables and looks fine).
+- **A stray `DeviceId` header rewrites a device's recorded LAN `ip`.**
+  `upsertDevice` takes `ip` from `req.ip` on every `/health` and `/gps`, and
+  identity is the unauthenticated `DeviceId` header by design. So
+  `curl localhost:3000/health -H "DeviceId: 08:…"` — the obvious way to poke
+  the endpoint by hand — makes the backend record `127.0.0.1` as that boat's
+  address, because the request came from loopback (`cleanIp` maps `::1` →
+  `127.0.0.1`). The next real heartbeat fixes it, but until then
+  `POST /devices/:id/mock` proxies the portal request to loopback and fails,
+  and it looks like the device moved. **Read `/devices` before using the `ip`
+  for anything, and never "verify" `/health` with a spoofed DeviceId.**
+
 - **`ALTER TABLE ... RENAME COLUMN` breaks on a table grown by many `ADD COLUMN`s.**
   SQLite re-parses the accumulated schema and fails with `duplicate column name:
   courseShapeVersion`. `initDb` now **rebuilds** `sessions` into its canonical shape
