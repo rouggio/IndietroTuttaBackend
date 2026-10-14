@@ -3898,7 +3898,7 @@ function renderSessionsList() {
             <div class="device-item ${String(s.id) === String(selectedSessionId) ? "active" : ""}" data-sess="${s.id}" style="cursor:pointer">
                 <div style="overflow:hidden;flex:1">
                     <span class="device-name">${escHtml(s.name || ("Session " + s.id))}</span>
-                    <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boats · v${s.courseVersion}</div>
+                    <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boat${s.boats.length === 1 ? "" : "s"}</div>
                 </div>
                 <div style="text-align:right">
                     <div><button type="button" class="sess-r" data-sess-r="${s.id}" title="Replay session range (incl pre-gun)" style="border:none;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:0;margin-right:6px;opacity:.7">R</button><span class="mode-badge ${s.mode}">${s.mode}</span>
