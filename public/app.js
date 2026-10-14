@@ -445,6 +445,7 @@ function liveSimShown(id) {
 let liveMins = 15; // minutes; 0 = all
 function liveWindowMs() { return liveMins > 0 ? liveMins * 60000 : 0; }
 function liveWindowPts(st) {
+    if (liveMins === -1) return []; // no track
     const sessFrom = selectedSessionFromMs();
     const win = liveWindowMs();
     const cutoff = win ? Date.now() - win : 0;
@@ -813,7 +814,7 @@ function loadUI() {
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
         if (d.windProvider) windProvider = d.windProvider;
         if (typeof d.windRefreshMin === "number") windRefreshMin = d.windRefreshMin;
-        if ([0, 2, 5, 15, 60].includes(Number(d.liveMins))) liveMins = Number(d.liveMins);
+        if ([-1, 0, 2, 5, 15, 60].includes(Number(d.liveMins))) liveMins = Number(d.liveMins);
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => {
             const el=document.getElementById(id); if(el && disp) el.style.display=disp;
         });
@@ -925,7 +926,7 @@ if (typeof wireSessionFilters === "function") wireSessionFilters();
         sel.value = String(liveMins);
         sel.addEventListener("change", () => {
             const v = Number(sel.value);
-            liveMins = [0, 2, 5, 15, 60].includes(v) ? v : 15;
+            liveMins = [-1, 0, 2, 5, 15, 60].includes(v) ? v : 15;
             try { saveUI(); } catch {}
             for (const id of [...liveSim.keys()]) drawLiveSim(id);
             // The solid live tracks are windowed in refresh(), so a change
@@ -1279,6 +1280,7 @@ async function refresh(recenter = false) {
         }
         if (cur.length) runs.push(cur);
         const color = colorForDevice(id);
+        if (liveMins === -1) return; // "no track" dropdown: arrows only
         runs.forEach((run, ri) => {
             const latlngs = run.map(p => [p.lat, p.lon]);
             const opts = { color, weight: 2, opacity: 0.6 };
