@@ -1,7 +1,7 @@
 const { getClient, initDb } = require("./db");
 const { getCourse, validateMarks, validateLines } = require("./courseStore");
-const { uploaders } = require("./runStore");
-const { terminalBoats } = require("./signalStore");
+const { uploaders, uploadersBySession } = require("./runStore");
+const { terminalBoats, terminalBoatsBySession } = require("./signalStore");
 
 // ------------------------------------------------------------------
 // Sessions freeze a course onto a day: frozen course copy +
@@ -290,28 +290,113 @@ async function deriveStatus(s) {
     return "scheduled";
 }
 
-async function listSessions({ date } = {}) {
+// List-row projection: the Sessions pane renders only these fields, so the
+// list endpoint stops shipping course geometry. `marks`, `startLine`,
+// `finishLine` and `courseSnapshot` are the bulk of the payload and parsing
+// them per row was pure waste.
+//
+// getSession(id) — the DETAIL call the pane makes on selection — is
+// unchanged and still carries full geometry; there is no separate
+// /geometry route.
+function sessionListRow(s) {
+    return {
+        id: s.id,
+        courseId: s.courseId,
+        courseShapeVersion: s.courseShapeVersion,
+        name: s.name,
+        date: s.date,
+        mode: s.mode,
+        status: s.status,
+        courseVersion: s.courseVersion,
+        boats: s.boats,
+        createdAt: s.createdAt,
+    };
+}
+
+// Batched status: the SAME rule as deriveStatus(), but from pre-loaded maps
+// so the list costs three queries total instead of three per row.
+function deriveStatusFromMaps(s, uploadersBySess, terminalBySess) {
+    if (!s) return s;
+    if (s.status === "abandoned") return "abandoned";
+    if (!s.boats || s.boats.length === 0) return "scheduled";
+    const done = uploadersBySess.get(Number(s.id)) || new Set();
+    const term = terminalBySess.get(Number(s.id)) || new Set();
+    if (s.boats.every(b => done.has(b.deviceId) || term.has(b.deviceId))) return "finished";
+    if (s.startTime && Date.now() >= new Date(s.startTime).getTime()) return "live";
+    return "scheduled";
+}
+
+// Session status is INFERRED on read (abandoned sticks; otherwise derived
+// from startTime + uploaded runs), so it cannot be filtered in SQL — the
+// predicate only exists after deriveStatus(). Date range and mode can, and are.
+//
+// Boats, uploaders and terminal signals are fetched in three batched
+// queries. Doing them per row cost 3N sequential Turso round trips:
+// measured 1.44-1.74s for 8 sessions, which is what made the pane feel
+// sluggish (todo 25).
+async function listSessions({ date, from, to, status, mode } = {}) {
+    const wanted = Array.isArray(status) && status.length ? new Set(status) : null;
+    const modes = Array.isArray(mode) && mode.length ? new Set(mode) : null;
     const client = getClient();
     if (!client) {
         let all = [...memSessions.values()];
         if (date) all = all.filter(s => s.date === date);
+        if (from) all = all.filter(s => s.date >= from);
+        if (to) all = all.filter(s => s.date <= to);
+        if (modes) all = all.filter(s => modes.has(s.mode || "practice"));
+        const ids = all.map(s => Number(s.id));
+        const ups = await uploadersBySession(ids);
+        const term = await terminalBoatsBySession(ids);
         const out = [];
         for (const s of all) {
             const full = { ...s, boats: memBoats.get(s.id) || [] };
-            full.status = await deriveStatus(full);
-            out.push(full);
+            full.status = deriveStatusFromMaps(full, ups, term);
+            if (wanted && !wanted.has(full.status)) continue;
+            out.push(sessionListRow(full));
         }
         return out;
     }
     await initDb();
-    const res = date
-        ? await client.execute({ sql: "SELECT * FROM sessions WHERE date = ? ORDER BY id ASC", args: [date] })
-        : await client.execute("SELECT * FROM sessions ORDER BY id ASC");
+    const where = [];
+    const args = [];
+    if (date) { where.push("date = ?"); args.push(date); }
+    if (from) { where.push("date >= ?"); args.push(from); }
+    if (to) { where.push("date <= ?"); args.push(to); }
+    if (modes) {
+        const ph = [...modes].map(() => "?").join(",");
+        where.push(`mode IN (${ph})`);
+        args.push(...modes);
+    }
+    const sql = "SELECT * FROM sessions" +
+        (where.length ? " WHERE " + where.join(" AND ") : "") +
+        " ORDER BY id ASC";
+    const res = await client.execute({ sql, args });
+
+    const ids = res.rows.map(r => Number(r.id));
+    const [boatsRes, ups, term] = await Promise.all([
+        ids.length
+            ? client.execute({
+                sql: `SELECT sessionId, deviceId, startOffsetSec FROM session_boats
+                      WHERE sessionId IN (${ids.map(() => "?").join(",")}) ORDER BY deviceId ASC`,
+                args: ids,
+            })
+            : Promise.resolve({ rows: [] }),
+        uploadersBySession(ids),
+        terminalBoatsBySession(ids),
+    ]);
+    const boatsBySess = new Map();
+    for (const r of boatsRes.rows) {
+        const id = Number(r.sessionId);
+        if (!boatsBySess.has(id)) boatsBySess.set(id, []);
+        boatsBySess.get(id).push({ deviceId: r.deviceId, startOffsetSec: r.startOffsetSec });
+    }
+
     const out = [];
     for (const r of res.rows) {
-        const full = rowToSession(r, await getBoats(r.id));
-        full.status = await deriveStatus(full);
-        out.push(full);
+        const full = rowToSession(r, boatsBySess.get(Number(r.id)) || []);
+        full.status = deriveStatusFromMaps(full, ups, term);
+        if (wanted && !wanted.has(full.status)) continue;
+        out.push(sessionListRow(full));
     }
     return out;
 }

@@ -9,3 +9,26 @@ get {
   body: none
   auth: none
 }
+
+docs {
+  200 [{ "id": 1, "name": "...", "date": "2026-10-14", "mode": "practice", "status": "live", "courseVersion": 1, "boats": [{ "deviceId": "..." }] }]
+
+  LIST ROWS ONLY — this endpoint deliberately returns NO course geometry
+  (no marks / startLine / finishLine / courseSnapshot). The Sessions pane
+  renders only name, date, boats.length, courseVersion, mode and status,
+  so shipping geometry meant parsing a large payload nobody read.
+
+  Geometry lives in GET /sessions/:id, which the pane fetches when you
+  select a session. There is no separate /geometry route.
+
+  Filters (all optional, combinable):
+    ?date=YYYY-MM-DD     exact day
+    ?from=&to=            inclusive date range
+    ?status=a,b           any of: scheduled, live, finished, abandoned
+
+  status is filtered AFTER deriveStatus, because status is inferred on
+  read (abandoned sticks; otherwise from startTime + uploaded runs), so
+  it cannot be a SQL predicate.
+
+  400 on a malformed date, from > to, or an unknown status.
+}

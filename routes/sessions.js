@@ -60,11 +60,56 @@ async function autoSimMockBoats(session, deviceIds) {
 // GET /sessions[?date=YYYY-MM-DD]
 // --------------------------------------------------
 
+// GET /sessions — LIST ROWS ONLY (no course geometry). The pane renders
+// name/date/boats/mode/status/courseVersion; geometry lives in
+// GET /sessions/:id, which the pane fetches on selection.
+//
+//   ?date=YYYY-MM-DD        exact day (existing)
+//   ?from=&to=YYYY-MM-DD    inclusive range
+//   ?status=a,b             any of the inferred statuses (comma-separated)
+//                           filtered AFTER deriveStatus — status is computed
+//                           on read, so it cannot be a SQL predicate.
+//   ?mode=practice,race      session mode (practice | race), SQL-side
+// Unknown dates, statuses or modes are 400 rather than silently ignored.
+const SESSION_STATUSES = ["scheduled", "live", "finished", "abandoned"];
+const SESSION_MODES = ["practice", "race"];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseListParam(raw, allowed) {
+    if (!raw) return undefined;
+    const wanted = String(raw).split(",").map(s => s.trim()).filter(Boolean);
+    const bad = wanted.filter(s => !allowed.includes(s));
+    if (bad.length) return { error: { error: `unknown: ${bad.join(",")}`, allowed } };
+    return { wanted };
+}
+
 router.get("/sessions", async (req, res) => {
     try {
-        const { date } = req.query;
-        const cleanDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
-        res.json(await listSessions({ date: cleanDate }));
+        const { date, from, to, status, mode } = req.query;
+        const cleanDate = date && DATE_RE.test(date) ? date : undefined;
+        if (date && !cleanDate) return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+
+        const cleanFrom = from && DATE_RE.test(from) ? from : undefined;
+        const cleanTo = to && DATE_RE.test(to) ? to : undefined;
+        if (from && !cleanFrom) return res.status(400).json({ error: "from must be YYYY-MM-DD" });
+        if (to && !cleanTo) return res.status(400).json({ error: "to must be YYYY-MM-DD" });
+        if (cleanFrom && cleanTo && cleanFrom > cleanTo) {
+            return res.status(400).json({ error: "from must not be after to" });
+        }
+
+        const st = parseListParam(status, SESSION_STATUSES);
+        if (st && st.error) {
+            return res.status(400).json({ ...st.error, error: `unknown status: ${st.error.error}` });
+        }
+        const md = parseListParam(mode, SESSION_MODES);
+        if (md && md.error) {
+            return res.status(400).json({ error: `unknown mode: ${md.error.error}`, allowed: SESSION_MODES });
+        }
+
+        res.json(await listSessions({
+            date: cleanDate, from: cleanFrom, to: cleanTo,
+            status: st && st.wanted, mode: md && md.wanted,
+        }));
     } catch (e) {
         sendErr(res, e);
     }

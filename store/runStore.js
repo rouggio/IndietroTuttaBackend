@@ -96,7 +96,7 @@ async function listRuns(sessionId) {    const sid = parseInt(sessionId, 10);
     return res.rows.map(rowToRun);
 }
 
-module.exports = { submitRun, listRuns, uploaders };
+module.exports = { submitRun, listRuns, uploaders, uploadersBySession };
 
 // DeviceIds with at least one uploaded run (a run means that boat's race
 // is over — finished, DSQ, DNF or RET). Used to infer session status.
@@ -111,4 +111,33 @@ async function uploaders(sessionId) {
         args: [sid],
     });
     return res.rows.map(r => r.deviceId);
+}
+
+// Batched form for the sessions LIST, which needs this for every row at
+// once. The per-id version above made GET /sessions cost one round trip
+// per session (with getBoats + terminalBoats that is 3N sequential trips
+// — measured 1.5s for 8 rows). Returns Map<sessionId, Set<deviceId>>.
+async function uploadersBySession(sessionIds) {
+    const ids = [...new Set((sessionIds || []).map(Number).filter(Boolean))];
+    const out = new Map();
+    if (!ids.length) return out;
+    for (const id of ids) out.set(id, new Set());
+    const client = getClient();
+    if (!client) {
+        for (const r of memRuns) {
+            if (out.has(r.sessionId) && r.deviceId) out.get(r.sessionId).add(r.deviceId);
+        }
+        return out;
+    }
+    await initDb();
+    const ph = ids.map(() => "?").join(",");
+    const res = await client.execute({
+        sql: `SELECT DISTINCT sessionId, deviceId FROM runs WHERE sessionId IN (${ph})`,
+        args: ids,
+    });
+    for (const r of res.rows) {
+        const set = out.get(Number(r.sessionId));
+        if (set && r.deviceId) set.add(r.deviceId);
+    }
+    return out;
 }

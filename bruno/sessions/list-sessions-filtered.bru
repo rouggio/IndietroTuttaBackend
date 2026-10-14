@@ -1,0 +1,27 @@
+meta {
+  name: List sessions filtered by range and status
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{baseUrl}}/sessions?from=2026-10-01&to=2026-10-31&status=finished,abandoned
+  body: none
+  auth: none
+}
+
+docs {
+  200 [{ "id": 15, "date": "2026-10-10", "status": "finished" }]
+
+  Range and status combine. Rows are still geometry-free (see
+  list-sessions.bru); status is filtered after deriveStatus runs, so a
+  session that only BECOMES finished because its boats uploaded runs
+  appears here without any extra query.
+
+  The Sessions pane filters client-side today — the calendar day counts
+  need the unfiltered set — so these params are the API surface for
+  paging later, not something the UI currently sends.
+
+  400 when from > to, a date is malformed, or a status is not one of
+  scheduled/live/finished/abandoned.
+}

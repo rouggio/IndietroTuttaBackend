@@ -96,7 +96,7 @@ async function signalsForDevice(sessionId, deviceId) {
     return all.filter(s => !s.deviceId || s.deviceId === deviceId).slice(-20);
 }
 
-module.exports = { raiseSignal, listSignals, signalsForDevice, terminalBoats };
+module.exports = { raiseSignal, listSignals, signalsForDevice, terminalBoats, terminalBoatsBySession };
 
 // Boats with a terminal committee signal (DSQ/DNF/RET): their race is over
 // even without an uploaded run. Used to infer session finish.
@@ -115,4 +115,35 @@ async function terminalBoats(sessionId) {
         args: [sid],
     });
     return res.rows.map(r => r.deviceId);
+}
+
+// Batched form for the sessions LIST — see uploadersBySession(): the list
+// needs this for every row, and one query per row made the pane slow.
+// Returns Map<sessionId, Set<deviceId>>.
+async function terminalBoatsBySession(sessionIds) {
+    const ids = [...new Set((sessionIds || []).map(Number).filter(Boolean))];
+    const out = new Map();
+    if (!ids.length) return out;
+    for (const id of ids) out.set(id, new Set());
+    const client = getClient();
+    if (!client) {
+        for (const s of memSignals) {
+            if (out.has(s.sessionId) && s.deviceId && ["DSQ", "DNF", "RET"].includes(s.kind)) {
+                out.get(s.sessionId).add(s.deviceId);
+            }
+        }
+        return out;
+    }
+    await initDb();
+    const ph = ids.map(() => "?").join(",");
+    const res = await client.execute({
+        sql: `SELECT DISTINCT sessionId, deviceId FROM signals
+              WHERE sessionId IN (${ph}) AND kind IN ('DSQ','DNF','RET') AND deviceId IS NOT NULL`,
+        args: ids,
+    });
+    for (const r of res.rows) {
+        const set = out.get(Number(r.sessionId));
+        if (set && r.deviceId) set.add(r.deviceId);
+    }
+    return out;
 }
