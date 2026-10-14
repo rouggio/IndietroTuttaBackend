@@ -38,10 +38,26 @@ done
 cd "$(dirname "$0")/.." || exit 1
 node tools/new-mock-session.js "$DIST" "$GUN" "$COURSE" "$WIND" || exit 1
 
-# Snapshot the whole ring buffer every 4s for 8 minutes.
-( for i in $(seq 1 120); do curl -s --max-time 6 $DEV/serial >> $LOG 2>/dev/null; echo "" >> $LOG; sleep 4; done ) &
+# Snapshot the whole ring buffer every 4s for 8 minutes, and stamp the log
+# whenever the link to the device or the backend drops. A laptop suspend kills
+# the local backend and the race with it; without a marker the result just
+# looks like a race that never finished, which is indistinguishable from a
+# firmware bug and cost a whole diagnostic cycle to tell apart.
+( for i in $(seq 1 120); do
+    curl -s --max-time 6 $DEV/serial >> $LOG 2>/dev/null; echo "" >> $LOG
+    if ! curl -s -o /dev/null --max-time 5 $DEV/status; then
+      echo "[RACE.SH] $(date -u +%H:%M:%SZ) LINK LOST: device portal unreachable" >> $LOG
+    fi
+    if ! curl -s -o /dev/null --max-time 5 $BE/health; then
+      echo "[RACE.SH] $(date -u +%H:%M:%SZ) LINK LOST: backend unreachable (suspend?)" >> $LOG
+    fi
+    sleep 4
+  done ) &
 CAP=$!
 echo "capturing to $LOG"
 wait $CAP
 echo "=== race result ==="
 grep -oE "^\[[0-9/: ]+Z\] \[(RACE|SOUND)\].*" $LOG | sort -u | sort | grep -E "session updated|gun 1:00|started|passed|armed|finished|OCS|RECROSS|last mark"
+echo "=== link drops during the race ==="
+grep -oE "LINK LOST.*" $LOG | sort -u || echo "(none)"
+grep -q "LINK LOST" $LOG && echo "NOTE: the link dropped — this race is void, not a firmware result."
