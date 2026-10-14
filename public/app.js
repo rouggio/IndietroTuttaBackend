@@ -480,6 +480,9 @@ function selectedSessionBoatSet() {
 // meaningful startTime, and zero would silently hide everything.
 function selectedSessionFromMs() {
     if (!selectedSessionId) return 0;
+    // A custom range explicitly asked for an exact window — even across the
+    // gun/pre-gun boundary — so do not let a selected session floor it.
+    if (timePreset === "custom") return 0;
     const s = sessionsCache.find(x => String(x.id) === String(selectedSessionId));
     if (!s) return 0;
     // A race that has not yet started (gun in the future) should not
@@ -3943,6 +3946,8 @@ function wireSessionRows(el) {
             e.preventDefault();
             const sid = btn.getAttribute("data-sess-r");
             try {
+                // Select it first so the map is scoped to its tracks...
+                selectedSessionId = Number(sid);
                 const s = await (await fetch(`/sessions/${sid}`)).json();
                 const gun = s.startTime ? new Date(s.startTime) : new Date();
                 const from = new Date(gun.getTime() - 2 * 60 * 1000);
