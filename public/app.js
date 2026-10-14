@@ -3901,7 +3901,8 @@ function renderSessionsList() {
                     <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boats · v${s.courseVersion}</div>
                 </div>
                 <div style="text-align:right">
-                    <div><button type="button" class="sess-x" data-sess-x="${s.id}" title="Unselect — back to live" style="border:none;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:0;margin-right:6px;opacity:.7">✕</button><a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">⚙</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
+                    <div><button type="button" class="sess-x" data-sess-x="${s.id}" title="Unselect - back to live" style="border:none;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:0;margin-right:6px;opacity:.7">X</button><button type="button" class="sess-r" data-sess-r="${s.id}" title="Replay session range (incl pre-gun)" style="border:none;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:0;margin-right:6px;opacity:.7">R</button><a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">G</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
+                    <a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">⚙</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
                     <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
                 </div>
             </div>`).join("") : `<div class="device-meta">${sessionsCache.length ? "No sessions match the filter." : "No sessions yet."}</div>`) + `</div>`;
@@ -3934,6 +3935,26 @@ function wireSessionRows(el) {
             unselectSession();
             const root = document.getElementById("tab-sessions");
             if (root) renderSessionsList();
+        });
+    });
+    el.querySelectorAll("[data-sess-r]").forEach(btn => {
+        btn.addEventListener("click", async e => {
+            e.stopPropagation();
+            e.preventDefault();
+            const sid = btn.getAttribute("data-sess-r");
+            try {
+                const s = await (await fetch(`/sessions/${sid}`)).json();
+                const gun = s.startTime ? new Date(s.startTime) : new Date();
+                const from = new Date(gun.getTime() - 2 * 60 * 1000);
+                const to = new Date(gun.getTime() + 15 * 60 * 1000);
+                timePreset = "custom";
+                if (presetSelect) presetSelect.value = "custom";
+                customStart = toLocalDatetimeValue(from);
+                customEnd = toLocalDatetimeValue(to);
+                if (startPicker) startPicker.value = customStart;
+                if (endPicker) endPicker.value = customEnd;
+                applyCustomRange();
+            } catch {}
         });
     });
     el.querySelectorAll("[data-sess]").forEach(row => {
