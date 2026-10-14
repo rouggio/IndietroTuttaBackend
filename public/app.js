@@ -3981,6 +3981,18 @@ function wireSessionRows(el) {
                 try { refresh(); } catch {}
             } else {
                 selectedSessionId = id;
+                const s = sessionsCache.find(x => String(x.id) === String(id));
+                const gun = s && s.startTime ? new Date(s.startTime) : new Date();
+                isLive = false;
+                if (liveBtn) liveBtn.classList.remove("active");
+                timePreset = "custom";
+                if (presetSelect) presetSelect.value = "custom";
+                customStart = toLocalDatetimeValue(new Date(gun.getTime() - 2 * 60000));
+                customEnd = toLocalDatetimeValue(new Date(gun.getTime() + 40 * 60000));
+                if (startPicker) startPicker.value = customStart;
+                if (endPicker) endPicker.value = customEnd;
+                updateTimeControlsVisibility();
+                saveUI();
             }
             // Re-render only the list (not a full loadSessions refetch) so a
             // filter click does not re-issue the request; the detail pane
