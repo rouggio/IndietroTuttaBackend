@@ -1259,16 +1259,8 @@ async function refresh(recenter = false) {
         byDevice.get(id).push(p);
     });
 
-    // A selected session owns the map: hide every OTHER boat's trace, so
-    // the picture is the race you are looking at and not every boat that
-    // happens to be reporting. Returns null when no session is selected
-    // (nothing hidden) or the session is not in the cache yet.
-    const sessionOnly = selectedSessionBoatSet();
-    if (sessionOnly) {
-        for (const id of [...byDevice.keys()]) {
-            if (!sessionOnly.has(id)) byDevice.delete(id);
-        }
-    }
+    // Sessions no longer own the trace set — every boat stays visible
+    // even inside an ongoing/finished race. (A toggle will come later.)
     byDevice.forEach((pts, id) => {
         const runs = [];
         let cur = [];
@@ -4143,10 +4135,9 @@ async function renderSessionDetail() {
         const res = await fetch(`/sessions/${selectedSessionId}`);
         if (!res.ok) { el.innerHTML = ""; return; }
         const s = await res.json();
-        if (Array.isArray(s.boats) && s.boats.length) {
-            selectedDeviceIds = new Set(s.boats.map(b => b.deviceId));
-            if (typeof syncSelected === "function") syncSelected();
-        }
+        // Keep the previous selection alone — the map should keep showing
+        // every boat's track as on the live view, even inside a session.
+        // (Future: add a toggle to narrow this to the session's boats.)
         // Session open → no live feed on top of the race's view.
         try { hideLiveSimTrace(); } catch {}
         renderSelectedPreview(s);
