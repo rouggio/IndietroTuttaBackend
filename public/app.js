@@ -3902,7 +3902,7 @@ function renderSessionsList() {
                 </div>
                 <div style="text-align:right">
                     <div><button type="button" class="sess-r" data-sess-r="${s.id}" title="Replay session range (incl pre-gun)" style="border:none;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:0;margin-right:6px;opacity:.7">R</button><span class="mode-badge ${s.mode}">${s.mode}</span>
-                    <a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">⚙</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
+                    </div>
                     <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
                 </div>
             </div>`).join("") : `<div class="device-meta">${sessionsCache.length ? "No sessions match the filter." : "No sessions yet."}</div>`) + `</div>`;
