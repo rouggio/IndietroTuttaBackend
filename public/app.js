@@ -540,6 +540,13 @@ function drawLiveSim(id) {
 }
 async function pollLiveSim() {
     if (!isLive || document.hidden) return;
+    // While a session is selected, the map is the race's view — no live
+    // overlay on top. Otherwise the same boat's live trace + its DB track
+    // both show at once, which reads as two layered traces.
+    if (selectedSessionId) {
+        hideLiveSimTrace();
+        return;
+    }
     const scope = liveSimScope();
     // teardown: drop overlay layers for boats that left the scope (unticked,
     // pruned, or deleted) — otherwise their line+arrow haunt the map forever.
@@ -4133,15 +4140,12 @@ async function renderSessionDetail() {
         const res = await fetch(`/sessions/${selectedSessionId}`);
         if (!res.ok) { el.innerHTML = ""; return; }
         const s = await res.json();
-        // Selecting a session scopes the map to its boats. Without this the
-        // DB-track pass (and the markers) ride on whatever was previously
-        // selected — usually "nothing", which shows all boats or none.
-        // The per-boat track and the latest-position arrow then belong
-        // to exactly the boat that sailed this race.
         if (Array.isArray(s.boats) && s.boats.length) {
             selectedDeviceIds = new Set(s.boats.map(b => b.deviceId));
             if (typeof syncSelected === "function") syncSelected();
         }
+        // Session open → no live feed on top of the race's view.
+        try { hideLiveSimTrace(); } catch {}
         renderSelectedPreview(s);
         fitMapToSession(s);
         el.innerHTML = `
