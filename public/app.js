@@ -844,6 +844,10 @@ function loadUI() {
                 }
             });
         }
+        // The new-session pane is ephemeral: never reopen it on refresh,
+        // regardless of the saved UI state.
+        const scp = document.getElementById("session-create-panel");
+        if (scp) scp.style.display = "none";
         // restore boats button active state
         const dp=document.getElementById("device-panel"), bb=document.getElementById("boatsToggleBtn");
         if(dp && bb) bb.classList.toggle("active", dp.style.display!=="none" && dp.style.display!=="");
