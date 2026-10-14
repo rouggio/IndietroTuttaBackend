@@ -225,6 +225,24 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
         const boards = tackPoints(route[i], route[i + 1], session.windDir || 0, i, route[i + 1].kind === "gate");
         for (let k = 1; k < boards.length; k++) sailed.push(boards[k]);
     }
+
+    // Sail THROUGH the finish line, not up to it.
+    //
+    // The route's last waypoint is the finish line's CENTRE, so the script
+    // used to stop exactly on the line: the side flip that scores the finish
+    // existed on precisely ONE sample, the last of the run, and the device
+    // never caught it — the race ended on the "past line, no clean cross"
+    // escape hatch instead. A boat also keeps sailing after it finishes, so
+    // overrun the line along the incoming bearing. The overrun is longer
+    // than the device's CROSS_RANGE_M (150m) so the crossing is a sustained
+    // stretch of many samples, not a coin flip at the end of the feed.
+    const FINISH_OVERRUN_M = 200;
+    if (sailed.length >= 2 && route[route.length - 1].kind === "finish") {
+        const last = sailed[sailed.length - 1];
+        const prev = sailed[sailed.length - 2];
+        sailed.push(destPt(last, bearing(prev, last), FINISH_OVERRUN_M));
+    }
+
     let t = departAt;
     t = pushLeg(hold, line, t);
     for (let i = 0; i + 1 < sailed.length; i++) t = pushLeg(sailed[i], sailed[i + 1], t);
