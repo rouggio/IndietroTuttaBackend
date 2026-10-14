@@ -395,17 +395,67 @@ function liveSimScope() {
     // and nothing open means quiet — no polling boats the user can't see.
     return [...boatPanels.values()].filter(p => p.open).map(p => p.id);
 }
+// Which boats a selected session owns, or null when nothing is filtered.
+// Shared by the DB-track pass and the live-sim overlay so a session
+// selection hides BOTH: a mock boat's arrow is its only position, so
+// leaving those up would defeat the point.
+// --------------------------------------------------
+// Live-trace window
+//
+// The live overlay used to draw every buffered fix since the page loaded,
+// so a long session grew an unreadable ribbon behind the boat. This is the
+// topbar dropdown: how much of the live trace to SHOW. 0 = all.
+//
+// Draw-time filtering, not destructive pruning: the buffer keeps its
+// history so switching back to "all" is instant. The 2000-point cap in
+// pollLiveSim() is a memory backstop and stays, so the oldest points do
+// eventually drop out of "all" as well.
+// --------------------------------------------------
+let liveMins = 15; // minutes; 0 = all
+function liveWindowMs() { return liveMins > 0 ? liveMins * 60000 : 0; }
+function liveWindowPts(st) {
+    const win = liveWindowMs();
+    if (!win || st.pts.length < 2) return st.pts;
+    const cutoff = Date.now() - win;
+    // Points can arrive slightly out of order (sim feed), so scan from the
+    // end and keep the longest recent run rather than trusting order.
+    let i = st.pts.length - 1;
+    while (i > 0) {
+        const t = new Date(st.pts[i].receivedAt || st.pts[i].timestamp || 0).getTime();
+        if (!isNaN(t) && t < cutoff) break;
+        i--;
+    }
+    return st.pts.slice(i);
+}
+
+function selectedSessionBoatSet() {
+    if (!selectedSessionId) return null;
+    const s = sessionsCache.find(x => String(x.id) === String(selectedSessionId));
+    if (!s || !Array.isArray(s.boats)) return null;
+    const set = new Set(s.boats.map(b => b && b.deviceId).filter(Boolean));
+    return set.size ? set : null;
+}
 function drawLiveSim(id) {
     const st = liveSim.get(id);
     if (!st) return;
     if (st.line) { liveSimLayer.removeLayer(st.line); st.line = null; }
     if (st.arrow) { liveSimLayer.removeLayer(st.arrow); st.arrow = null; }
+    // Exactly one arrow per boat, ever. In replay the cursor arrow is the
+    // position that means anything, so the live one stands down (the
+    // layers above were just removed, and we do not re-add them).
+    if (playbackTimer) return;
     if (st.pts.length < 1) return;
+    const only = selectedSessionBoatSet();
+    if (only && !only.has(id)) return; // another boat's live trace: hidden
     const color = colorForDevice(id);
-    if (st.pts.length > 1) {
-        st.line = L.polyline(st.pts.map(p => [p.lat, p.lon]),
+    const pts = liveWindowPts(st);
+    if (pts.length > 1) {
+        st.line = L.polyline(pts.map(p => [p.lat, p.lon]),
             { color, weight: 2, opacity: 0.85, dashArray: "7 5" }).addTo(liveSimLayer);
     }
+    // The boat symbol always sits on the NEWEST fix, even when the window
+    // has hidden older track — otherwise the arrow would vanish with the
+    // trace it no longer draws.
     const last = st.pts[st.pts.length - 1];
     // boat symbol: triangle at the newest sim fix, like the DB-driven arrow
     st.arrow = L.marker([last.lat, last.lon], { icon: boatTriangleIcon(id, last.course) }).addTo(liveSimLayer);
@@ -633,6 +683,7 @@ function saveUI() {
             boatFilter: document.getElementById("boatFilter")?.value || "",
             windProvider,
             windRefreshMin,
+            liveMins,
             showSimPreview: !!showSimPreview,
             panels: {
                 "device-panel": document.getElementById("device-panel")?.style.display,
@@ -677,6 +728,7 @@ function loadUI() {
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
         if (d.windProvider) windProvider = d.windProvider;
         if (typeof d.windRefreshMin === "number") windRefreshMin = d.windRefreshMin;
+        if ([0, 2, 5, 15, 60].includes(Number(d.liveMins))) liveMins = Number(d.liveMins);
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => {
             const el=document.getElementById(id); if(el && disp) el.style.display=disp;
         });
@@ -773,6 +825,31 @@ if(timePreset==="custom" && selectedDate && !customStart){
 }
 if(startPicker) startPicker.value = customStart;
 if(endPicker) endPicker.value = customEnd;
+
+// Sessions filter toolbar (todo 10): bind once at startup. The filter state
+// itself is RAM-only, so there is nothing to restore here — this just
+// attaches the handlers.
+if (typeof wireSessionFilters === "function") wireSessionFilters();
+
+// Live-trace window dropdown. Restored after loadUI() so the stored pref
+// wins, then wired so a change repaints every boat immediately (the poll
+// only redraws boats it is already tracking, up to 3s later).
+{
+    const sel = document.getElementById("liveMinsSelect");
+    if (sel) {
+        sel.value = String(liveMins);
+        sel.addEventListener("change", () => {
+            const v = Number(sel.value);
+            liveMins = [0, 2, 5, 15, 60].includes(v) ? v : 15;
+            try { saveUI(); } catch {}
+            for (const id of [...liveSim.keys()]) drawLiveSim(id);
+            // The solid live tracks are windowed in refresh(), so a change
+            // has to re-run it — redrawing the mock overlay alone is not
+            // enough (that is what made the dropdown look inert at first).
+            if (isLive && !playbackTimer && selectedDeviceIds.size > 0) refresh();
+        });
+    }
+}
 
 function updateTimeControlsVisibility(){
     const isCustom = timePreset==="custom" && !isLive;
@@ -1010,7 +1087,9 @@ async function refresh(recenter = false) {
                     }
                     liveCache.set(id, cur.filter(p => {
                         const t = new Date(p.timestamp || p.receivedAt).getTime();
-                        return !isNaN(t) && t >= range.start && t <= range.end;
+                        const win = (isLive && !playbackTimer) ? liveWindowMs() : 0;
+                        const lo = win ? Math.max(range.start, Date.now() - win) : range.start;
+                        return !isNaN(t) && t >= lo && t <= range.end;
                     }));
                 });
                 points = [...liveCache.values()].flat();
@@ -1027,9 +1106,17 @@ async function refresh(recenter = false) {
             points = points.sort((a,b) => new Date(a.timestamp||a.receivedAt) - new Date(b.timestamp||b.receivedAt));
             // client-side guard: only keep points inside selected time range
             const _range = getCurrentRange();
+            // In LIVE mode the topbar window narrows the range's lower bound,
+            // so the solid track shows only that much history. Without this
+            // the "last N min" dropdown only trimmed the dashed mock overlay
+            // and the live tracks still ran back to midnight. Historical
+            // (non-live) browsing is unaffected — there the range presets
+            // are the control, and the dropdown stays out of the way.
+            const _liveFrom = (isLive && !playbackTimer) ? liveWindowMs() : 0;
+            const _lo = _liveFrom ? Math.max(_range.start, Date.now() - _liveFrom) : _range.start;
             points = points.filter(p => {
                 const t = new Date(p.timestamp || p.receivedAt).getTime();
-                return !isNaN(t) && t >= _range.start && t <= _range.end;
+                return !isNaN(t) && t >= _lo && t <= _range.end;
             });
         } catch (e) {
             console.error("filtered fetch failed", e);
@@ -1066,6 +1153,17 @@ async function refresh(recenter = false) {
         if (!byDevice.has(id)) byDevice.set(id, []);
         byDevice.get(id).push(p);
     });
+
+    // A selected session owns the map: hide every OTHER boat's trace, so
+    // the picture is the race you are looking at and not every boat that
+    // happens to be reporting. Returns null when no session is selected
+    // (nothing hidden) or the session is not in the cache yet.
+    const sessionOnly = selectedSessionBoatSet();
+    if (sessionOnly) {
+        for (const id of [...byDevice.keys()]) {
+            if (!sessionOnly.has(id)) byDevice.delete(id);
+        }
+    }
     byDevice.forEach((pts, id) => {
         const runs = [];
         let cur = [];
@@ -1111,6 +1209,7 @@ async function refresh(recenter = false) {
         points.forEach(p => latestByDevice.set(p.deviceId, p));
         latestByDevice.forEach(p => {
             if (!selectedDeviceIds.has(p.deviceId)) return;
+            if (liveSim.has(p.deviceId)) return; // live arrow already shows it
             const m = L.marker([p.lat, p.lon], { icon: boatTriangleIcon(p.deviceId, p.course) }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
             m.on("click", () => openBoatPanel(p.deviceId, p));
             fleetMarkers.push(m);
@@ -1121,6 +1220,12 @@ async function refresh(recenter = false) {
         const latestByDevice = new Map();
         points.forEach(p => latestByDevice.set(p.deviceId, p));
         latestByDevice.forEach(p => {
+            // A boat with a live-sim overlay already has its symbol on
+            // liveSimLayer, drawn from the CURRENT fix. Drawing the DB one
+            // too gave every mock boat two arrows: one here at a stale
+            // Turso fix (mock uploads never reach the DB), one live. The
+            // live arrow wins and this one stands down.
+            if (liveSim.has(p.deviceId)) return;
             const m = L.marker([p.lat, p.lon], { icon: boatTriangleIcon(p.deviceId, p.course) }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
             m.on("click", () => openBoatPanel(p.deviceId, p));
             fleetMarkers.push(m);
@@ -1367,6 +1472,14 @@ function showTime(timeMs) {
     playbackMarkers.forEach(m=> map.removeLayer(m));
     playbackMarkers.clear();
     fleetMarkers.forEach(m=> map.removeLayer(m)); fleetMarkers = [];
+    // The live-sim overlay is a boat symbol too. In replay the cursor
+    // arrows are the only positions that mean anything, so tear the live
+    // ones down as well — otherwise a mock boat shows its live arrow AND
+    // its cursor arrow.
+    for (const [, st] of liveSim) {
+        if (st.line) { liveSimLayer.removeLayer(st.line); st.line = null; }
+        if (st.arrow) { liveSimLayer.removeLayer(st.arrow); st.arrow = null; }
+    }
     if (marker) { map.removeLayer(marker); marker = null; }
     ids.forEach(id => {
         const pos = interpolatePosition(id, timeMs);
@@ -3565,6 +3678,188 @@ avoidPanelOverlap(document.getElementById("settings-panel"));
         el.innerHTML = '<div class="boat-info-err">Failed to load courses.</div>';
     }
 }
+// --------------------------------------------------
+// Sessions filter (todo 10)
+//
+// RAM-only and deliberately NOT persisted: a reload always shows every
+// session. The marker on the topbar button is the only cue that a filter
+// is on, which is exactly why the reset must be obvious.
+//
+// Filtering is client-side against the full list — the API grew
+// ?from=&to=&status= for paging later, but the calendar day counts need
+// the UNFILTERED set, so narrowing server-side would mean a second
+// request per change. The list is now geometry-free and cheap to hold.
+// --------------------------------------------------
+const SESS_STATUSES = ["scheduled", "live", "finished", "abandoned"];
+const sessFilter = { statuses: new Set(), modes: new Set(), from: "", to: "" };
+
+function sessFilterActive() {
+    return sessFilter.statuses.size > 0 || sessFilter.modes.size > 0 ||
+        !!sessFilter.from || !!sessFilter.to;
+}
+
+function sessFilterApply(list) {
+    return list.filter(s => {
+        if (sessFilter.statuses.size && !sessFilter.statuses.has(s.status)) return false;
+        if (sessFilter.modes.size && !sessFilter.modes.has(s.mode || "practice")) return false;
+        if (sessFilter.from && s.date < sessFilter.from) return false;
+        if (sessFilter.to && s.date > sessFilter.to) return false;
+        return true;
+    });
+}
+
+function sessFilterSyncChips() {
+    document.querySelectorAll("[data-sess-status]").forEach(b => {
+        b.classList.toggle("active", sessFilter.statuses.has(b.getAttribute("data-sess-status")));
+    });
+    document.querySelectorAll("[data-sess-mode]").forEach(b => {
+        b.classList.toggle("active", sessFilter.modes.has(b.getAttribute("data-sess-mode")));
+    });
+    const from = document.getElementById("sess-filter-from");
+    const to = document.getElementById("sess-filter-to");
+    if (from) from.classList.toggle("active", !!sessFilter.from);
+    if (to) to.classList.toggle("active", !!sessFilter.to);
+    const btn = document.getElementById("sessionsToggleBtn");
+    if (btn) btn.classList.toggle("filtered", sessFilterActive());
+}
+
+// Day strip derived from the FULL list (not the filtered one), so the
+// counts do not move as you filter — it doubles as a one-click picker.
+function sessFilterRenderDays() {
+    const box = document.getElementById("sess-filter-days");
+    if (!box) return;
+    const counts = new Map();
+    for (const s of sessionsCache) counts.set(s.date, (counts.get(s.date) || 0) + 1);
+    const days = [...counts.keys()].sort().reverse().slice(0, 12);
+    if (!days.length) { box.innerHTML = '<span class="sess-filter-none">no sessions yet</span>'; return; }
+    box.innerHTML = days.map(d =>
+        `<button class="sess-day${sessFilter.from === d && sessFilter.to === d ? " active" : ""}" data-sess-day="${d}" title="${d}">${d.slice(5)} <b>${counts.get(d)}</b></button>`
+    ).join("");
+    box.querySelectorAll("[data-sess-day]").forEach(b => {
+        b.addEventListener("click", () => {
+            const d = b.getAttribute("data-sess-day");
+            // Clicking the active day clears it; otherwise select just it.
+            if (sessFilter.from === d && sessFilter.to === d) {
+                sessFilter.from = ""; sessFilter.to = "";
+            } else {
+                sessFilter.from = d; sessFilter.to = d;
+            }
+            const f = document.getElementById("sess-filter-from");
+            const t = document.getElementById("sess-filter-to");
+            if (f) f.value = sessFilter.from;
+            if (t) t.value = sessFilter.to;
+            sessFilterSyncChips();
+            renderSessionsList();
+        });
+    });
+}
+
+function renderSessionsList() {
+    const el = document.getElementById("tab-sessions");
+    if (!el) return;
+    const rows = sessFilterApply(sessionsCache);
+    el.innerHTML = `
+        <div id="sess-list">` + (rows.length ? rows.map(s => `
+            <div class="device-item ${String(s.id) === String(selectedSessionId) ? "active" : ""}" data-sess="${s.id}" style="cursor:pointer">
+                <div style="overflow:hidden;flex:1">
+                    <span class="device-name">${escHtml(s.name || ("Session " + s.id))}</span>
+                    <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boats · v${s.courseVersion}</div>
+                </div>
+                <div style="text-align:right">
+                    <div><a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">⚙</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
+                    <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
+                </div>
+            </div>`).join("") : `<div class="device-meta">${sessionsCache.length ? "No sessions match the filter." : "No sessions yet."}</div>`) + `</div>`;
+    wireSessionRows(el);
+    sessFilterRenderDays();
+    sessFilterSyncChips();
+}
+
+// Re-binds the row handlers after a re-render (the previous listeners
+// went with the innerHTML).
+function wireSessionRows(el) {
+    el.querySelectorAll("[data-sess]").forEach(row => {
+        row.addEventListener("click", () => {
+            const id = Number(row.getAttribute("data-sess"));
+            if (id === selectedSessionId) {
+                // toggle off: hide the detail pane
+                selectedSessionId = null;
+                clearSelPreview();
+                clearSimOverlay();
+                clearSessDetailTimers();
+                document.getElementById("tab-session-detail").innerHTML = "";
+                document.getElementById("session-detail-panel").style.display = "none";
+            } else {
+                selectedSessionId = id;
+            }
+            // Re-render only the list (not a full loadSessions refetch) so a
+            // filter click does not re-issue the request; the detail pane
+            // opens from the selection either way.
+            renderSessionsList();
+            if (selectedSessionId) openSessionDetail();
+        });
+    });
+    el.querySelectorAll("[data-sedit]").forEach(a => {
+        a.addEventListener("click", e => {
+            e.preventDefault();
+            e.stopPropagation();
+            selectedSessionId = Number(a.getAttribute("data-sedit"));
+            renderSessionsList();
+            openSessionDetail();
+        });
+    });
+}
+
+function wireSessionFilters() {
+    document.querySelectorAll("[data-sess-status]").forEach(b => {
+        b.addEventListener("click", () => {
+            const s = b.getAttribute("data-sess-status");
+            if (sessFilter.statuses.has(s)) sessFilter.statuses.delete(s);
+            else sessFilter.statuses.add(s);
+            sessFilterSyncChips();
+            renderSessionsList();
+        });
+    });
+    document.querySelectorAll("[data-sess-mode]").forEach(b => {
+        b.addEventListener("click", () => {
+            const m = b.getAttribute("data-sess-mode");
+            if (sessFilter.modes.has(m)) sessFilter.modes.delete(m);
+            else sessFilter.modes.add(m);
+            sessFilterSyncChips();
+            renderSessionsList();
+        });
+    });
+    const onDate = () => {
+        const f = document.getElementById("sess-filter-from");
+        const t = document.getElementById("sess-filter-to");
+        let from = f && f.value ? f.value : "";
+        let to = t && t.value ? t.value : "";
+        // A single date typed in "from" means that day, not an open range.
+        if (from && !to) to = from;
+        if (to && !from) from = to;
+        if (from && to && from > to) { const x = from; from = to; to = x; }
+        sessFilter.from = from; sessFilter.to = to;
+        sessFilterSyncChips();
+        renderSessionsList();
+    };
+    const f = document.getElementById("sess-filter-from");
+    const t = document.getElementById("sess-filter-to");
+    if (f) f.addEventListener("change", onDate);
+    if (t) t.addEventListener("change", onDate);
+    const reset = document.getElementById("sess-filter-reset");
+    if (reset) {
+        reset.addEventListener("click", () => {
+            sessFilter.statuses.clear();
+            sessFilter.modes.clear();
+            sessFilter.from = ""; sessFilter.to = "";
+            if (f) f.value = "";
+            if (t) t.value = "";
+            sessFilterSyncChips();
+            renderSessionsList();
+        });
+    }
+}
+
 async function loadSessions(selectId) {
     const el = document.getElementById("tab-sessions");
     try {
@@ -3583,43 +3878,7 @@ async function loadSessions(selectId) {
             document.getElementById("tab-session-detail").innerHTML = "";
             document.getElementById("session-detail-panel").style.display = "none";
         }
-        el.innerHTML = `
-            <div id="sess-list">` + (sessionsCache.length ? sessionsCache.map(s => `
-                <div class="device-item ${String(s.id) === String(selectedSessionId) ? "active" : ""}" data-sess="${s.id}" style="cursor:pointer">
-                    <div style="overflow:hidden;flex:1">
-                        <span class="device-name">${escHtml(s.name || ("Session " + s.id))}</span>
-                        <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boats · v${s.courseVersion}</div>
-                    </div>
-                    <div style="text-align:right">
-                        <div><a href="#" data-sedit="${s.id}" title="Open session editor" style="text-decoration:none;font-size:14px">⚙</a> <span class="mode-badge ${s.mode}">${s.mode}</span></div>
-                        <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
-                    </div>
-                </div>`).join("") : '<div class="device-meta">No sessions yet.</div>') + `</div>`;
-        el.querySelectorAll("[data-sess]").forEach(row => {
-            row.addEventListener("click", () => {
-                const id = Number(row.getAttribute("data-sess"));
-                if (id === selectedSessionId) {
-                    // toggle off: hide course + editor
-                    selectedSessionId = null;
-                    clearSelPreview();
-                    clearSimOverlay();
-                    clearSessDetailTimers();
-                    document.getElementById("tab-session-detail").innerHTML = "";
-                    document.getElementById("session-detail-panel").style.display = "none";
-                } else {
-                    selectedSessionId = id;
-                }
-                loadSessions();
-            });
-        });
-        el.querySelectorAll("[data-sedit]").forEach(a => {
-            a.addEventListener("click", e => {
-                e.preventDefault();
-                e.stopPropagation();
-                selectedSessionId = Number(a.getAttribute("data-sedit"));
-                loadSessions();
-            });
-        });
+        renderSessionsList();
         if (selectedSessionId) openSessionDetail();
         else {
             // Detail pane restored visible by loadUI() with nothing selected:

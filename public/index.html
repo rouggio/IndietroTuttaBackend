@@ -29,6 +29,13 @@
         </div>
         <div id="topbar-controls">
             <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
+            <select id="liveMinsSelect" title="How much of the live trace to show">
+                <option value="2">last 2 min</option>
+                <option value="5">last 5 min</option>
+                <option value="15">last 15 min</option>
+                <option value="60">last 60 min</option>
+                <option value="0">all</option>
+            </select>
             <select id="presetSelect" title="Time range preset">
                 <option value="today">Today</option>
                 <option value="yesterday">Yesterday</option>
@@ -68,6 +75,27 @@
 
 <div id="session-panel" style="display:none">
     <h4>Sessions <span id="sessionClose" class="pane-close">×</span></h4>
+    <div id="sess-filter-bar">
+        <div class="sess-filter-row">
+            <span class="sess-filter-label">Status</span>
+            <button class="sess-chip" data-sess-status="scheduled" title="Scheduled">scheduled</button>
+            <button class="sess-chip" data-sess-status="live" title="Live">live</button>
+            <button class="sess-chip" data-sess-status="finished" title="Finished">finished</button>
+            <button class="sess-chip" data-sess-status="abandoned" title="Abandoned">abandoned</button>
+        </div>
+        <div class="sess-filter-row">
+            <span class="sess-filter-label">Mode</span>
+            <button class="sess-chip" data-sess-mode="practice" title="Practice sessions">practice</button>
+            <button class="sess-chip" data-sess-mode="race" title="Committee races">race</button>
+        </div>
+        <div class="sess-filter-row">
+            <span class="sess-filter-label">Date</span>
+            <input type="date" id="sess-filter-from" title="From day">
+            <input type="date" id="sess-filter-to" title="To day">
+            <button id="sess-filter-reset" title="Clear every filter">All</button>
+        </div>
+        <div class="sess-filter-row sess-filter-days" id="sess-filter-days"></div>
+    </div>
     <div id="tab-sessions" class="course-tab"></div>
 </div>
 

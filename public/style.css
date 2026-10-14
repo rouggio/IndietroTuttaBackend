@@ -785,6 +785,83 @@ html, body {
 .status-badge.live { background: #fef3c7; color: #92400e; }
 .status-badge.finished, .status-badge.abandoned { background: #f3f4f6; color: #6b7280; }
 
+/* Sessions filter toolbar (todo 10). Filter state is RAM-only and resets
+   on reload, so the active-filter marker on the topbar button is the only
+   hint that a filter is on. */
+#sess-filter-bar {
+    padding: 6px 8px 4px;
+    border-bottom: 1px solid #e5e7eb;
+}
+.sess-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+.sess-filter-label {
+    font-size: 10px;
+    color: #6b7280;
+    width: 38px;
+    flex: none;
+}
+.sess-chip {
+    font-size: 10px;
+    padding: 2px 6px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    color: #374151;
+    cursor: pointer;
+}
+.sess-chip.active {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+}
+#sess-filter-from, #sess-filter-to {
+    font-size: 10px;
+    padding: 1px 2px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+}
+#sess-filter-from.active, #sess-filter-to.active { border-color: #2563eb; }
+#sess-filter-reset {
+    font-size: 10px;
+    padding: 2px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+}
+.sess-filter-days { margin-bottom: 0; gap: 3px; }
+.sess-day {
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 6px;
+    background: #f3f4f6;
+    color: #6b7280;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+.sess-day:hover { border-color: #9ca3af; }
+.sess-day.active { background: #2563eb; color: #fff; }
+.sess-day b { font-weight: 700; }
+.sess-filter-none { font-size: 10px; color: #9ca3af; }
+
+/* Active-filter marker on the topbar button. A dot alone reads as noise,
+   so the label also gains the tint. */
+#sessionsToggleBtn.filtered {
+    color: #1d4ed8;
+    font-weight: 700;
+}
+#sessionsToggleBtn.filtered::after {
+    content: "•";
+    color: #2563eb;
+    font-weight: 700;
+    margin-left: 3px;
+}
+
 /* Builder panel (right side, map stays visible) */
 #builder-panel {
     position: absolute;
