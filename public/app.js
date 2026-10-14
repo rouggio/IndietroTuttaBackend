@@ -3901,7 +3901,7 @@ function renderSessionsList() {
                     <div class="device-meta">${escHtml(s.date)} · ${s.boats.length} boat${s.boats.length === 1 ? "" : "s"}</div>
                 </div>
                 <div style="text-align:right">
-                    <div><button type="button" class="sess-r" data-sess-r="${s.id}" title="Replay session range (incl pre-gun)" style="border:none;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:0;margin-right:6px;opacity:.7">R</button><span class="mode-badge ${s.mode}">${s.mode}</span>
+                    <div><button type="button" class="sess-r" data-sess-r="${s.id}" title="Replay session range (incl pre-gun)" style="border:1px solid #9ca3af;border-radius:4px;background:#f8fafc;cursor:pointer;font-size:12px;line-height:1;padding:0;margin-right:8px;width:22px;height:20px;display:inline-flex;align-items:center;justify-content:center;opacity:.85">&#9658;</button><span class="mode-badge ${s.mode}">${s.mode}</span>
                     </div>
                     <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
                 </div>
