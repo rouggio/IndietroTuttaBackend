@@ -11,7 +11,10 @@ const {
     wanderSample,
     wanderAnchorFor,
     wanderNext,
+    wanderBatch,
     setPushedAnchor,
+    nextBatch,
+    SIM_BATCH_MAX,
 } = require("../store/sim");
 
 const router = express.Router();
@@ -64,22 +67,42 @@ router.get("/sim/next", async (req, res) => {
         if (run) {
             const sample = nextSample(run, nowMs);
             if (!sample.done || runId) {
+                const b = nextBatch(run, nowMs);
                 return res.json({
                     runId: run.id,
                     deviceId: run.deviceId,
                     sessionId: run.sessionId,
                     serverTime: new Date(nowMs).toISOString(),
+                    // Batch delivery: the device buffers these and refetches
+                    // with 10 to spare, so a fix costs 1/30th of the requests.
+                    // The flat fields below stay for a device that predates
+                    // batching — it ignores `batch` and reads these.
+                    batch: b.batch,
+                    batchSize: b.batch.length,
                     ...sample,
                 });
             }
             deleteRun(run.id); // exhausted: fall through to the walk below
         }
         if (!deviceId) return res.status(404).json({ error: "no live run" });
-        const sample = await wanderNext(deviceId, nowMs);
+        const wb = await wanderBatch(deviceId, SIM_BATCH_MAX, nowMs);
         // Null only when there is no walk state AND nothing to seed from:
         // no browser anchor and no stored point for this boat or any boat.
-        if (!sample) return res.status(404).json({ error: "no wander seed available" });
-        res.json(sample);
+        if (!wb || !wb.batch.length) return res.status(404).json({ error: "no wander seed available" });
+        const head = wb.batch[0];
+        res.json({
+            deviceId,
+            wander: true,
+            seededFrom: wb.seededFrom,
+            serverTime: head.st,
+            batch: wb.batch,
+            batchSize: wb.batch.length,
+            // Flat compatibility fields for a pre-batching device.
+            lat: head.lat,
+            lon: head.lon,
+            speed: head.speed,
+            course: head.course,
+        });
     } catch (e) {
         sendErr(res, e);
     }

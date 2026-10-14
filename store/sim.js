@@ -409,6 +409,36 @@ function nextSample(run, nowMs = Date.now()) {
     return { ...s, remaining: Math.max(0, run.durationSec - s.t), done: false };
 }
 
+// Batch delivery (GET /sim/next). The device used to ask for ONE fix per
+// second, so every fix cost an HTTP round trip on the critical mock path
+// (2-5s passes were logged regularly). It now asks every ~30s and walks
+// the batch locally, so a fix costs 1/30th of the requests.
+//
+// The batch is the upcoming window of the SAME 1Hz script, starting at
+// the current second: no interpolation, no re-timing, no drift — it is
+// exactly the sequence the per-second polls used to ask for.
+const SIM_BATCH_MAX = 30;
+
+function nextBatch(run, nowMs = Date.now(), n = SIM_BATCH_MAX) {
+    const first = Math.max(0, Math.floor((nowMs - run.startMs) / 1000));
+    const batch = [];
+    for (let i = first; i < Math.min(first + n, run.samples.length); i++) {
+        const s = run.samples[i];
+        batch.push({
+            // 6 decimals is ~0.11m — well under GPS noise, and it keeps
+            // the whole 30-point payload inside the device's JSON budget.
+            lat: +s.lat.toFixed(6),
+            lon: +s.lon.toFixed(6),
+            speed: +Number(s.speed).toFixed(1),
+            course: Math.round(s.course),
+            // Per-point clock: the device emits one fix per second and
+            // TinyGPSPlus will not refresh on a repeated timestamp.
+            st: new Date(run.startMs + s.t * 1000).toISOString(),
+        });
+    }
+    return { batch, remaining: Math.max(0, run.durationSec - (run.samples[first] || {}).t) };
+}
+
 function activeRunForDevice(deviceId, nowMs = Date.now()) {
     pruneRuns(nowMs);
     let best = null;
@@ -424,7 +454,8 @@ function activeRunForDevice(deviceId, nowMs = Date.now()) {
 module.exports = {
     createRun, getRun, listRuns, deleteRun, echoSample, nextSample, activeRunForDevice, runMeta,
     compileScript, // exported for unit checks
-    wanderSample, wanderAnchorFor, wanderNext, setPushedAnchor,
+    wanderSample, wanderAnchorFor, wanderNext, wanderBatch, setPushedAnchor,
+    nextBatch, SIM_BATCH_MAX,
 };
 
 // ------------------------------------------------------------------
@@ -567,4 +598,45 @@ async function wanderNext(deviceId, nowMs = Date.now()) {
         }
     }
     return wanderSample(deviceId, seed, nowMs);
+}
+
+// Same seed chain as wanderNext, then steps the walk forward one second
+// at a time so the device gets the same 30s of future the scripted path
+// hands out. The anchor is re-passed on every step because anchored mode
+// steers back to it; the DB fallback seeds only the first step (it has no
+// walk state to re-apply to).
+async function wanderBatch(deviceId, n = SIM_BATCH_MAX, nowMs = Date.now()) {
+    const anchor = await wanderAnchorFor(deviceId);
+    let seed = anchor ? { lat: anchor.lat, lon: anchor.lon, source: "anchor" } : null;
+
+    if (!seed && !wanders.has(deviceId)) {
+        let p = null;
+        try { p = await getLatestPoint(deviceId); } catch {}
+        let source = "last-fix";
+        if (!p) {
+            try { p = await getLatestPoint(); } catch {}
+            source = "last-fix-any";
+        }
+        if (p && typeof p.lat === "number" && typeof p.lon === "number"
+            && Number.isFinite(p.lat) && Number.isFinite(p.lon)) {
+            seed = { lat: p.lat, lon: p.lon, source };
+        }
+    }
+    const batch = [];
+    let seededFrom = null;
+    for (let i = 0; i < n; i++) {
+        const stepSeed = i === 0 ? seed : (anchor ? { lat: anchor.lat, lon: anchor.lon, source: "anchor" } : null);
+        const s = wanderSample(deviceId, stepSeed, nowMs + i * 1000);
+        if (!s) break;
+        if (i === 0) seededFrom = s.seededFrom || null;
+        batch.push({
+            lat: +Number(s.lat).toFixed(6),
+            lon: +Number(s.lon).toFixed(6),
+            speed: +Number(s.speed).toFixed(1),
+            course: Math.round(s.course),
+            st: s.serverTime,
+        });
+    }
+    // Empty means the walk has no seed yet (caller 404s, device holds).
+    return batch.length ? { batch, seededFrom } : null;
 }
