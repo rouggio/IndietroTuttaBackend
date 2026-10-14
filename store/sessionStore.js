@@ -308,6 +308,10 @@ function sessionListRow(s) {
         mode: s.mode,
         status: s.status,
         courseVersion: s.courseVersion,
+        // Carried so the map can hide anything older than the race when a
+        // session is selected. Cheap (one ISO string) and the list cannot
+        // be windowed client-side without it.
+        startTime: s.startTime || null,
         boats: s.boats,
         createdAt: s.createdAt,
     };

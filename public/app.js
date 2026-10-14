@@ -426,15 +426,18 @@ function hideLiveSimTrace() {
 let liveMins = 15; // minutes; 0 = all
 function liveWindowMs() { return liveMins > 0 ? liveMins * 60000 : 0; }
 function liveWindowPts(st) {
+    const sessFrom = selectedSessionFromMs();
     const win = liveWindowMs();
-    if (!win || st.pts.length < 2) return st.pts;
-    const cutoff = Date.now() - win;
+    const cutoff = win ? Date.now() - win : 0;
+    const floorMs = sessFrom || 0;
+    if (!cutoff && !floorMs) return st.pts;
+    if (st.pts.length < 2) return st.pts;
     // Points can arrive slightly out of order (sim feed), so scan from the
     // end and keep the longest recent run rather than trusting order.
     let i = st.pts.length - 1;
     while (i > 0) {
         const t = new Date(st.pts[i].receivedAt || st.pts[i].timestamp || 0).getTime();
-        if (!isNaN(t) && t < cutoff) break;
+        if (!isNaN(t) && (cutoff ? t < cutoff : true) && (floorMs ? t < floorMs : true)) break;
         i--;
     }
     return st.pts.slice(i);
@@ -446,6 +449,28 @@ function selectedSessionBoatSet() {
     if (!s || !Array.isArray(s.boats)) return null;
     const set = new Set(s.boats.map(b => b && b.deviceId).filter(Boolean));
     return set.size ? set : null;
+}
+
+// Earliest point that may be drawn while a session is selected: the race
+// itself. Anything older belongs to a previous session or a different day
+// and only clutters the picture of the race being looked at.
+//
+// Uses the session's startTime (the gun) when it has one, and falls back
+// to the start of its DAY — a scheduled-but-not-yet-started session has no
+// meaningful startTime, and zero would silently hide everything.
+function selectedSessionFromMs() {
+    if (!selectedSessionId) return 0;
+    const s = sessionsCache.find(x => String(x.id) === String(selectedSessionId));
+    if (!s) return 0;
+    if (s.startTime) {
+        const t = new Date(s.startTime).getTime();
+        if (!isNaN(t)) return t;
+    }
+    if (s.date) {
+        const d = new Date(s.date + "T00:00");
+        if (!isNaN(d.getTime())) return d.getTime();
+    }
+    return 0;
 }
 function drawLiveSim(id) {
     const st = liveSim.get(id);
@@ -522,7 +547,7 @@ function makePanelDraggable(el) {
     el.addEventListener("pointerdown", e => {
         if (!onHeader(e)) return;
         const r = el.getBoundingClientRect();
-        drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+        drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, z: el.style.zIndex };
         el.style.position = "fixed";
         el.style.left = r.left + "px";
         el.style.top = r.top + "px";
@@ -541,6 +566,10 @@ function makePanelDraggable(el) {
     });
     const end = () => {
         if (!drag) return;
+        // Put the stacking back the way it was. Without this the draft keeps
+        // z-index 2000 forever once dragged, and from then on it covers every
+        // panel the user opens — the topbar buttons would appear dead.
+        el.style.zIndex = drag.z;
         drag = null;
         if (map.dragging) map.dragging.enable();
     };
@@ -871,6 +900,11 @@ function updateTimeControlsVisibility(){
     if(endPicker) endPicker.style.display = isCustom ? "" : "none";
     if(applyRangeBtn) applyRangeBtn.style.display = isCustom ? "" : "none";
     if(presetSelect) presetSelect.disabled = !!isLive;
+    // The live-trace window only applies while live (the windowing is
+    // scoped to isLive), so hide the control when live is off rather than
+    // leaving a setting on screen that does nothing.
+    const lm = document.getElementById("liveMinsSelect");
+    if(lm) lm.style.display = isLive ? "" : "none";
 }
 function getCurrentRange(){
     if(isLive){
@@ -1126,7 +1160,12 @@ async function refresh(recenter = false) {
             // (non-live) browsing is unaffected — there the range presets
             // are the control, and the dropdown stays out of the way.
             const _liveFrom = (isLive && !playbackTimer) ? liveWindowMs() : 0;
-            const _lo = _liveFrom ? Math.max(_range.start, Date.now() - _liveFrom) : _range.start;
+            let _lo = _liveFrom ? Math.max(_range.start, Date.now() - _liveFrom) : _range.start;
+            // A selected session also floors the window at its own start:
+            // traces from before the race (an earlier session, yesterday)
+            // are not part of it.
+            const _sessFrom = selectedSessionFromMs();
+            if (_sessFrom) _lo = Math.max(_lo, _sessFrom);
             points = points.filter(p => {
                 const t = new Date(p.timestamp || p.receivedAt).getTime();
                 return !isNaN(t) && t >= _lo && t <= _range.end;
@@ -1911,6 +1950,18 @@ setTimeout(async () => {
 }, 800);
 
 // --- Top menu: toggle panes (all hidden at start) ---
+let floatZ = 1001; // bring-to-front counter for floating panels
+
+// Raise a pane above its floating siblings. Shared by the topbar toggles
+// and the header drag, because "I just opened it" and "I just grabbed it"
+// mean the same thing to the user: this one is now the front pane. The
+// counter only ever climbs (reset on reload), so the newest raise wins
+// every tie against the older, lower values.
+function bringPanelToFront(el) {
+    if (!el) return;
+    el.style.zIndex = String(++floatZ);
+}
+
 function toggleEl(id, show) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -1922,6 +1973,10 @@ function toggleEl(id, show) {
     // pane has a real box to measure (a zero-size box would cascade to a
     // bogus position).
     if (panelVisible(el)) {
+        // Opening a pane from the topbar must also raise it: otherwise it
+        // opens UNDER whatever pane happens to sit on top, and the button
+        // looks like it did nothing.
+        bringPanelToFront(el);
         requestAnimationFrame(() => { if (panelVisible(el)) settleAllPanels(); });
     }
 }
@@ -3811,6 +3866,10 @@ function wireSessionRows(el) {
             // filter click does not re-issue the request; the detail pane
             // opens from the selection either way.
             renderSessionsList();
+            // Selecting a session rescopes the map — other boats hidden,
+            // traces floored at the session start — so redraw now instead
+            // of waiting for the next live tick.
+            try { refresh(); } catch {}
             if (selectedSessionId) openSessionDetail();
         });
     });
@@ -3953,6 +4012,25 @@ async function renderSimOverlay(fit) {
     L.polyline(latlngs, { color: "#f97316", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(simOverlay);
     if (fit) map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
 }
+// Centre the map on a session's course when it is picked from the list.
+// Uses the marks AND both lines: a W/L's interesting extent is the start
+// and finish line plus the marks between them, and fitting the marks alone
+// would cut the line off screen.
+function fitMapToSession(s) {
+    if (!s) return;
+    const pts = [];
+    (s.marks || []).forEach(m => {
+        if (typeof m.lat === "number" && typeof m.lon === "number") pts.push([m.lat, m.lon]);
+    });
+    for (const seg of [s.startLine, s.finishLine]) {
+        if (!seg) continue;
+        if (typeof seg.latA === "number" && typeof seg.lon === "number") pts.push([seg.latA, seg.lonA]);
+        if (typeof seg.latB === "number" && typeof seg.lon === "number") pts.push([seg.latB, seg.lonB]);
+    }
+    if (pts.length < 2) return;
+    try { map.fitBounds(L.latLngBounds(pts), { padding: [30, 30], maxZoom: 16 }); } catch {}
+}
+
 async function renderSessionDetail() {
     const el = document.getElementById("tab-session-detail");
     if (!el) return;    clearSessDetailTimers();
@@ -3962,6 +4040,7 @@ async function renderSessionDetail() {
         if (!res.ok) { el.innerHTML = ""; return; }
         const s = await res.json();
         renderSelectedPreview(s);
+        fitMapToSession(s);
         el.innerHTML = `
             <div class="sess-detail">
                 <b>${escHtml(s.name || ("Session " + s.id))}</b>
@@ -4164,7 +4243,6 @@ async function renderSessionDetail() {
 }
 
 // --- Floating panels: drag by header + no-overlap on show ---
-let floatZ = 1001; // bring-to-front counter for dragged panels
 function makeFloatingDraggable(el) {
     if (!el || el.dataset.draggable) return;
     const header = el.querySelector("h4");
@@ -4178,7 +4256,7 @@ function makeFloatingDraggable(el) {
         if (e.target.closest("button,input,select,a")) return;
         if (e.target.closest("[id$='Close']")) return; // × must stay clickable (preventDefault would eat the click)
         // bring the grabbed panel above its siblings
-        el.style.zIndex = String(++floatZ);
+        bringPanelToFront(el);
         const r = el.getBoundingClientRect();
         drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
         // CSS docks panels with right:10px — with both left+right set the
