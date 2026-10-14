@@ -975,6 +975,9 @@ if (isLive) liveBtn.classList.add("active"); else liveBtn.classList.remove("acti
 if (presetSelect) presetSelect.value = timePreset;
 
 liveBtn.addEventListener("click", () => {
+    // Toggle live last: clear any selected session so its track/range
+    // don't keep overriding the live map/timeline.
+    unselectSession();
     stopPlayback();
     isLive = !isLive;
     if(isLive){
