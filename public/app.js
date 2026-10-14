@@ -4180,6 +4180,11 @@ async function renderSessionDetail() {
                 ).join("") : "no signals";
             } catch { box.textContent = "signals unavailable"; }
         };
+        // Load the signal log on OPEN, not only after posting one. It used to
+        // be called only from the POST handler's success path, so opening a
+        // session showed an empty committee log — the one thing the pane
+        // exists to show — until you raised a signal yourself.
+        refreshSignals();
         el.querySelectorAll("[data-sig]").forEach(b => b.addEventListener("click", async () => {
             const kind = b.getAttribute("data-sig");
             const body = { kind };
