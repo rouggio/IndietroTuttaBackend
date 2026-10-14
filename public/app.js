@@ -975,16 +975,20 @@ if (isLive) liveBtn.classList.add("active"); else liveBtn.classList.remove("acti
 if (presetSelect) presetSelect.value = timePreset;
 
 liveBtn.addEventListener("click", () => {
-    // any Live click hides the timeline (toggle deactivates via observer)
     stopPlayback();
-    document.getElementById("playback").style.display = "none";
     isLive = !isLive;
     if(isLive){
         liveBtn.classList.add("active");
+        timePreset = "today"; // full current day, not a trimmed recent slice
+        if (presetSelect) presetSelect.value = "today";
+        const r = computeRangeForPreset("today");
+        customStart = toLocalDatetimeValue(new Date(r.start));
+        customEnd = toLocalDatetimeValue(new Date(r.end));
+        if (startPicker) startPicker.value = customStart;
+        if (endPicker) endPicker.value = customEnd;
         updateTimeControlsVisibility();
-
         saveUI();
-        refresh(true);
+        refresh(true).then(() => { updateTimelineTracks(); });
     } else {
         liveBtn.classList.remove("active");
         updateTimeControlsVisibility();
