@@ -624,6 +624,7 @@ function makePanelDraggable(el) {
 
 // Click on or near a route point → show Details, else close
 function findNearestPoint(latlng, maxMeters = 15) {
+    if (liveMins === -1) return null; // no track: nothing to hover
     let best = null, bestDist = Infinity;
     // Live-sim (mock) boats live only in the overlay, never in Turso — search
     // their newest fix too, otherwise clicks on a mock boat hit nothing.
