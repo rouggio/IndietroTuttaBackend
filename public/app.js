@@ -405,7 +405,21 @@ function hideLiveSimTrace() {
     for (const [, st] of liveSim) {
         if (st.line) { liveSimLayer.removeLayer(st.line); st.line = null; }
         if (st.arrow) { liveSimLayer.removeLayer(st.arrow); st.arrow = null; }
+        st.shown = false;
     }
+}
+// Is this boat's live arrow ACTUALLY ON THE MAP right now?
+//
+// Deliberately not `liveSim.has(id)`: the buffer deliberately outlives the
+// layers, so that returning to live redraws without refetching. Testing the
+// buffer made the DB-track pass stand its marker down for a boat whose live
+// arrow had already been torn down — with live off, a mock boat then had no
+// symbol at all, which is the one boat that most needs one (mock uploads
+// never reach Turso, so the DB arrow is a stale fix from whenever the boat
+// was last real).
+function liveSimShown(id) {
+    const st = liveSim.get(id);
+    return !!(st && st.shown);
 }
 // Which boats a selected session owns, or null when nothing is filtered.
 // Shared by the DB-track pass and the live-sim overlay so a session
@@ -477,6 +491,10 @@ function drawLiveSim(id) {
     if (!st) return;
     if (st.line) { liveSimLayer.removeLayer(st.line); st.line = null; }
     if (st.arrow) { liveSimLayer.removeLayer(st.arrow); st.arrow = null; }
+    // Cleared up front so every early return below leaves the boat with NO
+    // live arrow rather than a stale `shown`, which would keep suppressing
+    // the DB marker for a boat that is not drawn.
+    st.shown = false;
     // Exactly one arrow per boat, ever. In replay the cursor arrow is the
     // position that means anything, so the live one stands down (the
     // layers above were just removed, and we do not re-add them).
@@ -500,6 +518,7 @@ function drawLiveSim(id) {
     // without a handler, clicking the boat resolves to a stale DB point (or
     // none) and the details panel never opens.
     st.arrow.on("click", () => openBoatPanel(id, { ...last, deviceId: id }));
+    st.shown = true;
 }
 async function pollLiveSim() {
     if (!isLive || document.hidden) return;
@@ -1261,7 +1280,7 @@ async function refresh(recenter = false) {
         points.forEach(p => latestByDevice.set(p.deviceId, p));
         latestByDevice.forEach(p => {
             if (!selectedDeviceIds.has(p.deviceId)) return;
-            if (liveSim.has(p.deviceId)) return; // live arrow already shows it
+            if (liveSimShown(p.deviceId)) return; // live arrow is drawn: one arrow per boat
             const m = L.marker([p.lat, p.lon], { icon: boatTriangleIcon(p.deviceId, p.course) }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
             m.on("click", () => openBoatPanel(p.deviceId, p));
             fleetMarkers.push(m);
@@ -1277,7 +1296,7 @@ async function refresh(recenter = false) {
             // too gave every mock boat two arrows: one here at a stale
             // Turso fix (mock uploads never reach the DB), one live. The
             // live arrow wins and this one stands down.
-            if (liveSim.has(p.deviceId)) return;
+            if (liveSimShown(p.deviceId)) return;
             const m = L.marker([p.lat, p.lon], { icon: boatTriangleIcon(p.deviceId, p.course) }).addTo(map).bindPopup(p.username ? `Latest<br><b>${p.username}</b><br><small>${p.deviceId.slice(-5)}</small>` : `Latest<br>${p.deviceId}`);
             m.on("click", () => openBoatPanel(p.deviceId, p));
             fleetMarkers.push(m);
@@ -4020,6 +4039,17 @@ async function renderSimOverlay(fit) {
     simOverlayRun = pts.runId;
     const latlngs = pts.points.map(p => [p.lat, p.lon]);
     L.polyline(latlngs, { color: "#f97316", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(simOverlay);
+    // A boat symbol at the END of the scripted route. With live off there is
+    // no live arrow, and the DB marker for a mock boat sits on a stale Turso
+    // fix from whenever it was last real — which can be a long way off this
+    // course, so the map shows the race with nobody in it. The route's last
+    // point is where the boat actually finished.
+    const finishPt = pts.points[pts.points.length - 1];
+    if (finishPt && pts.deviceId) {
+        const m = L.marker([finishPt.lat, finishPt.lon], { icon: boatTriangleIcon(pts.deviceId, 0) }).addTo(simOverlay);
+        m.bindPopup(`Finish<br><b>${escHtml((lastDevices.find(d => d.deviceId === pts.deviceId) || {}).username || pts.deviceId.slice(-5))}</b>`);
+        m.on("click", () => openBoatPanel(pts.deviceId, { ...finishPt, deviceId: pts.deviceId }));
+    }
     if (fit) map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
 }
 // Centre the map on a session's course when it is picked from the list.
