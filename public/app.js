@@ -778,6 +778,7 @@ function saveUI() {
             windProvider,
             windRefreshMin,
             liveMins,
+            playbackSpeed: playbackSpeed,
             showSimPreview: !!showSimPreview,
             panels: {
                 "device-panel": document.getElementById("device-panel")?.style.display,
@@ -823,6 +824,7 @@ function loadUI() {
         if (d.windProvider) windProvider = d.windProvider;
         if (typeof d.windRefreshMin === "number") windRefreshMin = d.windRefreshMin;
         if ([-1, 0, 2, 5, 15, 60].includes(Number(d.liveMins))) liveMins = Number(d.liveMins);
+        if ([0.5,1,2,4].includes(Number(d.playbackSpeed))) { playbackSpeed=Number(d.playbackSpeed); const ps=document.getElementById("playSpeed"); if(ps) ps.value=String(playbackSpeed); }
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => {
             const el=document.getElementById(id); if(el && disp) el.style.display=disp;
         });
@@ -1715,7 +1717,8 @@ playSlider.addEventListener("input", e => {
     }
 });
 playSpeedSel.addEventListener("change", e => {
-    playbackSpeed = parseInt(e.target.value, 10);
+    playbackSpeed = parseFloat(e.target.value);
+    try { saveUI(); } catch {}
     if (playbackTimer) { stopPlayback(); startPlayback(); }
 });
 // Timeline: click to scrub, drag to select start/end range
