@@ -395,6 +395,18 @@ function liveSimScope() {
     // and nothing open means quiet — no polling boats the user can't see.
     return [...boatPanels.values()].filter(p => p.open).map(p => p.id);
 }
+// Tear down the live-sim overlay. Called whenever we LEAVE live mode —
+// picking a range preset, a custom range, or entering playback. Leaving
+// live is the point where "now" stops meaning anything, and a live trace
+// pinned to the present instant next to a historical track is just a
+// stale artefact. Layers are removed but the buffer is kept, so
+// returning to live redraws immediately instead of refetching.
+function hideLiveSimTrace() {
+    for (const [, st] of liveSim) {
+        if (st.line) { liveSimLayer.removeLayer(st.line); st.line = null; }
+        if (st.arrow) { liveSimLayer.removeLayer(st.arrow); st.arrow = null; }
+    }
+}
 // Which boats a selected session owns, or null when nothing is filtered.
 // Shared by the DB-track pass and the live-sim overlay so a session
 // selection hides BOTH: a mock boat's arrow is its only position, so
@@ -885,7 +897,7 @@ liveBtn.addEventListener("click", () => {
     } else {
         liveBtn.classList.remove("active");
         updateTimeControlsVisibility();
-
+        hideLiveSimTrace(); // leaving live: the live trace no longer applies
         saveUI();
         refresh(true);
     }
@@ -895,6 +907,7 @@ if(presetSelect) presetSelect.addEventListener("change", () => {
     timePreset = presetSelect.value;
     isLive = false;
     liveBtn.classList.remove("active");
+    hideLiveSimTrace(); // historical range: drop the live trace
     // if switching to custom and no values, seed with today range
     if(timePreset==="custom" && (!customStart || !customEnd)){
         const r=computeRangeForPreset("today"); customStart=toLocalDatetimeValue(new Date(r.start)); customEnd=toLocalDatetimeValue(new Date(r.end));
@@ -1516,6 +1529,7 @@ function showPlaybackPoint(idx) {
 function startPlayback() {
     if (playbackPoints.length === 0) return;
     if (playbackTimer) return;
+    hideLiveSimTrace(); // replay: the cursor arrow is the only symbol (see showTime)
     playBtn.textContent = "▶";
     const steps = getPlaybackSteps();
     playbackTimer = setInterval(() => {
@@ -1544,6 +1558,7 @@ function nextDataTime(fromMs) {
 
 function startPlayback() {
     if (playbackTimer) return;
+    hideLiveSimTrace(); // replay: the cursor arrow is the only symbol (see showTime)
     if (playbackTime === null) playbackTime = getDayBounds().start;
     // Cursor in a gray area (no data) → jump to the next point with data
     const snap = nextDataTime(playbackTime);
