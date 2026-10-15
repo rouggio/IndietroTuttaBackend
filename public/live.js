@@ -269,6 +269,10 @@ function makePanelDraggable(el) {
         // panel the user opens — the topbar buttons would appear dead.
         el.style.zIndex = drag.z;
         drag = null;
+        // Boat panels were the one drag with no bounds at all: pull one past
+        // the right edge and it is simply gone (nothing persisted it, so it
+        // came back on reload). Same clamp as the floating panes.
+        clampPanelIntoView(el);
         if (map.dragging) map.dragging.enable();
     };
     el.addEventListener("pointerup", end);

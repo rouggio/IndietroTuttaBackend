@@ -33,6 +33,10 @@ function makeFloatingDraggable(el) {
     const end = () => {
         if (!drag) return;
         drag = null;
+        // The pointermove clamp only guards the grab edge (60px); a pane wider
+        // than that still hangs off the right, and nothing limited `top` at
+        // all. Settle it fully inside before persisting.
+        clampPanelIntoView(el);
         try { saveUI(); } catch {}
     };
     header.addEventListener("pointerup", end);
@@ -41,6 +45,71 @@ function makeFloatingDraggable(el) {
 function panelVisible(el) {
     return !!el && el.style.display !== "none" && el.style.display !== "";
 }
+
+// Gap a clamped pane keeps from the viewport edge — same 8px the overlap
+// cascade uses, so the two never disagree about where "inside" is.
+const PANEL_MARGIN = 8;
+
+// Nudge a floating pane fully back inside the viewport, and say whether it
+// moved. This is the ONE place that knows how to keep a pane reachable:
+// the drag handlers, the restore path, the cascade and the resize listener
+// all call it instead of each inventing a partial clamp (which is how a pane
+// ended up with its close button off-screen in the first place).
+//
+// Ownership is deliberately untouched: a hand-placed pane stays
+// `dataset.moved`, so the cascade still refuses to relocate it. Correcting an
+// unreachable position is not handing the pane back to the auto-placer.
+function clampPanelIntoView(el, margin = PANEL_MARGIN) {
+    if (!el || !panelVisible(el)) return false;
+    const r = el.getBoundingClientRect();
+    // Not laid out yet (display just switched on, content still loading):
+    // acting on a zero-size box would compute nonsense.
+    if (!r.width || !r.height) return false;
+    const maxLeft = window.innerWidth - r.width - margin;
+    const maxTop = window.innerHeight - r.height - margin;
+    // A pane wider/taller than the viewport cannot fit: pin it to the margin
+    // instead of computing a negative maximum, which would flip it off the
+    // opposite edge.
+    const wantLeft = maxLeft < margin ? margin : Math.min(Math.max(r.left, margin), maxLeft);
+    const wantTop = maxTop < margin ? margin : Math.min(Math.max(r.top, margin), maxTop);
+    if (Math.abs(wantLeft - r.left) < 1 && Math.abs(wantTop - r.top) < 1) return false;
+    el.style.right = "auto"; // left/top win over the CSS right dock
+    el.style.left = Math.round(wantLeft) + "px";
+    el.style.top = Math.round(wantTop) + "px";
+    return true;
+}
+
+// Every floating pane, plus the per-boat Leaflet panels (which are not in
+// PANEL_IDS because they are not persisted, but can still be dragged off the
+// edge — they just heal on reload instead).
+function clampAllPanelsIntoView() {
+    let moved = false;
+    for (const id of PANEL_IDS) {
+        if (clampPanelIntoView(document.getElementById(id))) moved = true;
+    }
+    try {
+        for (const panel of boatPanels.values()) {
+            // panel.control is the L.Control; the draggable element is its _div.
+            if (clampPanelIntoView(panel.control && panel.control._div)) moved = true;
+        }
+    } catch {}
+    return moved;
+}
+
+// Window resize had NO handler: shrink the window and every pane stayed put,
+// so several became unreachable at once. Nudge, do not re-cascade — a resize
+// must never scatter the layout the user arranged. Debounced, because resize
+// fires in bursts and each pass reads layout.
+let panelClampTimer = null;
+window.addEventListener("resize", () => {
+    if (panelClampTimer) clearTimeout(panelClampTimer);
+    panelClampTimer = setTimeout(() => {
+        panelClampTimer = null;
+        // Persist the corrected position, otherwise the next reload restores
+        // the off-screen one and the pane jumps away again.
+        if (clampAllPanelsIntoView()) { try { saveUI(); } catch {} }
+    }, 120);
+});
 function rectsOverlap(a, b) {
     return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
@@ -107,6 +176,10 @@ function avoidPanelOverlap(el) {
         delete el.dataset.moved;
         moved = true;
     }
+    // Last resort: the loop gave up (no room, or a hand-placed pane we may
+    // not relocate). The pane can still be UNREACHABLE, so make sure it is at
+    // least inside the viewport.
+    if (clampPanelIntoView(el)) moved = true;
     return moved;
 }
 

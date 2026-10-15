@@ -107,6 +107,12 @@ function loadUI() {
                     el.style.left = Math.max(0, Math.min(parseFloat(pos.left), window.innerWidth - 60)) + "px";
                     el.style.top = Math.max(0, parseFloat(pos.top)) + "px";
                     el.style.right = "auto"; // restored left wins over CSS right dock
+                    // The clamp above only guards the LEFT/TOP origin, so a
+                    // position saved on a big monitor still restored mostly
+                    // off-screen on a laptop (right edge and bottom never
+                    // clamped). Settle the whole pane inside the viewport.
+                    // Ownership is unaffected: this only corrects reachability.
+                    clampPanelIntoView(el);
                     if (autoPlaced.has(id)) {
                         // Ours: keep it eligible for the next cascade pass.
                         el.dataset.autoPlaced = "1";

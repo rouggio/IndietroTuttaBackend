@@ -188,6 +188,19 @@ function hasAll(src, subs) {
         // absent and 0 must pass: Number(undefined) is NaN and NaN !== 0,
         // which rejected plain {deviceId} and a zero offset on the first cut.
         && sessRoutes.includes("v !== undefined && v !== null && v !== \"\" && Number(v) !== 0"));
+    // Todo 28: one clamp, four call sites, plus the missing resize handler.
+    const chromeJs = fs.readFileSync(path.join(PUB, "chrome.js"), "utf8");
+    const prefsJs = fs.readFileSync(path.join(PUB, "prefs.js"), "utf8");
+    check("panes: one clamp helper + a resize handler (there was none)",
+        chromeJs.includes("function clampPanelIntoView(el, margin = PANEL_MARGIN)")
+        && chromeJs.includes('window.addEventListener("resize"')
+        && chromeJs.includes("function clampAllPanelsIntoView()"));
+    check("panes: clamp applied at drag end, restore and after the cascade",
+        hasAll(chromeJs, ["clampPanelIntoView(el);", "if (clampPanelIntoView(el)) moved = true;"]).ok
+        && prefsJs.includes("clampPanelIntoView(el);")
+        && appJs.includes("clampPanelIntoView(el);"));
+    check("panes: clamping never hands a pane back to the auto-placer",
+        chromeJs.includes("dataset.moved") && !chromeJs.includes("delete el.dataset.moved;\n    clampPanelIntoView"));
 }
 
 // --- static: traces dropdown governs stored + live -----------------------------------

@@ -35,10 +35,27 @@ function makeEl(id) {
         dispatch(type, ev) { (el._on[type] || []).forEach(fn => fn(ev || { stopPropagation() {}, preventDefault() {} })); },
         querySelectorAll: () => [], querySelector: () => null,
         appendChild() {}, remove() {},
-        getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+        getBoundingClientRect() {
+            const l = parseFloat(el.style.left) || 0;
+            const tp = parseFloat(el.style.top) || 0;
+            const w = el._w == null ? 800 : el._w;
+            const h = el._h == null ? 600 : el._h;
+            return { left: l, top: tp, right: l + w, bottom: tp + h, width: w, height: h };
+        },
         setPointerCapture() {}, closest: () => null,
         options: [], selectedIndex: 0,
         parentElement: { style: {} },
+        // Layout follows the element's own left/top so the clamp maths is
+        // testable: the old stub always reported the same box, which made
+        // "is this pane inside the viewport?" unanswerable here. _w/_h let a
+        // test pick a pane size; the defaults match the old stub.
+        getBoundingClientRect() {
+            const l = parseFloat(el.style.left) || 0;
+            const tp = parseFloat(el.style.top) || 0;
+            const w = el._w == null ? 800 : el._w;
+            const h = el._h == null ? 600 : el._h;
+            return { left: l, top: tp, right: l + w, bottom: tp + h, width: w, height: h };
+        },
     };
     return el;
 }
@@ -129,7 +146,7 @@ const sandbox = {
         addEventListener() {},
         body: { classList: { add() {}, remove() {}, toggle() {} }, appendChild() {}, style: {} },
     },
-    window: { addEventListener() {} },
+    window: Object.assign(makeEl("window"), { innerWidth: 1200, innerHeight: 800 }),
     MutationObserver: MutationObserverStub,
     AbortSignal: { timeout: () => ({}) },
     L: {
@@ -255,11 +272,43 @@ try {
             run("sessFilter.from") === "2026-10-14" && run("sessFilter.to") === "2026-10-15");
         run(`sessFilter.from = ""; sessFilter.to = ""`);
     } catch (e) { t("session filter chips are wired at boot", false, String(e).slice(0, 160)); }
+    // Todo 28: panes stay reachable. The clamp was partial everywhere it
+    // existed (left/top origin only) and absent on resize entirely.
+    try {
+        run(`window.innerWidth = 1200; window.innerHeight = 800`);
+        // 300x200 pane parked so its right edge and bottom are off-screen.
+        run(`window.__p = document.getElementById("device-panel"); window.__p._w = 300; window.__p._h = 200;
+             window.__p.style.display = "block"; window.__p.style.left = "1100px"; window.__p.style.top = "700px"; window.__p.dataset.moved = "1"`);
+        t("off-screen pane is clamped back inside",
+            run("clampPanelIntoView(window.__p)") === true
+            && run("parseFloat(window.__p.style.left)") === 1200 - 300 - 8
+            && run("parseFloat(window.__p.style.top)") === 800 - 200 - 8);
+        t("clamping keeps the pane user-owned",
+            run('window.__p.dataset.moved') === "1");
+        run(`window.__p.style.left = "40px"; window.__p.style.top = "40px"`);
+        t("a pane already inside is left alone",
+            run("clampPanelIntoView(window.__p)") === false
+            && run('window.__p.style.left') === "40px");
+        // A pane wider than the viewport must pin to the margin, not compute a
+        // negative maximum and flip off the opposite edge.
+        run(`window.__p._w = 1400; window.__p.style.left = "100px"; window.__p.style.top = "100px"`);
+        t("oversized pane pins to the margin",
+            run("clampPanelIntoView(window.__p)") === true && run('window.__p.style.left') === "8px");
+        // Resize had no handler at all: shrink the window and every pane went
+        // off-screen together.
+        run(`window.__p._w = 300; window.__p._h = 200; window.__p.style.left = "400px"; window.__p.style.top = "300px";
+             window.innerWidth = 500; window.innerHeight = 400; window.dispatch("resize")`);
+        await new Promise(r => setTimeout(r, 250));
+        t("window resize re-clamps visible panes",
+            run("parseFloat(window.__p.style.left)") === 500 - 300 - 8
+            && run("parseFloat(window.__p.style.top)") === 400 - 200 - 8);
+        run(`window.innerWidth = 1200; window.innerHeight = 800; window.__p.style.display = "none"`);
+    } catch (e) { t("off-screen pane is clamped back inside", false, String(e).slice(0, 200)); }
     try {
         const raw = memStore.get("indietrotutta:ui");
         const saved = raw ? JSON.parse(raw) : null;
         t("prefs blob persisted", !!(saved && saved.timePreset === "today" && saved.isLive === true));
     } catch (e) { t("prefs blob persisted", false, String(e).slice(0, 120)); }
-    console.log(`\n${20 - failures.length}/20 passed`);
+    console.log(`\n${25 - failures.length}/25 passed`);
     process.exit(failures.length ? 1 : 0);
 })();
