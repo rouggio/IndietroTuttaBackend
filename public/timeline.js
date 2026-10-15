@@ -185,13 +185,22 @@ function updatePlaybackSlider() {
     if (playTimeEl) playTimeEl.textContent = new Date(playbackTime).toLocaleString();
     if (timelineCursorEl) timelineCursorEl.style.left = (Math.max(0, Math.min(100, ratio*100))) + "%";
 }
+// Drop every playback-cursor boat symbol (the per-boat map plus the
+// single-boat alias in `marker`). Leaving replay used to leave these
+// standing: refresh() clears fleetMarkers but not playbackMarkers, so a
+// boat frozen at its cursor position stayed on the map in live mode until
+// the next cursor move — a ghost boat from the past data.
+function clearPlaybackMarkers() {
+    playbackMarkers.forEach(m => map.removeLayer(m));
+    playbackMarkers.clear();
+    if (marker) { map.removeLayer(marker); marker = null; }
+}
 function showTime(timeMs) {
     playbackTime = timeMs;
     updatePlaybackSlider();
     const ids = selectedDeviceIds.size ? [...selectedDeviceIds] : [...new Set(allPoints.map(p=>p.deviceId))];
     // clear previous playback markers
-    playbackMarkers.forEach(m=> map.removeLayer(m));
-    playbackMarkers.clear();
+    clearPlaybackMarkers();
     fleetMarkers.forEach(m=> map.removeLayer(m)); fleetMarkers = [];
     // The live-sim overlay is a boat symbol too. In replay the cursor
     // arrows are the only positions that mean anything, so tear the live
@@ -280,10 +289,13 @@ function stopPlayback() {
     if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
     playBtn.textContent = "▶";
 }
-// Timeline is replay-only: hide it (button untoggles via its observer) and
-// stop any running playback. Called on every live entry.
+// Timeline is replay-only: hide it (button untoggles via its observer),
+// stop any running playback, and take the cursor boats off the map —
+// they are frozen at a past position, so in live they read as ghosts.
+// Called on every live entry and when the timeline pane is closed.
 function hideTimeline() {
     try { stopPlayback(); } catch {}
+    try { clearPlaybackMarkers(); } catch {}
     try {
         const p = document.getElementById("playback");
         if (p) p.style.display = "none";

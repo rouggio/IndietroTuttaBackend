@@ -1614,6 +1614,26 @@ function renderSessionsList() {
 // Legacy alias: everything that "clears the session" is entering live.
 // (Canonical body lives in enterLiveMode, next to setMode.)
 function unselectSession(reason) { enterLiveMode(reason || "unselect"); }
+// Replay window for a closed session: span the WHOLE recorded run, not a
+// fixed slice. It used to be gun±60s, widened only by finish splits — an
+// abandoned race uploads no run rows yet, so that window dropped everything
+// after the first minute. The 90-min ceiling matches
+// selectedSessionEndMs(); the floor is the session creation time, because the
+// pre-gun stretch is part of what was watched live.
+// Returns [fromMs, toMs].
+async function closedSessionWindow(s) {
+    const gun = s && s.startTime ? new Date(s.startTime) : new Date();
+    const createdAtMs = (s && s.createdAt) ? new Date(s.createdAt).getTime() : NaN;
+    let fromMs = isNaN(createdAtMs) ? gun.getTime() - 120000 : Math.min(gun.getTime() - 120000, createdAtMs);
+    let toMs = gun.getTime() + 90 * 60 * 1000;
+    try {
+        const rr = await (await fetch(`/sessions/${s.id}/runs`)).json();
+        const splits = rr && rr.length ? (rr[0].splits || []) : [];
+        const last = splits.length ? splits[splits.length - 1] : 0;
+        if (last > 0) toMs = Math.max(toMs, gun.getTime() + (last + 60) * 1000);
+    } catch {}
+    return [fromMs, toMs];
+}
 function wireSessionRows(el) {
     el.querySelectorAll("[data-sess-x]").forEach(btn => {
         btn.addEventListener("click", e => {
@@ -1631,9 +1651,9 @@ function wireSessionRows(el) {
             const sid = btn.getAttribute("data-sess-r");
             try {
                 const s = await (await fetch(`/sessions/${sid}`)).json();
-                const gun = s.startTime ? new Date(s.startTime) : new Date();
+                const [fromMs, toMs] = await closedSessionWindow(s);
                 // Explicit replay action: frozen window even for open sessions.
-                enterFrozenReplay(Number(sid), gun.getTime() - 2 * 60 * 1000, gun.getTime() + 15 * 60 * 1000, "row-replay");
+                enterFrozenReplay(Number(sid), fromMs, toMs, "row-replay");
             } catch {}
         });
     });
@@ -1651,14 +1671,8 @@ function wireSessionRows(el) {
                     // frozen slice of stored data.
                     enterLiveWatch(id, "row-select");
                 } else {
-                    const gun = s && s.startTime ? new Date(s.startTime) : new Date();
-                    let fromMs = gun.getTime() - 60000, toMs = gun.getTime() + 60000;
-                    try {
-                        const rr = await (await fetch(`/sessions/${id}/runs`)).json();
-                        const splits = rr && rr.length ? (rr[0].splits || []) : [];
-                        const last = splits.length ? splits[splits.length - 1] : 0;
-                        if (last > 0) toMs = gun.getTime() + (last + 60) * 1000;
-                    } catch {}
+                    // Closed session: frozen replay of the recorded run.
+                    const [fromMs, toMs] = await closedSessionWindow(s);
                     enterFrozenReplay(id, fromMs, toMs, "row-select");
                 }
             }
@@ -1737,6 +1751,19 @@ async function loadSessions(selectId) {
         // on a ghost: no overlay, no tracks, no traffic.
         if (UI.selectedSessionId && !sessionsCache.some(s => String(s.id) === String(UI.selectedSessionId))) {
             unselectSession("ghost-drop");
+        }
+        // A watched session that just terminated (finished on the last run
+        // upload, or ABANDON) hands over to its own replay: the page stops
+        // being a live watch on a race nobody can sail any more, and the
+        // timeline becomes usable without unselect/reselect. loadSessions is
+        // the single funnel for status refreshes (SSE + focus reload), so the
+        // handover happens wherever the status change was observed.
+        if (UI.selectedSessionId && UI.isLive) {
+            const sel = sessionsCache.find(s => String(s.id) === String(UI.selectedSessionId));
+            if (sel && ["finished", "abandoned"].includes(sel.status)) {
+                const [fromMs, toMs] = await closedSessionWindow(sel);
+                enterFrozenReplay(sel.id, fromMs, toMs, "session-closed");
+            }
         }
         renderSessionsList();
         if (UI.selectedSessionId) openSessionDetail();

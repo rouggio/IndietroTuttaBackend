@@ -166,7 +166,19 @@ function setMode(live, reason) {
 // + arrow stay): every replay entry tears them down in one place, so callers
 // must NOT do it inline anymore.
 Bus.on("modechange", ({ mode }) => {
-    if (mode !== "live") { try { hideLiveSimTrace(); } catch {} }
+    if (mode !== "live") { try { hideLiveSimTrace(); } catch {} return; }
+    // Entering live: put the buffered overlay back NOW instead of waiting for
+    // the next poll tick. The buffer deliberately outlives the layers, and
+    // without this the DB pass drew its marker at the stored (yesterday's, or
+    // last-race) fix until the first new fix arrived — a ghost boat for a
+    // few seconds. Only the poll's own scope, so a boat that left the
+    // selection stays down.
+    try {
+        if (playbackTimer) return;
+        for (const id of liveSimScope()) {
+            if (liveSim.has(id)) drawLiveSim(id);
+        }
+    } catch {}
 });
 // Full live: no session, today's window, topbar in live shape.
 function enterLiveMode(reason) {

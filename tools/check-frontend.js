@@ -135,6 +135,22 @@ function hasAll(src, subs) {
     check("session-live: session boats join the live scope", scope.includes("s.boats.forEach"));
     check("session-live: stored track stands down where the live overlay flies (no doubled line)",
         appJs.includes("if (liveSimShown(id)) return;"));
+    // Leaving replay must not leave a cursor boat (or the old stored-fix
+    // marker) on the map in live mode.
+    check("live-entry: playback cursor boats are torn down on live entry",
+        hasAll(appJs, ["function clearPlaybackMarkers()",
+            "try { clearPlaybackMarkers(); } catch {}"]).ok);
+    check("live-entry: buffered live arrow returns immediately (no ghost marker gap)",
+        appJs.includes("for (const id of liveSimScope())")
+        && appJs.includes("if (liveSim.has(id)) drawLiveSim(id);"));
+    // A watched session that terminates hands over to its own frozen replay,
+    // so the timeline is usable without unselect/reselect.
+    const ld = appJs.slice(appJs.indexOf("async function loadSessions("), appJs.indexOf("async function loadSessions(") + 2200);
+    check("session-live: terminated watch hands over to frozen replay",
+        ld.includes('enterFrozenReplay(sel.id, fromMs, toMs, "session-closed")')
+        && ld.includes('["finished", "abandoned"].includes(sel.status)'));
+    check("session-finished: replay window spans the recorded run (no 60s cap)",
+        hasAll(appJs, ["async function closedSessionWindow(s)", "toMs = gun.getTime() + 90 * 60 * 1000;", "toMs = Math.max(toMs"]).ok);
 }
 
 // --- static: traces dropdown governs stored + live -----------------------------------
