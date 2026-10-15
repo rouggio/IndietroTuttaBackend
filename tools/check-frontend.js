@@ -18,6 +18,7 @@ const indexHtml = fs.readFileSync(path.join(PUB, "index.html"), "utf8");
 const bundleFiles = [...indexHtml.matchAll(/<script src="(?!https?:)([^"]+\.js)"/g)].map(m => m[1]);
 if (!bundleFiles.length) { console.log("FAIL  no frontend bundle scripts in index.html"); process.exit(1); }
 const appJs = bundleFiles.map(f => fs.readFileSync(path.join(PUB, f), "utf8")).join("\n");
+const css = fs.readFileSync(path.join(PUB, "style.css"), "utf8");
 
 const results = [];
 const FILTER = process.argv[2] || "";
@@ -157,6 +158,20 @@ function hasAll(src, subs) {
         fr.includes("s.boats.forEach") && fr.includes("updateTimelineTracks()"));
     check("replay: no dead Replay-button handler left",
         !appJs.includes("data-sess-r") && !appJs.includes("row-replay"));
+    // Todo 10 close-out: the filter marker belongs to the button that opens
+    // the filtered pane ("Sessions"), not to "New session".
+    check("sessions-filter: active-filter marker on the Sessions button",
+        appJs.includes('document.getElementById("sessionsTopBtn")')
+        && appJs.includes("btn.classList.toggle(\"filtered\", sessFilterActive())")
+        && css.includes("#sessionsTopBtn.filtered::after")
+        && !appJs.includes('document.getElementById("sessionsToggleBtn");\n    if (btn) btn.classList.toggle("filtered"'));
+    // The binder lives in race.js, which loads AFTER mode.js — wiring it from
+    // mode.js was silently skipped by the typeof guard, so the chips filtered
+    // nothing while looking live. Only boot.js may call it.
+    const bootJs = fs.readFileSync(path.join(PUB, "boot.js"), "utf8");
+    check("sessions-filter: wired from boot (race.js loads after mode.js)",
+        bootJs.includes("wireSessionFilters();")
+        && !appJs.slice(0, appJs.indexOf("fleet.js")).includes("wireSessionFilters();"));
 }
 
 // --- static: traces dropdown governs stored + live -----------------------------------

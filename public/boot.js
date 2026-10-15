@@ -2,6 +2,9 @@
 // Boot always lands live, and the timeline is replay-only: a restored-open
 // playback panel hides again (button untoggles via its observer).
 if (UI.isLive) { try { hideTimeline(); } catch {} }
+// Startup calls only, and only ones that can resolve every name: the session
+// filter chips live in race.js, which loads above this file.
+try { wireSessionFilters(); } catch (e) { console.error("boot: wireSessionFilters", e); }
 refresh(true);
 refreshDevices();
 

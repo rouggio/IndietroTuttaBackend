@@ -20,14 +20,19 @@ function t(name, cond, detail) {
 function makeEl(id) {
     const el = {
         id, value: "", innerHTML: "", textContent: "",
-        style: {}, dataset: {}, _cls: {},
+        style: {}, dataset: {}, _cls: {}, _on: {},
         classList: {
             toggle(c, f) { el._cls[c] = f === undefined ? !el._cls[c] : !!f; },
             add(c) { el._cls[c] = true; },
             remove(c) { delete el._cls[c]; },
             contains: (c) => !!el._cls[c],
         },
-        addEventListener() {}, removeEventListener() {},
+        addEventListener(type, fn) { (el._on[type] = el._on[type] || []).push(fn); },
+        removeEventListener() {},
+        // Test hook: fire the listeners the bundle actually attached. The stub
+        // used to swallow them, which is why "the chips are dead" could not be
+        // reproduced here.
+        dispatch(type, ev) { (el._on[type] || []).forEach(fn => fn(ev || { stopPropagation() {}, preventDefault() {} })); },
         querySelectorAll: () => [], querySelector: () => null,
         appendChild() {}, remove() {},
         getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
@@ -208,11 +213,53 @@ try {
         await run("refresh(true)");
         t("refresh resolves on empty data", true);
     } catch (e) { t("refresh resolves on empty data", false, String(e).slice(0, 160)); }
+    // Todo 10: the chips were dead UI for the whole life of the bundle split —
+    // wireSessionFilters() was called from mode.js, which loads BEFORE race.js
+    // defines it, so the typeof guard skipped it. These two pin the wiring and
+    // the filter it is supposed to perform.
+    try {
+        t("session filter chips are wired at boot", run("sessFiltersWired") === true);
+        run(`sessionsCache = [
+            { id: 1, date: "2026-10-15", mode: "practice", status: "abandoned", boats: [] },
+            { id: 2, date: "2026-10-15", mode: "race", status: "live", boats: [] },
+            { id: 3, date: "2026-10-14", mode: "practice", status: "finished", boats: [] }]`);
+        run(`sessFilter.statuses = new Set(["live"])`);
+        t("session status filter narrows the list", run("sessFilterApply(sessionsCache).length") === 1);
+        run("sessFilter.statuses = new Set()");
+        run(`sessFilter.from = "2026-10-14"; sessFilter.to = "2026-10-14"`);
+        t("session day filter narrows the list", run("sessFilterApply(sessionsCache).length") === 1);
+        run(`sessFilter.from = ""; sessFilter.to = ""`);
+        t("cleared filter shows everything again", run("sessFilterApply(sessionsCache).length") === 3);
+        // Both ends are independent now: clearing either leaves that side open
+        // ("from that day on" / "up to that day"). It used to copy the other
+        // end across, so a cleared field still filtered by a hidden bound.
+        run(`document.getElementById("sess-filter-from").value = "2026-10-15"; document.getElementById("sess-filter-to").value = "2026-10-15"`);
+        run(`document.getElementById("sess-filter-to").dispatch("change")`);
+        run(`document.getElementById("sess-filter-to").value = ""`);
+        run(`document.getElementById("sess-filter-to").dispatch("change")`);
+        t("cleared end date leaves the range open (from only)",
+            run("sessFilter.from") === "2026-10-15" && run("sessFilter.to") === ""
+            && run("sessFilterApply(sessionsCache).length") === 2);
+        run(`document.getElementById("sess-filter-from").value = ""`);
+        run(`document.getElementById("sess-filter-from").dispatch("change")`);
+        run(`document.getElementById("sess-filter-to").value = "2026-10-15"`);
+        run(`document.getElementById("sess-filter-to").dispatch("change")`);
+        t("cleared start date leaves the range open (to only)",
+            run("sessFilter.from") === "" && run("sessFilter.to") === "2026-10-15"
+            && run("sessFilterApply(sessionsCache).length") === 3);
+        run(`sessFilter.from = ""; sessFilter.to = ""`);
+        // Reversed inputs must still be accepted (they get swapped).
+        run(`document.getElementById("sess-filter-from").value = "2026-10-15"; document.getElementById("sess-filter-to").value = "2026-10-14"`);
+        run(`document.getElementById("sess-filter-from").dispatch("change")`);
+        t("reversed date range is swapped, not dropped",
+            run("sessFilter.from") === "2026-10-14" && run("sessFilter.to") === "2026-10-15");
+        run(`sessFilter.from = ""; sessFilter.to = ""`);
+    } catch (e) { t("session filter chips are wired at boot", false, String(e).slice(0, 160)); }
     try {
         const raw = memStore.get("indietrotutta:ui");
         const saved = raw ? JSON.parse(raw) : null;
         t("prefs blob persisted", !!(saved && saved.timePreset === "today" && saved.isLive === true));
     } catch (e) { t("prefs blob persisted", false, String(e).slice(0, 120)); }
-    console.log(`\n${14 - failures.length}/14 passed`);
+    console.log(`\n${20 - failures.length}/20 passed`);
     process.exit(failures.length ? 1 : 0);
 })();

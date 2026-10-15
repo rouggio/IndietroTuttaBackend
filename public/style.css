@@ -763,12 +763,13 @@ html, body {
 .sess-filter-none { font-size: 10px; color: #9ca3af; }
 
 /* Active-filter marker on the topbar button. A dot alone reads as noise,
-   so the label also gains the tint. */
-#sessionsToggleBtn.filtered {
+   so the label also gains the tint. This is the Sessions button — the one
+   that opens the filtered pane — NOT "New session". */
+#sessionsTopBtn.filtered {
     color: #1d4ed8;
     font-weight: 700;
 }
-#sessionsToggleBtn.filtered::after {
+#sessionsTopBtn.filtered::after {
     content: "•";
     color: #2563eb;
     font-weight: 700;

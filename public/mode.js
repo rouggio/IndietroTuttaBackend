@@ -72,10 +72,10 @@ if(UI.timePreset==="custom" && selectedDate && !UI.customStart){
 if(startPicker) startPicker.value = UI.customStart;
 if(endPicker) endPicker.value = UI.customEnd;
 
-// Sessions filter toolbar (todo 10): bind once at startup. The filter state
-// itself is RAM-only, so there is nothing to restore here — this just
-// attaches the handlers.
-if (typeof wireSessionFilters === "function") wireSessionFilters();
+// Sessions filter toolbar (todo 10): the binder LIVES in race.js, which loads
+// AFTER this file — wiring it here silently did nothing (the typeof guard
+// skipped it, so the chips looked live and filtered nothing). boot.js calls it
+// once the whole bundle is up.
 
 // Live-trace window dropdown. Restored after loadUI() so the stored pref
 // wins, then wired so a change repaints every boat immediately (the poll

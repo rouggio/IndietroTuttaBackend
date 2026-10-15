@@ -1552,7 +1552,9 @@ function sessFilterSyncChips() {
     const to = document.getElementById("sess-filter-to");
     if (from) from.classList.toggle("active", !!sessFilter.from);
     if (to) to.classList.toggle("active", !!sessFilter.to);
-    const btn = document.getElementById("sessionsToggleBtn");
+    // Marker on the button that OPENS the filtered pane ("Sessions"), not
+    // on "New session" — a tinted unrelated button reads as a bug.
+    const btn = document.getElementById("sessionsTopBtn");
     if (btn) btn.classList.toggle("filtered", sessFilterActive());
 }
 
@@ -1676,6 +1678,11 @@ function wireSessionRows(el) {
     });
 }
 
+// True once the chip handlers above are attached. boot.js calls
+// wireSessionFilters() (it lives here, and mode.js loads EARLIER — wiring it
+// from there was silently skipped, leaving live-looking chips that filtered
+// nothing). Kept as a flag so the smoke harness can prove it ran.
+let sessFiltersWired = false;
 function wireSessionFilters() {
     document.querySelectorAll("[data-sess-status]").forEach(b => {
         b.addEventListener("click", () => {
@@ -1700,9 +1707,11 @@ function wireSessionFilters() {
         const t = document.getElementById("sess-filter-to");
         let from = f && f.value ? f.value : "";
         let to = t && t.value ? t.value : "";
-        // A single date typed in "from" means that day, not an open range.
-        if (from && !to) to = from;
-        if (to && !from) from = to;
+        // An open end stays open: "from" alone means from that day on, "to"
+        // alone means up to that day. It used to copy the other end across
+        // (from && !to -> to = from), so CLEARING the end date silently kept
+        // the old bound in the filter state while the field showed empty —
+        // the list looked broken with nothing to explain it.
         if (from && to && from > to) { const x = from; from = to; to = x; }
         sessFilter.from = from; sessFilter.to = to;
         sessFilterSyncChips();
@@ -1724,6 +1733,7 @@ function wireSessionFilters() {
             renderSessionsList();
         });
     }
+    sessFiltersWired = true;
 }
 
 async function loadSessions(selectId) {
