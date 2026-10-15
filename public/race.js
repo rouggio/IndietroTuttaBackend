@@ -1499,20 +1499,10 @@ async function renderSessionCreate() {
                 if (sessionCreatePanel) sessionCreatePanel.style.display = "none";
                 endSessMove();
                 clearSessPreview();
-                // Replay the NEW session, not the old window: scope the
-                // timeline to its gun (pre-gun + race) so the unselected
-                // session's tracks drop off instead of lingering on screen.
-                UI.timePreset = "custom";
-                if (presetSelect) presetSelect.value = "custom";
-                const gunMs = Date.now() + (SESSDRAFT.gunSec || 60) * 1000;
-                UI.customStart = toLocalDatetimeValue(new Date(gunMs - 2 * 60 * 1000));
-                UI.customEnd = toLocalDatetimeValue(new Date(gunMs + 15 * 60 * 1000));
-                if (startPicker) startPicker.value = UI.customStart;
-                if (endPicker) endPicker.value = UI.customEnd;
-                setMode(false, "session-create");
-                saveUI();
+                // A fresh session is scheduled: watch it live (full trace since
+                // creation + flowing feed), like clicking its row.
                 await openSessionsPanel(j.id);
-                refresh(true);
+                enterLiveWatch(j.id, "session-create");
             } catch { errEl.textContent = "Network error."; }
         });
         if (typeof avoidPanelOverlap === "function") avoidPanelOverlap(document.getElementById("session-create-panel"));
@@ -1743,15 +1733,10 @@ async function loadSessions(selectId) {
         if (!lastDevices.length) await refreshDevices();
         if (selectId) UI.selectedSessionId = selectId;
         // A selected session can disappear under us (deleted via the API or
-        // another client). Drop the ghost selection instead of re-opening an
-        // empty detail pane on every refresh.
+        // another client). Back to full live rather than stranding the map
+        // on a ghost: no overlay, no tracks, no traffic.
         if (UI.selectedSessionId && !sessionsCache.some(s => String(s.id) === String(UI.selectedSessionId))) {
-            UI.selectedSessionId = null;
-            clearSelPreview();
-            clearSimOverlay();
-            clearSessDetailTimers();
-            document.getElementById("tab-session-detail").innerHTML = "";
-            document.getElementById("session-detail-panel").style.display = "none";
+            unselectSession("ghost-drop");
         }
         renderSessionsList();
         if (UI.selectedSessionId) openSessionDetail();
@@ -1821,17 +1806,6 @@ async function renderSimOverlay(fit) {
     simOverlayRun = pts.runId;
     const latlngs = pts.points.map(p => [p.lat, p.lon]);
     L.polyline(latlngs, { color: "#f97316", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(simOverlay);
-    // A boat symbol at the END of the scripted route. With live off there is
-    // no live arrow, and the DB marker for a mock boat sits on a stale Turso
-    // fix from whenever it was last real — which can be a long way off this
-    // course, so the map shows the race with nobody in it. The route's last
-    // point is where the boat actually finished.
-    const finishPt = pts.points[pts.points.length - 1];
-    if (finishPt && pts.deviceId) {
-        const m = L.marker([finishPt.lat, finishPt.lon], { icon: boatTriangleIcon(pts.deviceId, 0) }).addTo(simOverlay);
-        m.bindPopup(`Finish<br><b>${escHtml((lastDevices.find(d => d.deviceId === pts.deviceId) || {}).username || pts.deviceId.slice(-5))}</b>`);
-        m.on("click", () => openBoatPanel(pts.deviceId, { ...finishPt, deviceId: pts.deviceId }));
-    }
     if (fit) map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
 }
 // Centre the map on a session's course when it is picked from the list.

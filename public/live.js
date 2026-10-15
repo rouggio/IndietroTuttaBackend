@@ -69,10 +69,12 @@ function liveSimShown(id) {
 let liveMins = 15; // minutes; 0 = all
 function liveWindowMs() { return liveMins > 0 ? liveMins * 60000 : 0; }
 function liveWindowPts(st) {
-    if (liveMins === -1) return []; // no track
+    if (liveMins === -1 && !UI.selectedSessionId) return []; // no track (plain live only)
     const sessFrom = selectedSessionFromMs();
     const win = liveWindowMs();
-    const cutoff = win ? Date.now() - win : 0;
+    // Session watch shows the full trace (floor only): the dropdown trims
+    // plain live, never a watched session.
+    const cutoff = win && !isLiveWatch() ? Date.now() - win : 0;
     const floorMs = sessFrom || 0;
     if (!cutoff && !floorMs) return st.pts;
     if (st.pts.length < 2) return st.pts;
@@ -91,6 +93,13 @@ function selSession() {
     return UI.selectedSessionId
         ? sessionsCache.find(x => String(x.id) === String(UI.selectedSessionId)) || null
         : null;
+}
+// Live watch: an open (scheduled/live) session viewed with the live feed.
+// Replay (closed session, or no selection) is everything else. Trace rules
+// key off this, not off scattered flag combinations.
+function isLiveWatch() {
+    const s = selSession();
+    return !!(UI.isLive && UI.selectedSessionId && s && !["finished", "abandoned"].includes(s.status));
 }
 
 function selectedSessionBoatSet() {
@@ -114,6 +123,12 @@ function selectedSessionFromMs() {
     if (UI.timePreset === "custom") return 0;
     const s = selSession();
     if (!s) return 0;
+    // Live watch: everything since the session was created (quitting and
+    // coming back shows the whole recorded picture, not a trimmed slice).
+    if (UI.isLive && s.createdAt) {
+        const c = new Date(s.createdAt).getTime();
+        if (!isNaN(c)) return c;
+    }
     // A race that has not yet started (gun in the future) should not
     // floor history at the gun — nothing is recorded yet, which would
     // only blank the map. Fall through to the date/00:00 floor so any
@@ -262,7 +277,7 @@ function makePanelDraggable(el) {
 
 // Click on or near a route point → show Details, else close
 function findNearestPoint(latlng, maxMeters = 15) {
-    if (liveMins === -1) return null; // no track: nothing to hover
+    if (liveMins === -1 && !UI.selectedSessionId) return null; // no track: nothing to hover (plain live only)
     let best = null, bestDist = Infinity;
     // Live-sim (mock) boats live only in the overlay, never in Turso — search
     // their newest fix too, otherwise clicks on a mock boat hit nothing.

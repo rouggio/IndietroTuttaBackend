@@ -123,20 +123,30 @@ function hasAll(src, subs) {
     const poll = appJs.slice(appJs.indexOf("async function pollLiveSim()"), appJs.indexOf("async function pollLiveSim()") + 1000);
     check("session-live: live-sim overlay runs while watching scheduled/live",
         poll.includes('["finished", "abandoned"].includes(sel.status)'));
+    const fromMs = appJs.slice(appJs.indexOf("function selectedSessionFromMs()"), appJs.indexOf("function selectedSessionFromMs()") + 900);
+    check("session-live: watch floors at creation (quit-and-back shows all)",
+        fromMs.includes("s.createdAt") && fromMs.includes("UI.isLive"));
+    check("session-live: dropdown bypassed in watch (full trace)",
+        appJs.includes("const cutoff = win && !isLiveWatch() ? Date.now() - win : 0;")
+        && appJs.includes("const _liveFrom = (UI.isLive && !playbackTimer && !isLiveWatch()) ? liveWindowMs() : 0;")
+        && appJs.includes("if (liveMins === -1 && !UI.selectedSessionId) return [];")
+        && appJs.includes('if (liveMins === -1 && !UI.selectedSessionId) return; // "no track" dropdown'));
     const scope = appJs.slice(appJs.indexOf("function liveSimScope()"), appJs.indexOf("function liveSimScope()") + 900);
     check("session-live: session boats join the live scope", scope.includes("s.boats.forEach"));
+    check("session-live: stored track stands down where the live overlay flies (no doubled line)",
+        appJs.includes("if (liveSimShown(id)) return;"));
 }
 
 // --- static: traces dropdown governs stored + live -----------------------------------
 {
-    check("traces-dropdown: single window trims overlay + stored tracks",
+    check("traces-dropdown: single window trims overlay + stored tracks in plain live",
         appJs.includes("function liveWindowMs()")
-        && appJs.includes("const _liveFrom = (UI.isLive && !playbackTimer) ? liveWindowMs() : 0;"));
+        && appJs.includes("const _liveFrom = (UI.isLive && !playbackTimer && !isLiveWatch()) ? liveWindowMs() : 0;"));
     check("traces-dropdown: session floor applies to overlay + stored",
         appJs.includes("const sessFrom = selectedSessionFromMs();")
         && appJs.includes("const _sessFrom = selectedSessionFromMs();"));
-    check("traces-dropdown: control visible whenever live (incl. live-session watch)",
-        appJs.includes('if(lm) lm.style.display = UI.isLive ? "" : "none";'));
+    check("traces-dropdown: control visible in plain live only (hidden in watch)",
+        appJs.includes('if(lm) lm.style.display = (UI.isLive && !UI.selectedSessionId) ? "" : "none";'));
 }
 
 // --- static: session exit returns to live --------------------------------------
@@ -165,11 +175,9 @@ function hasAll(src, subs) {
 // --- static: creating a session replays the new one ------------------------------
 {
     const at = appJs.indexOf("openSessionsPanel(j.id)");
-    const w = at >= 0 ? appJs.slice(Math.max(0, at - 1500), at + 100) : "";
-    check("session-create: creating mid-replay scopes timeline to the new gun window",
-        w.includes("SESSDRAFT.gunSec") && w.includes('timePreset = "custom"')
-        && w.includes("setMode(false") && w.includes("refresh(true)")
-        && appJs.includes("return loadSessions(selectId)"));
+    const w = at >= 0 ? appJs.slice(Math.max(0, at - 200), at + 200) : "";
+    check("session-create: creating watches the new session live",
+        w.includes("enterLiveWatch(j.id") && appJs.includes("return loadSessions(selectId)"));
 }
 
 // --- static: boat select ---------------------------------------------------------
@@ -205,6 +213,17 @@ function hasAll(src, subs) {
             "if (UI.isLive) return; // replay-only: parked while live"]).ok);
     const s = hasAll(appJs, ["function scrubToPoint(p)", "scrubToPoint(nearest)", "scrubToPoint(n)"]);
     check("map-click: track click scrubs timeline cursor", s.ok, s.missing.join(","));
+    check("boat-panel: opens with live-sim/server fallback when window is empty",
+        hasAll(appJs, ["async function resolveBoatPoint(id)", "async function openBoatPanel(id, point)",
+            "/gps/latest?deviceId="]).ok);
+    check("structure: isLiveWatch names the watch concept",
+        hasAll(appJs, ["function isLiveWatch()", "!isLiveWatch()"]).ok);
+    check("live-refresh: window focus kicks a refresh (throttled background timers)",
+        appJs.includes('window.addEventListener("focus"'));
+    check("session-ghost: deleted selection falls back to full live",
+        appJs.includes('unselectSession("ghost-drop")'));
+    check("session-list: open list reloads on focus/visibility",
+        appJs.includes("reloadSessionListIfOpen"));
     const tip = hasAll(appJs, ["timelineTipEl", "fmtDateTime(p.timestamp || p.receivedAt)", 'toFixed(1) + " kn"']);
     check("timeline-hover: tooltip shows exact time, knots and bearing", tip.ok && indexHtml.includes('id="timeline-tip"'), tip.missing.join(",") || "tip div");
 }

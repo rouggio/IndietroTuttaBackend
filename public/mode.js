@@ -105,11 +105,12 @@ function updateTimeControlsVisibility(){
     if(endPicker) endPicker.style.display = isCustom ? "" : "none";
     if(applyRangeBtn) applyRangeBtn.style.display = isCustom ? "" : "none";
     if(presetSelect) presetSelect.disabled = !!UI.isLive;
-    // The live-trace window only applies while live (the windowing is
-    // scoped to isLive), so hide the control when live is off rather than
-    // leaving a setting on screen that does nothing.
+    // The live-trace window only applies to plain live (the windowing is
+    // scoped to isLive with no session): in a watched session the trace is
+    // full since creation, so the control hides there rather than offering
+    // a setting that does nothing.
     const lm = document.getElementById("liveMinsSelect");
-    if(lm) lm.style.display = UI.isLive ? "" : "none";
+    if(lm) lm.style.display = (UI.isLive && !UI.selectedSessionId) ? "" : "none";
     // Timeline is replay-only: parked (not just untoggled) while live.
     const tb = document.getElementById("timelineToggleBtn");
     if(tb) {
@@ -148,6 +149,17 @@ function setMode(live, reason) {
     UI.isLive = !!live;
     if (liveBtn) liveBtn.classList.toggle("active", UI.isLive);
     updateTimeControlsVisibility();
+    try {
+        // Transition journal: one paste (`__modeLog`) shows exactly how the
+        // page reached its current mode — no guessing from fragments.
+        window.__modeLog = window.__modeLog || [];
+        window.__modeLog.push({
+            t: new Date().toISOString().slice(11, 19),
+            mode: UI.isLive ? "live" : "replay",
+            reason: reason || "", sel: UI.selectedSessionId,
+        });
+        if (window.__modeLog.length > 50) window.__modeLog.shift();
+    } catch {}
     Bus.emit("modechange", { mode: UI.isLive ? "live" : "replay", reason: reason || "", selectedSessionId: UI.selectedSessionId });
 }
 // Leaving live orphans the live-sim layers (polling stops but the drawn line

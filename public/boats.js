@@ -278,12 +278,29 @@ window.boatCalPick = function (dayStr) {
     playbackTime = new Date(UI.customStart).getTime();
     refresh(true);
 };
-function openBoatPanel(id, point) {
+async function resolveBoatPoint(id) {
+    const cur = currentPointForBoat(id);
+    if (cur) return cur;
+    const sim = liveSimLatest(id);
+    if (sim) return { ...sim, deviceId: id };
+    try {
+        const r = await fetch(`/gps/latest?deviceId=${encodeURIComponent(id)}`);
+        if (r.ok) {
+            const p = await r.json();
+            if (p && typeof p.lat === "number") return p;
+        }
+    } catch {}
+    return null;
+}
+async function openBoatPanel(id, point) {
     if (!id) return;
     const panel = getBoatPanel(id);
     panel.open = true;
+    // A boat with no point in the current window (mock boat in replay, or an
+    // empty range) would open an invisible panel. Fall back through the
+    // live-sim buffer to the newest stored fix, so details always show.
     if (point) panel.point = point;
-    else if (!panel.point) panel.point = currentPointForBoat(id);
+    else if (!panel.point) panel.point = await resolveBoatPoint(id);
     renderBoatPanel(panel);
 }
 function toggleBoatPanel(id) {

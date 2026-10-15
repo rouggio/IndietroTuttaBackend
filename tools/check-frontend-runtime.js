@@ -76,8 +76,21 @@ const stubSession = {
 };
 function stubFetch(url) {
     const u = String(url);
+    const freshSim = [{
+        lat: 45.0, lon: 9.0, speed: 5.1, course: 180, altitude: 5, sats: 9,
+        timestamp: new Date().toISOString(), receivedAt: new Date().toISOString(),
+        deviceId: "BOAT1", username: "Smoke", simulated: 1,
+    }];
+    if (u.includes("/gps/sim-live")) return Promise.resolve(jsonRes(freshSim));
     if (u.includes("/sessions/") && u.includes("/runs")) return Promise.resolve(jsonRes([]));
     if (u.includes("/sessions/") && u.includes("/signals")) return Promise.resolve(jsonRes([]));
+    if (/\/sessions\/\d+/.test(u)) return Promise.resolve(jsonRes({
+        id: 84, name: "Smoke race", date: "2026-10-15", mode: "practice", status: "scheduled",
+        courseVersion: 1, marks: [], windDir: 0, windSpeed: 0, scale: 1,
+        startLine: null, finishLine: null, boats: [{ deviceId: "BOAT1", startOffsetSec: 0 }],
+        startTime: new Date(Date.now() + 60000).toISOString(),
+        createdAt: new Date().toISOString(),
+    }));
     if (/\/sessions\/\d+/.test(u)) return Promise.resolve(jsonRes(stubSession));
     if (u.includes("/sessions")) return Promise.resolve(jsonRes([]));
     if (u.includes("/sim/routes")) return Promise.resolve(errRes(404));
@@ -101,6 +114,8 @@ const sandbox = {
         removeItem: (k) => memStore.delete(k),
     },
     fetch: stubFetch,
+    URLSearchParams,
+    URL,
     document: {
         getElementById: getEl,
         createElement: () => makeEl("dyn"),
@@ -172,6 +187,24 @@ try {
 
 (async () => {
     try {
+        // Scheduled session created an hour ago, gun still ahead, boat engaged.
+        run(`sessionsCache = [{ id: 84, name: "Smoke race", date: "${new Date().toISOString().slice(0, 10)}",
+            mode: "practice", status: "scheduled", courseVersion: 1, marks: [], windDir: 0, windSpeed: 0,
+            scale: 1, startLine: null, finishLine: null, boats: [{ deviceId: "BOAT1", startOffsetSec: 0 }],
+            startTime: new Date(Date.now() + 60000).toISOString(),
+            createdAt: new Date(Date.now() - 3600000).toISOString() }]`);
+        run(`enterLiveWatch(84, 'smoke')`);
+        await run(`pollLiveSim()`);
+        t("live watch draws the live arrow", run(`!!(liveSim.get("BOAT1") && liveSim.get("BOAT1").shown && liveSim.get("BOAT1").arrow)`));
+        // A 30-min-old in-session fix: trimmed in plain live, kept in watch.
+        run(`liveSim.get("BOAT1").pts.unshift({ lat: 45, lon: 9, speed: 4, course: 90,
+            receivedAt: new Date(Date.now() - 1800000).toISOString(),
+            timestamp: new Date(Date.now() - 1800000).toISOString() })`);
+        t("watch keeps full trace since creation (dropdown bypassed)",
+            run(`liveWindowPts(liveSim.get("BOAT1")).length >= 2`));
+        run("enterLiveMode('smoke')");
+    } catch (e) { t("live watch draws the live arrow", false, String(e).slice(0, 200)); }
+    try {
         await run("refresh(true)");
         t("refresh resolves on empty data", true);
     } catch (e) { t("refresh resolves on empty data", false, String(e).slice(0, 160)); }
@@ -180,6 +213,6 @@ try {
         const saved = raw ? JSON.parse(raw) : null;
         t("prefs blob persisted", !!(saved && saved.timePreset === "today" && saved.isLive === true));
     } catch (e) { t("prefs blob persisted", false, String(e).slice(0, 120)); }
-    console.log(`\n${12 - failures.length}/12 passed`);
+    console.log(`\n${14 - failures.length}/14 passed`);
     process.exit(failures.length ? 1 : 0);
 })();

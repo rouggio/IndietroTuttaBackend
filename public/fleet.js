@@ -152,7 +152,7 @@ async function refreshTracks(recenter = false) {
                     }
                     liveCache.set(id, cur.filter(p => {
                         const t = new Date(p.timestamp || p.receivedAt).getTime();
-                        const win = (UI.isLive && !playbackTimer) ? liveWindowMs() : 0;
+                        const win = (UI.isLive && !playbackTimer && !isLiveWatch()) ? liveWindowMs() : 0;
                         const lo = win ? Math.max(range.start, Date.now() - win) : range.start;
                         return !isNaN(t) && t >= lo && t <= range.end;
                     }));
@@ -171,13 +171,12 @@ async function refreshTracks(recenter = false) {
             points = points.sort((a,b) => new Date(a.timestamp||a.receivedAt) - new Date(b.timestamp||b.receivedAt));
             // client-side guard: only keep points inside selected time range
             const _range = getCurrentRange();
-            // In LIVE mode the topbar window narrows the range's lower bound,
-            // so the solid track shows only that much history. Without this
-            // the "last N min" dropdown only trimmed the dashed mock overlay
-            // and the live tracks still ran back to midnight. Historical
-            // (non-live) browsing is unaffected — there the range presets
-            // are the control, and the dropdown stays out of the way.
-            const _liveFrom = (UI.isLive && !playbackTimer) ? liveWindowMs() : 0;
+            // In plain LIVE the topbar window narrows the range's lower bound.
+            // A watched session is exempt: full trace since creation (the
+            // session floor below is the only trim). Historical (non-live)
+            // browsing is unaffected — there the range presets are the
+            // control, and the dropdown stays out of the way.
+            const _liveFrom = (UI.isLive && !playbackTimer && !isLiveWatch()) ? liveWindowMs() : 0;
             let _lo = _liveFrom ? Math.max(_range.start, Date.now() - _liveFrom) : _range.start;
             // A selected session also floors the window at its own start:
             // traces from before the race (an earlier session, yesterday)
@@ -234,6 +233,9 @@ async function refreshTracks(recenter = false) {
     // Sessions no longer own the trace set — every boat stays visible
     // even inside an ongoing/finished race. (A toggle will come later.)
     byDevice.forEach((pts, id) => {
+        // The live overlay already flies this boat: drawing its stored
+        // track too doubles the line (same route, twice).
+        if (liveSimShown(id)) return;
         const runs = [];
         let cur = [];
         for (const p of pts) {
@@ -245,7 +247,7 @@ async function refreshTracks(recenter = false) {
         }
         if (cur.length) runs.push(cur);
         const color = colorForDevice(id);
-        if (liveMins === -1) return; // "no track" dropdown: arrows only
+        if (liveMins === -1 && !UI.selectedSessionId) return; // "no track" dropdown: arrows only (plain live only)
         runs.forEach((run, ri) => {
             const latlngs = run.map(p => [p.lat, p.lon]);
             const opts = { color, weight: 2, opacity: 0.6 };

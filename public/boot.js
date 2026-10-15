@@ -14,10 +14,18 @@ setInterval(() => {
     if (UI.isLive && !playbackTimer) refresh();
 }, 5000);
 
-// Also refresh when tab becomes visible
+// Also refresh when tab becomes visible — and when the window regains focus:
+// background tabs get their timers throttled by the browser, so the live
+// feed can sit stale until something kicks a refresh. An open Sessions pane
+// reloads its list too, so deleted sessions drop out instead of stranding
+// the map on ghosts.
+const reloadSessionListIfOpen = () => {
+    if (panelVisible(document.getElementById("session-panel"))) loadSessions();
+};
 document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) { refresh(); refreshDevices(); }
+    if (!document.hidden) { refresh(); refreshDevices(); reloadSessionListIfOpen(); }
 });
+window.addEventListener("focus", () => { refresh(); refreshDevices(); reloadSessionListIfOpen(); });
 
 // Initialize timeline after first refresh
 setTimeout(async () => {
