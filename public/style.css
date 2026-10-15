@@ -161,36 +161,6 @@ html, body {
     color: #334155;
 }
 
-#topbar-menu .dropdown-content a.active {
-    background: #dbeafe;
-    font-weight: bold;
-}
-
-#mode-switch {
-    display: flex;
-    gap: 4px;
-    background: #f1f5f9;
-    padding: 3px;
-    border-radius: 8px;
-}
-
-#mode-switch button {
-    border: none;
-    padding: 6px 12px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    background: transparent;
-    color: #475569;
-}
-
-#mode-switch button.active {
-    background: white;
-    color: #0f172a;
-    box-shadow: 0 1px 3px rgba(0,0,0,.1);
-}
-
 #topbar-controls {
     display: flex;
     align-items: center;
@@ -242,49 +212,6 @@ html, body {
 }
 #topbar-controls #applyRangeBtn:hover {
     background: #1e293b;
-}
-
-#dateLabel {
-    font-size: 13px;
-    color: #6b7280;
-    min-width: 80px;
-}
-
-.dropdown {
-    position: relative;
-    display: inline-block;
-}
-
-.dropdown-content {
-    display: none;
-    position: absolute;
-    top: 100%;
-    left: 0;
-    background: white;
-    min-width: 180px;
-    box-shadow: 0 4px 12px rgba(0,0,0,.15);
-    border-radius: 8px;
-    padding: 6px 0;
-    z-index: 1001;
-    border: 1px solid #e5e7eb;
-}
-
-.dropdown:hover .dropdown-content,
-.dropdown.active .dropdown-content {
-    display: block;
-}
-
-.dropdown-content a {
-    display: block;
-    padding: 8px 14px;
-    color: #334155;
-    text-decoration: none;
-    font-size: 13px;
-    cursor: pointer;
-}
-
-.dropdown-content a:hover {
-    background: #f1f5f9;
 }
 
 /* Device panel */
@@ -389,22 +316,6 @@ html, body {
     box-shadow: inset 0 0 0 1px #bbf7d0;
 }
 
-.fleet-marker {
-    background: #3b82f6;
-    border: 2px solid #1d4ed8;
-    border-radius: 50%;
-    text-align: center;
-    font-weight: bold;
-    color: white;
-    font-size: 10px;
-    line-height: 16px;
-}
-
-.fleet-marker.selected {
-    background: #eab308;
-    border-color: #a16207;
-}
-
 .boat-triangle {
     background: transparent;
     border: none;
@@ -475,6 +386,19 @@ html, body {
     pointer-events: none;
     z-index: 3;
 }
+#timeline-tip {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    background: #0f172a;
+    color: #f8fafc;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 4;
+}
 #timeline-selection {
     position: absolute;
     top: 0;
@@ -492,17 +416,6 @@ html, body {
 #timeline.dragging #timeline-selection {
     display: block;
 }
-#timeline-time {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    font-size: 10px;
-    color: #64748b;
-    pointer-events: none;
-}
-
 #playback button, #playback select {
     padding: 6px 10px;
     border-radius: 6px;
@@ -1167,14 +1080,10 @@ html, body {
     font-size: 11px;
 }
 
-.builder-freeze, .builder-lines {
+.builder-freeze {
     border-top: 1px solid #f3f4f6;
     margin-top: 8px;
     padding-top: 6px;
-}
-
-.builder-lines b {
-    font-size: 12px;
 }
 
 .builder-mark-label {

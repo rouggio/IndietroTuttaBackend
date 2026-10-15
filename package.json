@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "ft": "node tools/check-frontend.js",
+    "ftr": "node tools/check-frontend-runtime.js"
   },
   "keywords": [],
   "author": "",

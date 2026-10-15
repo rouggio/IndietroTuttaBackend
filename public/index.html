@@ -191,19 +191,29 @@
         <select id="playSpeed"><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option><option value="20">20x</option></select>
         <span id="playLabel">00:00 / 23:59</span>
         <span id="playTime" style="margin-left:auto;font-size:12px;color:#475569"></span>
-        <button id="playbackClose" style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 8px;cursor:pointer">×</button>
     </div>
     <div id="timeline">
         <div id="timeline-tracks" style="position:relative;height:100%"></div>
         <div id="timeline-selection"></div>
         <div id="timeline-cursor"></div>
         <div id="timeline-hover"></div>
+        <div id="timeline-tip" style="display:none"></div>
         <input type="range" id="playSlider" min="0" max="1000" value="0" style="position:absolute;inset:0;opacity:0.01;pointer-events:none">
     </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js"></script>
+<script src="core.js"></script>
+<script src="chrome.js"></script>
+<script src="boats.js"></script>
+<script src="live.js"></script>
+<script src="prefs.js"></script>
+<script src="mode.js"></script>
+<script src="fleet.js"></script>
+<script src="timeline.js"></script>
+<script src="panes.js"></script>
+<script src="race.js"></script>
+<script src="boot.js"></script>
 
 </body>
 </html>

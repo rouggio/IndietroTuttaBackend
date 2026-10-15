@@ -270,22 +270,22 @@ async function createSession(b) {
 }
 
 // Status is inferred on read, never set by the committee (except abandon):
-// abandoned sticks; finished when every boat uploaded a run; live once the
-// gun passed; scheduled otherwise. Stored column keeps abandoned only.
+// abandoned sticks; finished when every boat uploaded a run (boats only —
+// a boat-less session has nothing to finish); live once the gun passed,
+// boats or not; scheduled otherwise. Stored column keeps abandoned only.
 async function deriveStatus(s) {
     if (!s) return s;
     if (s.status === "abandoned") return "abandoned";
-    // A boat-less session can never be live (nothing to run).
-    if (!s.boats || s.boats.length === 0) return "scheduled";
-    try {
-        if (s.boats && s.boats.length) {
+    const hasBoats = !!(s.boats && s.boats.length);
+    if (hasBoats) {
+        try {
             // A boat's race is over with an uploaded run OR a terminal
             // committee signal (DSQ/DNF/RET) — session finishes when all are.
             const done = new Set(await uploaders(s.id));
             for (const d of await terminalBoats(s.id)) done.add(d);
             if (s.boats.every(b => done.has(b.deviceId))) return "finished";
-        }
-    } catch {}
+        } catch {}
+    }
     if (s.startTime && Date.now() >= new Date(s.startTime).getTime()) return "live";
     return "scheduled";
 }
@@ -322,10 +322,12 @@ function sessionListRow(s) {
 function deriveStatusFromMaps(s, uploadersBySess, terminalBySess) {
     if (!s) return s;
     if (s.status === "abandoned") return "abandoned";
-    if (!s.boats || s.boats.length === 0) return "scheduled";
-    const done = uploadersBySess.get(Number(s.id)) || new Set();
-    const term = terminalBySess.get(Number(s.id)) || new Set();
-    if (s.boats.every(b => done.has(b.deviceId) || term.has(b.deviceId))) return "finished";
+    const hasBoats = !!(s.boats && s.boats.length);
+    if (hasBoats) {
+        const done = uploadersBySess.get(Number(s.id)) || new Set();
+        const term = terminalBySess.get(Number(s.id)) || new Set();
+        if (s.boats.every(b => done.has(b.deviceId) || term.has(b.deviceId))) return "finished";
+    }
     if (s.startTime && Date.now() >= new Date(s.startTime).getTime()) return "live";
     return "scheduled";
 }
