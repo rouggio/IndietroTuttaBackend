@@ -1644,19 +1644,6 @@ function wireSessionRows(el) {
             if (root) renderSessionsList();
         });
     });
-    el.querySelectorAll("[data-sess-r]").forEach(btn => {
-        btn.addEventListener("click", async e => {
-            e.stopPropagation();
-            e.preventDefault();
-            const sid = btn.getAttribute("data-sess-r");
-            try {
-                const s = await (await fetch(`/sessions/${sid}`)).json();
-                const [fromMs, toMs] = await closedSessionWindow(s);
-                // Explicit replay action: frozen window even for open sessions.
-                enterFrozenReplay(Number(sid), fromMs, toMs, "row-replay");
-            } catch {}
-        });
-    });
     el.querySelectorAll("[data-sess]").forEach(row => {
         row.addEventListener("click", async () => {
             const id = Number(row.getAttribute("data-sess"));

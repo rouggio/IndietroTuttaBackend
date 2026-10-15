@@ -151,6 +151,12 @@ function hasAll(src, subs) {
         && ld.includes('["finished", "abandoned"].includes(sel.status)'));
     check("session-finished: replay window spans the recorded run (no 60s cap)",
         hasAll(appJs, ["async function closedSessionWindow(s)", "toMs = gun.getTime() + 90 * 60 * 1000;", "toMs = Math.max(toMs"]).ok);
+    // Todo 4 close-out: session-scoped replay, no dead replay button.
+    const fr = appJs.slice(appJs.indexOf("function enterFrozenReplay("), appJs.indexOf("function enterFrozenReplay(") + 1500);
+    check("replay: scoped to the session's boats (timeline, cursors, poll scope)",
+        fr.includes("s.boats.forEach") && fr.includes("updateTimelineTracks()"));
+    check("replay: no dead Replay-button handler left",
+        !appJs.includes("data-sess-r") && !appJs.includes("row-replay"));
 }
 
 // --- static: traces dropdown governs stored + live -----------------------------------

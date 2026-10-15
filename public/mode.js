@@ -222,6 +222,12 @@ function enterLiveWatch(id, reason) {
 // Replaying a closed session (or an explicit replay action): frozen window.
 function enterFrozenReplay(id, fromMs, toMs, reason) {
     UI.selectedSessionId = id;
+    // Replay is session-scoped: the session's boats drive the timeline, the
+    // cursor markers and the live-poll scope, so a third boat sailing nearby
+    // does not get replayed along. (Track LINES stay fleet-wide - an earlier
+    // deliberate decision, "sessions no longer own the trace set".)
+    const s = sessionsCache.find(x => String(x.id) === String(id));
+    if (s && Array.isArray(s.boats)) s.boats.forEach(x => { if (x && x.deviceId) selectedDeviceIds.add(x.deviceId); });
     UI.timePreset = "custom";
     if (presetSelect) presetSelect.value = "custom";
     UI.customStart = toLocalDatetimeValue(new Date(fromMs));
@@ -231,7 +237,9 @@ function enterFrozenReplay(id, fromMs, toMs, reason) {
     setMode(false, reason);
     try { saveUI(); } catch {}
     renderSessionsList();
-    try { refresh(); } catch {}
+    // The timeline is built from the scoped boats, so it can only be rebuilt
+    // once the tracks are in.
+    try { refresh().then(() => { try { updateTimelineTracks(); } catch {} }); } catch {}
     if (UI.selectedSessionId) openSessionDetail();
 }
 
