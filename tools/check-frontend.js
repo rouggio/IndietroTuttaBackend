@@ -172,6 +172,22 @@ function hasAll(src, subs) {
     check("sessions-filter: wired from boot (race.js loads after mode.js)",
         bootJs.includes("wireSessionFilters();")
         && !appJs.slice(0, appJs.indexOf("fleet.js")).includes("wireSessionFilters();"));
+    // Todo 13 removed pursuit/handicap starts: no offset anywhere on the wire
+    // or in the payloads, and a nonzero one is rejected loudly.
+    const storeJs = fs.readFileSync(path.join(__dirname, "..", "store", "sessionStore.js"), "utf8");
+    const sessRoutes = fs.readFileSync(path.join(__dirname, "..", "routes", "sessions.js"), "utf8");
+    check("pursuit-offset: gone from store, routes, UI and payloads",
+        !storeJs.includes("SELECT deviceId, startOffsetSec")
+        && !storeJs.includes("startOffsetSec: (mine")
+        && !sessRoutes.includes("addBoat(req.params.id, deviceId, startOffsetSec)")
+        && !appJs.includes("sess-add-off")
+        && !appJs.includes("startOffsetSec: off"));
+    check("pursuit-offset: a nonzero offset is a 400, not a silent drop",
+        sessRoutes.includes("function rejectPursuitOffset(body)")
+        && sessRoutes.includes("pursuit starts were removed")
+        // absent and 0 must pass: Number(undefined) is NaN and NaN !== 0,
+        // which rejected plain {deviceId} and a zero offset on the first cut.
+        && sessRoutes.includes("v !== undefined && v !== null && v !== \"\" && Number(v) !== 0"));
 }
 
 // --- static: traces dropdown governs stored + live -----------------------------------

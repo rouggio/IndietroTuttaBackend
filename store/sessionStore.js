@@ -138,18 +138,23 @@ function rowToSession(r, boats = []) {
 
 // In-memory fallback
 const memSessions = new Map();
-const memBoats = new Map(); // sessionId -> [{deviceId, startOffsetSec}]
+const memBoats = new Map(); // sessionId -> [{deviceId}]
 let memNextId = 1;
 
+// Pursuit/handicap starts are GONE (todo 13): every boat shares the session
+// gun. The DB column `session_boats.startOffsetSec` is left in place for one
+// release — dropping it while the deployed build still SELECTs it breaks
+// prod (see the schema note in AGENTS.md); the drop goes out with the next
+// `sc`. Nothing reads or writes it in the meantime.
 async function getBoats(sessionId) {
     const client = getClient();
     if (!client) return memBoats.get(Number(sessionId)) || [];
     await initDb();
     const res = await client.execute({
-        sql: "SELECT deviceId, startOffsetSec FROM session_boats WHERE sessionId = ? ORDER BY deviceId ASC",
+        sql: "SELECT deviceId FROM session_boats WHERE sessionId = ? ORDER BY deviceId ASC",
         args: [Number(sessionId)],
     });
-    return res.rows.map(r => ({ deviceId: r.deviceId, startOffsetSec: r.startOffsetSec }));
+    return res.rows.map(r => ({ deviceId: r.deviceId }));
 }
 
 async function createSession(b) {
@@ -258,7 +263,7 @@ async function createSession(b) {
     });
     const id = Number(res.lastInsertRowid);
     for (const boat of boats) {
-        await addBoat(id, boat.deviceId, boat.startOffsetSec || 0);
+        await addBoat(id, boat.deviceId);
     }
     return rowToSession({
         id, ...base,
@@ -382,7 +387,7 @@ async function listSessions({ date, from, to, status, mode } = {}) {
     const [boatsRes, ups, term] = await Promise.all([
         ids.length
             ? client.execute({
-                sql: `SELECT sessionId, deviceId, startOffsetSec FROM session_boats
+                sql: `SELECT sessionId, deviceId FROM session_boats
                       WHERE sessionId IN (${ids.map(() => "?").join(",")}) ORDER BY deviceId ASC`,
                 args: ids,
             })
@@ -394,7 +399,7 @@ async function listSessions({ date, from, to, status, mode } = {}) {
     for (const r of boatsRes.rows) {
         const id = Number(r.sessionId);
         if (!boatsBySess.has(id)) boatsBySess.set(id, []);
-        boatsBySess.get(id).push({ deviceId: r.deviceId, startOffsetSec: r.startOffsetSec });
+        boatsBySess.get(id).push({ deviceId: r.deviceId });
     }
 
     const out = [];
@@ -547,7 +552,7 @@ function boatBusyError(conflict) {
     );
 }
 
-async function addBoat(sessionId, deviceId, startOffsetSec = 0) {
+async function addBoat(sessionId, deviceId) {
     const cur = await getSession(sessionId);
     if (!cur) return null;
     if (typeof deviceId !== "string" || !deviceId.trim()) {
@@ -556,18 +561,19 @@ async function addBoat(sessionId, deviceId, startOffsetSec = 0) {
     const dev = deviceId.trim();
     const conflicts = await activeSessionsForDevice(dev, cur.id);
     if (conflicts.length) throw boatBusyError(conflicts[0]);
-    const off = Number(startOffsetSec) || 0;
     const client = getClient();
     if (!client) {
         const list = memBoats.get(cur.id) || [];
-        if (!list.some(x => x.deviceId === dev)) list.push({ deviceId: dev, startOffsetSec: off });
+        if (!list.some(x => x.deviceId === dev)) list.push({ deviceId: dev });
         memBoats.set(cur.id, list);
         return getSession(cur.id);
     }
     await initDb();
+    // startOffsetSec is omitted: the column still exists (drop lands with the
+    // next `sc`) but its DEFAULT 0 applies. Pursuit starts were removed.
     await client.execute({
-        sql: "INSERT OR REPLACE INTO session_boats (sessionId, deviceId, startOffsetSec) VALUES (?, ?, ?)",
-        args: [cur.id, dev, off],
+        sql: "INSERT OR REPLACE INTO session_boats (sessionId, deviceId) VALUES (?, ?)",
+        args: [cur.id, dev],
     });
     return getSession(cur.id);
 }
@@ -649,8 +655,8 @@ async function repeatSession(id, { date, mode, name } = {}) {
     const newId = Number(res.lastInsertRowid);
     for (const b of cur.boats) {
         await client.execute({
-            sql: "INSERT INTO session_boats (sessionId, deviceId, startOffsetSec) VALUES (?, ?, ?)",
-            args: [newId, b.deviceId, b.startOffsetSec || 0],
+            sql: "INSERT INTO session_boats (sessionId, deviceId) VALUES (?, ?)",
+            args: [newId, b.deviceId],
         });
     }
     return getSession(newId);
@@ -707,7 +713,6 @@ async function getActiveSessionForDevice(deviceId) {
     // deriveStatus costs 2 queries — call once, reuse below.
     const status = await deriveStatus(full);
     if (status === "finished") return null;
-    const mine = boats.find(b => b.deviceId === deviceId);
     let signals = [];
     try {
         signals = await signalsForDevice(full.id, deviceId);
@@ -719,7 +724,6 @@ async function getActiveSessionForDevice(deviceId) {
         mode: full.mode,
         status,
         startTime: full.startTime,
-        startOffsetSec: (mine && mine.startOffsetSec) || 0,
         courseVersion: full.courseVersion,
         windDir: Math.round(full.windDir),
         windSpeed: full.windSpeed == null ? null : Math.round(full.windSpeed),

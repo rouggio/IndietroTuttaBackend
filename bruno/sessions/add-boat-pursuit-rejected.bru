@@ -1,0 +1,37 @@
+meta {
+  name: Add boat (pursuit offset rejected 400)
+  type: http
+  seq: 27
+}
+
+post {
+  url: {{baseUrl}}/sessions/:id/boats
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "deviceId": "{{deviceId}}",
+    "startOffsetSec": 45
+  }
+}
+
+docs {
+  Pursuit/handicap starts were REMOVED (todo 13): every boat shares the session
+  gun, so a per-boat offset is meaningless.
+
+  Expect 400:
+  {"error":"startOffsetSec is no longer supported — every boat shares the session gun (pursuit starts were removed)"}
+
+  A zero offset is still accepted (it is a no-op); only a nonzero one is
+  rejected, and it is rejected loudly rather than silently ignored.
+}

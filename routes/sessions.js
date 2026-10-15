@@ -118,13 +118,35 @@ router.get("/sessions", async (req, res) => {
 // --------------------------------------------------
 // POST /sessions — encapsulate a course (or ad-hoc shape) onto a day.
 // {courseId?, snapshot:{name?,marks,startLine?,finishLine}?, boats?:
-//   [{deviceId, startOffsetSec?}], date, mode?, originLat, originLon, windDir,
+//   [{deviceId}], date, mode?, originLat, originLon, windDir,
 //   scale?, startTime?, name?}
 // → frozen snapshot + resolved absolute marks (+ boats, one round trip).
+// Pursuit/handicap starts (per-boat startOffsetSec) were REMOVED in todo 13:
+// one gun for the whole session. A leftover nonzero offset is rejected, not
+// silently dropped — a caller asking for a staggered start deserves to know.
 // --------------------------------------------------
+
+function rejectPursuitOffset(body) {
+    // Absent or 0 is a no-op and stays accepted (old clients send 0); a
+    // NONZERO offset is rejected. Careful: Number(undefined) is NaN and
+    // NaN !== 0, so an absent field must be filtered out explicitly.
+    const nonzero = v => v !== undefined && v !== null && v !== "" && Number(v) !== 0;
+    const boats = (body || {}).boats;
+    const list = Array.isArray(boats) ? boats : [];
+    const offenders = list.filter(b => b && typeof b === "object" && nonzero(b.startOffsetSec));
+    if (offenders.length || nonzero((body || {}).startOffsetSec)) {
+        return Object.assign(
+            new Error("startOffsetSec is no longer supported — every boat shares the session gun (pursuit starts were removed)"),
+            { status: 400 }
+        );
+    }
+    return null;
+}
 
 router.post("/sessions", async (req, res) => {
     try {
+        const pursuitErr = rejectPursuitOffset(req.body);
+        if (pursuitErr) throw pursuitErr;
         const s = await createSession(req.body || {});
         if (Array.isArray((req.body || {}).boats)) {
             await autoSimMockBoats(s, req.body.boats.map((b) => (typeof b === "string" ? b : b && b.deviceId)));
@@ -203,14 +225,16 @@ router.post("/sessions/:id/repeat", async (req, res) => {
 });
 
 // --------------------------------------------------
-// POST /sessions/:id/boats — {deviceId, startOffsetSec?}
-// (pursuit offsets live here; default 0 = fleet start)
+// POST /sessions/:id/boats - {deviceId}
+// (a nonzero startOffsetSec is rejected: pursuit starts were removed)
 // --------------------------------------------------
 
 router.post("/sessions/:id/boats", async (req, res) => {
     try {
-        const { deviceId, startOffsetSec } = req.body || {};
-        const s = await addBoat(req.params.id, deviceId, startOffsetSec);
+        const pursuitErr = rejectPursuitOffset(req.body);
+        if (pursuitErr) throw pursuitErr;
+        const { deviceId } = req.body || {};
+        const s = await addBoat(req.params.id, deviceId);
         if (!s) return res.status(404).json({ error: "session not found" });
 await autoSimMockBoats(s, typeof deviceId === "string" ? [deviceId] : []);
     emit("session.boats", { id: s.id });
