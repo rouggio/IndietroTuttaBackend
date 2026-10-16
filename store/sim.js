@@ -4,10 +4,10 @@ const { getLatestPoint } = require("./gpsStore");
 // ------------------------------------------------------------------
 // Scripted sim runs (in-memory test rig — lost on restart, by design).
 // Compiles a 1Hz position script off a session's RESOLVED geometry:
-// hold behind the line → cross at the gun → marks in order (gate pairs
-// collapse to a near-buoy crossing; single marks aim off-center on the
-// required side — rounding means passing on one side, no laps) → finish.
-// Legs sail long single-tack boards; delivery is wall-clock stateless:
+// hold behind the line → cross at the gun → offset roundings in order
+// (gate pairs collapse to a near-buoy crossing threaded through the pair;
+// single marks loop at a fixed radius on the required side) → finish.
+// Legs sail direct rhumb lines; delivery is wall-clock stateless:
 // idx = elapsed seconds since start.
 // ------------------------------------------------------------------
 
@@ -17,46 +17,6 @@ const DEG_M = 111320;
 const runs = new Map(); // runId -> run
 let runSeq = 1;
 const MAX_RUNS = 20;
-
-// Boards for a leg: upwind legs tack, downwind legs gybe (exactly one long
-// tack); reaches and short hops sail direct. Boards sit ~45° off the wind,
-// northbound/southbound legs opening on opposite sides so beats and runs
-// separate. Legs ENDING at a gate crossing sail straight: a gate approach
-// is a precision run, and boards swinging ±h would clip buoy circles from
-// off-sides, scoring the pass on board geometry instead of the cross.
-// Returns [a, ...mids, b].
-function tackPoints(a, b, windDir, legIdx, straight) {
-    const L = distM(a, b);
-    if (L < 60 || straight) return [a, b];
-    let off = Math.abs(bearing(a, b) - windDir) % 360;
-    if (off > 180) off = 360 - off;
-    const up = off < 60, down = off > 120;
-    if (!up && !down) return [a, b];
-    const T = (up ? 45 : 40) * Math.PI / 180;
-    // Minimal tacks, kept long: exactly one per beating/running leg.
-    // Northbound and southbound legs open on opposite sides so beats and
-    // runs separate instead of painting over each other.
-    const n = 1;
-    const h = (L / (2 * (n + 1))) * Math.tan(T);
-    const rb = bearing(a, b) * Math.PI / 180;
-    const ux = Math.sin(rb), uy = Math.cos(rb); // along-track (E,N)
-    const nx = Math.cos(rb), ny = -Math.sin(rb); // right of course (E,N)
-    const cosLat = Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180);
-    let side = rb * 180 / Math.PI < 180 ? 1 : -1;
-    const pts = [a];
-    for (let k = 1; k <= n; k++) {
-        const f = k / (n + 1);
-        const E = f * L * ux + side * h * nx;
-        const N = f * L * uy + side * h * ny;
-        pts.push({
-            lat: a.lat + N / DEG_M,
-            lon: a.lon + E / (DEG_M * cosLat),
-        });
-        side = -side;
-    }
-    pts.push(b);
-    return pts;
-}
 
 // Deterministic LCG so replays are identical.
 function lcg(seed) {
@@ -113,11 +73,11 @@ function scriptWaypoints(session) {
             seenGate.add(m.gate);
             const pair = (gates[m.gate] || []);
             if (pair.length === 2) {
-                // Cross the gate line near the first buoy (a real rounding,
+                // Cross the gate line near the first buoy (a real threading,
                 // not a center drive-through): 30% across, but never more
-                // than ~18m off the buoy, so wide gates still enter the
-                // circle and the device scores the pass. The buoy is kept
-                // so the script can loop it (see gateLoop).
+                // than ~18m off the buoy, so wide gates still thread close
+                // to a mark. The buoy is kept so the script can loop it
+                // (see gateLoop).
                 const wdt = Math.max(1, distM(pair[0], pair[1]));
                 const f = Math.min(0.3, 18 / wdt);
                 ordered.push({
@@ -143,11 +103,15 @@ function scriptWaypoints(session) {
     return ordered;
 }
 
-function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.now() } = {}) {
+function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.now(), roundingM = 15 } = {}) {
     // Clamp raised to 40kn (a fast dinghy is ~25-30); the default moved to
     // 28 so an auto-created run sails at a realistic pace without the
     // caller having to ask.
     const v = Math.max(1, Math.min(40, Number(speedKn) || 28)) * KN_TO_MS; // m/s
+    // Rounding radius: fixed meters (default 15), not mark-coupled — the
+    // device scores angles, so the loop must wrap the same way on every
+    // course. Clamped to a sane band; per-call override for experiments.
+    const roundM = Math.max(5, Math.min(100, Number(roundingM) || 15));
     const wps = scriptWaypoints(session);
     if (wps.length < 2) throw Object.assign(new Error("session has no sailable route"), { status: 400 });
 
@@ -180,9 +144,9 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
 
     const rng = lcg(Math.floor(nowMs / 1000) + wps.length * 7919);
     const samples = [];
-    // Roundings included: marks aim off-center (side-honored), arcs turn
-    // around each buoy until heading to the next (spec §rounding).
-    const route = expandRoundings(offsetRoundings(wps));
+    // Roundings included: marks loop at the fixed radius (side-honored)
+    // until heading to the next (loop spec in roundLoop, below).
+    const route = expandRoundings(offsetRoundings(wps, roundM), roundM);
     const pushLeg = (a, b, t0) => {
         const L = distM(a, b);
         const dur = Math.max(1, L / v);
@@ -218,13 +182,11 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
             course: (firstLegBrg + gauss(rng) * 3 + 360) % 360,
         });
     }
-    // Boards: the hold→line approach stays direct (timed gun cross);
-    // course legs tack/gybe, except gate approaches which run straight in.
+    // Legs sail direct (rhumb lines + per-sample noise in pushLeg):
+    // beating boards are todo 27's territory, and boards swinging wide of
+    // the approach break the rounding the device scores by.
     const sailed = [route[0]];
-    for (let i = 0; i + 1 < route.length; i++) {
-        const boards = tackPoints(route[i], route[i + 1], session.windDir || 0, i, route[i + 1].kind === "gate");
-        for (let k = 1; k < boards.length; k++) sailed.push(boards[k]);
-    }
+    for (let i = 0; i + 1 < route.length; i++) sailed.push(route[i + 1]);
 
     // Sail THROUGH the finish line, not up to it.
     //
@@ -254,19 +216,17 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
     return { samples: flat, gunSec: Math.round((gunMs - startMs) / 1000), durationSec: flat.length ? flat[flat.length - 1].t : 0 };
 }
 
-// Rounding clearance: aim single marks off-center (0.7r) so the track
-// passes the buoy on the required side instead of spearing it — still
-// inside the circle, so the device scores the pass. Honors the side
-// (P: mark stays left → aim right of course; S: mirror); free sides
-// alternate. Rounding means passing on one side — no laps.
-function offsetRoundings(wps) {
+// Rounding offset: aim single marks off-center by the fixed rounding
+// radius, on the required side (P: mark stays left → aim right of course;
+// S: mirror); free sides alternate. The loop (roundLoop) does the actual
+// wrapping; the offset only sets which side it starts from.
+function offsetRoundings(wps, roundM) {
     return wps.map((w, i) => {
         if (w.kind !== "mark" || i === 0) return w;
         const prev = wps[i - 1];
         const brg = bearing(prev, w) * Math.PI / 180;
         const nx = Math.cos(brg), ny = -Math.sin(brg); // right of course
-        const r = w.r || 30;
-        const c = r * 0.7;
+        const c = roundM;
         const s = w.side === "P" ? 1 : w.side === "S" ? -1 : i % 2 === 0 ? 1 : -1;
         const cosLat = Math.cos(w.lat * Math.PI / 180);
         return {
@@ -285,8 +245,8 @@ function offsetRoundings(wps) {
 // the sense that continues the approach heading (no kink turning in).
 // The arc ends where its exit tangent already points at the next waypoint,
 // so the buoy falls behind and the track flows on.
-function roundLoop(entry, buoy, prevWp, nextWp, side) {
-    const R = (buoy.r || 30) + 20;
+function roundLoop(entry, buoy, prevWp, nextWp, side, roundM) {
+    const R = roundM;
     const D = Math.PI / 180;
     const norm = x => ((x % 360) + 360) % 360;
     const kink = (from, to) => Math.abs(norm(to - from + 180) - 180);
@@ -321,7 +281,7 @@ function roundLoop(entry, buoy, prevWp, nextWp, side) {
 // small bend, turnarounds a wide one — same rule). Arcs need the legs on
 // both sides (approach sets the entry, next sets the exit tangent), so the
 // previous waypoint rides along.
-function expandRoundings(wps) {
+function expandRoundings(wps, roundM) {
     const out = [];
     for (let i = 0; i < wps.length; i++) {
         const w = wps[i];
@@ -332,21 +292,21 @@ function expandRoundings(wps) {
         const single = w.kind === "mark" && w.cx !== undefined;
         if (!gate && !single) continue;
         const buoy = gate ? w.buoy : { lat: w.cx, lon: w.cy, r: w.r };
-        for (const p of roundLoop(w, buoy, prev, wps[i + 1], gate ? "G" : w.side)) {
+        for (const p of roundLoop(w, buoy, prev, wps[i + 1], gate ? "G" : w.side, roundM)) {
             out.push({ ...p, kind: gate ? "gate-loop" : "mark-loop" });
         }
     }
     return out;
 }
 
-async function createRun({ sessionId, deviceId, speedKn, startInSec }) {
+async function createRun({ sessionId, deviceId, speedKn, startInSec, roundingM }) {
     const session = await getSession(sessionId);
     if (!session) throw Object.assign(new Error("session not found"), { status: 404 });
     if (!deviceId || typeof deviceId !== "string" || !deviceId.trim()) {
         throw Object.assign(new Error("deviceId required"), { status: 400 });
     }
     const nowMs = Date.now();
-    const { samples, gunSec, durationSec } = compileScript(session, { speedKn, startInSec, nowMs });
+    const { samples, gunSec, durationSec } = compileScript(session, { speedKn, startInSec, nowMs, roundingM });
     if (runs.size >= MAX_RUNS) {
         const oldest = [...runs.keys()][0];
         runs.delete(oldest);
@@ -356,6 +316,7 @@ async function createRun({ sessionId, deviceId, speedKn, startInSec }) {
         id, deviceId: deviceId.trim(), sessionId: session.id,
         createdMs: nowMs, startMs: nowMs, gunMs: nowMs + gunSec * 1000,
         speedKn: Math.max(1, Math.min(40, Number(speedKn) || 28)),
+        roundingM: Math.max(5, Math.min(100, Number(roundingM) || 15)),
         samples, gunSec, durationSec,
         echoes: [], // device-reported receipts {t,lat,lon,speed,course,at}
     };
@@ -389,7 +350,7 @@ function runMeta(run, nowMs = Date.now()) {
     return {
         id: run.id, deviceId: run.deviceId, sessionId: run.sessionId,
         createdMs: run.createdMs, startMs: run.startMs, gunMs: run.gunMs,
-        speedKn: run.speedKn, samples: run.samples.length,
+        speedKn: run.speedKn, roundingM: run.roundingM, samples: run.samples.length,
         gunSec: run.gunSec, durationSec: run.durationSec,
         elapsedSec: elapsed,
         done: elapsed >= run.durationSec,

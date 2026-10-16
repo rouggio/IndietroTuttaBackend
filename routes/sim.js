@@ -26,16 +26,16 @@ function sendErr(res, e) {
 
 // --------------------------------------------------
 // POST /sim/runs — compile a scripted run off a session.
-// {sessionId, deviceId?, speedKn?, startInSec?} — deviceId absent =
-// one run per session boat.
+// {sessionId, deviceId?, speedKn?, startInSec?, roundingM?} — deviceId absent =
+// one run per session boat. roundingM = rounding radius in meters (default 15).
 // --------------------------------------------------
 
 router.post("/sim/runs", async (req, res) => {
     try {
-        const { sessionId, deviceId, speedKn, startInSec } = req.body || {};
+        const { sessionId, deviceId, speedKn, startInSec, roundingM } = req.body || {};
         if (!sessionId) return res.status(400).json({ error: "sessionId required" });
         if (deviceId) {
-            res.status(201).json(await createRun({ sessionId, deviceId, speedKn, startInSec }));
+            res.status(201).json(await createRun({ sessionId, deviceId, speedKn, startInSec, roundingM }));
             return;
         }
         const { getSession } = require("../store/sessionStore");
@@ -44,7 +44,7 @@ router.post("/sim/runs", async (req, res) => {
         if (!s.boats.length) return res.status(400).json({ error: "session has no boats" });
         const runs = [];
         for (const b of s.boats) {
-            runs.push(await createRun({ sessionId, deviceId: b.deviceId, speedKn, startInSec }));
+            runs.push(await createRun({ sessionId, deviceId: b.deviceId, speedKn, startInSec, roundingM }));
         }
         res.status(201).json({ runs });
     } catch (e) {

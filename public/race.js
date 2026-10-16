@@ -976,6 +976,14 @@ async function builderSaveCourse() {
     const msg = document.getElementById("builder-msg");
     const name = document.getElementById("builder-name").value.trim() || "Untitled course";
     const desc = document.getElementById("builder-desc").value.trim() || null;
+    // Lines are mandatory: start and finish must be line segments (a race
+    // needs a line to cross — point pins can't be scored). The API stays
+    // permissive for test-built courses; the editor does not save without.
+    if (!CB.startLine || !CB.finishLine) {
+        msg.textContent = "Set the start and finish lines first (lines are required).";
+        msg.className = "boat-info-err";
+        return null;
+    }
     // UI shorthand "start" → server form {sameAs:"start"}
     const finishOut = CB.finishLine === "start" ? { sameAs: "start" } : CB.finishLine;
     try {
