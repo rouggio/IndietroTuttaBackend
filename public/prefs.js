@@ -62,7 +62,12 @@ function saveUI() {
             },
             panelPos: ["device-panel", "wind-panel", "course-panel", "session-panel", "session-create-panel", "session-detail-panel", "settings-panel", "clean-panel", "features-panel", "builder-panel"].reduce((acc, id) => {
                 const el = document.getElementById(id);
-                if (el && el.style.left && el.style.top) acc[id] = { left: el.style.left, top: el.style.top };
+                // The pane's ANCHOR, not where it happens to sit right now.
+                // While the window is small a pane is displayed clamped, and
+                // persisting that would quietly rewrite the user's layout on
+                // every unrelated save.
+                const pos = el && (typeof panelSavedPos === "function" ? panelSavedPos(el) : null);
+                if (pos && pos.left && pos.top) acc[id] = { left: pos.left, top: pos.top };
                 return acc;
             }, {}),
             // Positions chosen by avoidPanelOverlap rather than by hand, so a
@@ -113,6 +118,10 @@ function loadUI() {
                     // clamped). Settle the whole pane inside the viewport.
                     // Ownership is unaffected: this only corrects reachability.
                     clampPanelIntoView(el);
+                    // The restored value IS the pane's home — remember it, so a
+                    // later window shrink clamps for display but still lets it
+                    // walk back once there is room again.
+                    setPanelAnchor(el);
                     if (autoPlaced.has(id)) {
                         // Ours: keep it eligible for the next cascade pass.
                         el.dataset.autoPlaced = "1";

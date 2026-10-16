@@ -229,7 +229,7 @@ function renderFeatures(data) {
         return `
         <div class="feature-row">
             <span class="feature-n">${escHtml(f.n)}</span>
-            <span class="feature-title" title="${escHtml("todo " + f.n + depHint)}">${escHtml(f.title)}</span>
+            <span class="feature-title${f.inProgress ? " inprog" : ""}" title="${escHtml("todo " + f.n + depHint + (f.inProgress ? " (in progress)" : ""))}">${escHtml(f.title)}${f.inProgress ? " ✨" : ""}</span>
             <span class="feature-pri p${Math.min(8, pri)}" title="Build priority ${pri} of 8 (1 first)${depHint}">P${pri}</span>
             <span class="feature-cost c${Math.min(5, Math.max(1, Number(f.cost) || 1))}" title="Cost ${escHtml(f.cost)} of 5">${escHtml(f.cost)}</span>
         </div>`;

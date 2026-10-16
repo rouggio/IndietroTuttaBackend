@@ -271,8 +271,10 @@ function makePanelDraggable(el) {
         drag = null;
         // Boat panels were the one drag with no bounds at all: pull one past
         // the right edge and it is simply gone (nothing persisted it, so it
-        // came back on reload). Same clamp as the floating panes.
+        // came back on reload). Same clamp as the floating panes, then the
+        // dropped position becomes its home.
         clampPanelIntoView(el);
+        setPanelAnchor(el);
         if (map.dragging) map.dragging.enable();
     };
     el.addEventListener("pointerup", end);

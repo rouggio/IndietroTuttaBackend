@@ -242,6 +242,7 @@ async function loadCourses() {
 // --- Builder state + preview layers ---
 const CB = {
     open: false, courseId: null, name: "", desc: "", marks: [],
+    buoyDiam: 5,
     origin: null, windDir: 315, scale: 1, placing: null, // 'marks' | 'move' | 'lineA' | 'lineB' | null
     startLine: null, finishLine: null, // wind-frame {ax,ay,bx,by}; finish may be "start"
     lineA: null, lineTarget: "start", // pending first endpoint (absolute) + which line
@@ -308,6 +309,7 @@ function openBuilder(init = {}) {
     CB.courseId = init.courseId ?? null;
     CB.name = init.name || "";
     CB.desc = init.desc || "";
+    CB.buoyDiam = init.buoyDiam ?? 5;
     CB.marks = (init.marks || []).map(m => ({ ...m }));
     CB.origin = init.origin || null;
     CB.windDir = 0; // courses assume N wind — no wind UI in the editor
@@ -329,6 +331,8 @@ function openBuilder(init = {}) {
     document.getElementById("builder-name").value = CB.name;
     document.getElementById("builder-desc").value = CB.desc;
     document.getElementById("builder-scale").value = CB.scale;
+    const bd = document.getElementById("builder-buoy-diam");
+    if (bd) bd.value = CB.buoyDiam ?? 5;
     document.getElementById("builder-msg").textContent = "";
     document.getElementById("builderLabels")?.classList.toggle("arming", CB.showLabels);
     document.getElementById("builder-origin-label").textContent = CB.origin
@@ -350,6 +354,7 @@ function closeBuilder() {
 document.getElementById("builderClose")?.addEventListener("click", closeBuilder);
 document.getElementById("builder-name")?.addEventListener("input", e => { CB.name = e.target.value; saveBuilderDraft(); });
 document.getElementById("builder-desc")?.addEventListener("input", e => { CB.desc = e.target.value; saveBuilderDraft(); });
+document.getElementById("builder-buoy-diam")?.addEventListener("input", e => { CB.buoyDiam = Number(e.target.value) || 5; saveBuilderDraft(); updateBuilderPreview(); });
 document.getElementById("builder-scale")?.addEventListener("change", e => {
     // Scale is an editor operation, not course state: bake the factor
     // into the model (marks + line endpoints) and reset to 1. Radii stay
@@ -759,6 +764,7 @@ function updateBuilderPreview() {
     const pileKeyOf = i => pileOf(i).join(",");
     resolved.forEach((m, i) => {
         PV.circles.push(L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(coursePreview));
+        PV.circles.push(L.circle([m.lat, m.lon], { radius: (m.buoyDiam || CB.buoyDiam || 5) * 0.5, color: "#dc2626", weight: 2, fillOpacity: 0.7, fillColor: "#dc2626" }).addTo(coursePreview));
         const col = MARK_COLORS[m.type] || "#f59e0b";
         arrowSides(m, i, resolved).forEach(sd => {
             const arr = roundingArc(m.lat, m.lon, m.r, sd);
@@ -977,12 +983,12 @@ async function builderSaveCourse() {
         if (CB.courseId) {
             res = await fetch(`/courses/${CB.courseId}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, desc, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut }),
+                body: JSON.stringify({ name, desc, buoyDiam: CB.buoyDiam ?? 5, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut }),
             });
         } else {
             res = await fetch("/courses", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, desc, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut }),
+                body: JSON.stringify({ name, desc, buoyDiam: CB.buoyDiam ?? 5, marks: CB.marks, startLine: CB.startLine, finishLine: finishOut }),
             });
         }
         const j = await res.json();
@@ -1279,6 +1285,7 @@ function renderSelectedPreview(s) {
     L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(selPreview);
     s.marks.forEach((m, i) => {
         L.circle([m.lat, m.lon], { radius: m.r || 30, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(selPreview);
+        L.circle([m.lat, m.lon], { radius: (m.buoyDiam || 5) * 0.5, color: "#dc2626", weight: 2, fillOpacity: 0.7, fillColor: "#dc2626" }).addTo(selPreview);
         const col = MARK_COLORS[m.type] || "#f59e0b";
         arrowSides(m, i, s.marks).forEach(sd => {
             const arr = roundingArc(m.lat, m.lon, m.r || 30, sd);
@@ -1336,6 +1343,7 @@ function renderSessPreview() {
     L.polyline(latlngs, { color: "#3b82f6", weight: 2, dashArray: "6 4", opacity: 0.9 }).addTo(sessPreview);
     marks.forEach((m, i) => {
         L.circle([m.lat, m.lon], { radius: m.r, color: MARK_COLORS[m.type] || "#f59e0b", weight: 2, fillOpacity: 0.08 }).addTo(sessPreview);
+        L.circle([m.lat, m.lon], { radius: (m.buoyDiam || 5) * 0.5, color: "#dc2626", weight: 2, fillOpacity: 0.7, fillColor: "#dc2626" }).addTo(sessPreview);
         const col = MARK_COLORS[m.type] || "#f59e0b";
         arrowSides(m, i, marks).forEach(sd => {
             const arr = roundingArc(m.lat, m.lon, m.r, sd);

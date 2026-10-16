@@ -239,6 +239,12 @@ async function initDb() {
         } catch (e) {
             if (!/duplicate column/i.test(e.message || "")) throw e;
         }
+        // Keep-out (buoy) diameter in metres, course-level, default 5.
+        try {
+            await c.execute(`ALTER TABLE courses ADD COLUMN buoyDiam REAL NOT NULL DEFAULT 5`);
+        } catch (e) {
+            if (!/duplicate column/i.test(e.message || "")) throw e;
+        }
         // Step 5/6: device run uploads (one row per device per session,
         // re-upload replaces). Step 7: committee signals for devices.
         await c.execute(`

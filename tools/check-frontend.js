@@ -201,6 +201,17 @@ function hasAll(src, subs) {
         && appJs.includes("clampPanelIntoView(el);"));
     check("panes: clamping never hands a pane back to the auto-placer",
         chromeJs.includes("dataset.moved") && !chromeJs.includes("delete el.dataset.moved;\n    clampPanelIntoView"));
+    // Panes remember where they were CHOSEN to be, so a shrink clamps for
+    // display only and growing the window walks them home again.
+    check("panes: anchors remember the chosen position (not the clamped one)",
+        hasAll(chromeJs, ["const panelAnchors = new Map()", "function setPanelAnchor(el)",
+            "function panelSavedPos(el)", "function reconcilePanelInView(el"]).ok
+        && prefsJs.includes("panelSavedPos(el)")
+        && prefsJs.includes("setPanelAnchor(el);")
+        && appJs.includes("setPanelAnchor(el);"));
+    check("panes: resize never persists the clamped position",
+        chromeJs.includes("reconcileAllPanels();")
+        && !/window\.addEventListener\("resize"[\s\S]{0,400}saveUI/.test(chromeJs));
 }
 
 // --- static: traces dropdown governs stored + live -----------------------------------

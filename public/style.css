@@ -909,6 +909,7 @@ html, body {
 }
 
 .feature-title { flex: 1; }
+.feature-title.inprog { color: #f59e0b; font-weight: 700; text-decoration: underline overline; }
 
 /* cost badge: 1-2 cheap (green), 3 medium (amber), 4-5 heavy (red) */
 .feature-cost {

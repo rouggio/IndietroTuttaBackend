@@ -303,12 +303,37 @@ try {
             run("parseFloat(window.__p.style.left)") === 500 - 300 - 8
             && run("parseFloat(window.__p.style.top)") === 400 - 200 - 8);
         run(`window.innerWidth = 1200; window.innerHeight = 800; window.__p.style.display = "none"`);
+        // Anchors: a pane remembers where it was CHOSEN to be. Shrinking the
+        // window clamps for display only; growing it again walks the pane home.
+        run(`window.__p.style.display = "block"; window.__p._w = 300; window.__p._h = 200;
+             window.__p.style.left = "850px"; window.__p.style.top = "100px"; setPanelAnchor(window.__p)`);
+        run(`window.innerWidth = 700; window.dispatch("resize")`);
+        await new Promise(r => setTimeout(r, 250));
+        t("shrinking clamps for display but keeps the home",
+            run("parseFloat(window.__p.style.left)") === 700 - 300 - 8
+            && run("parseFloat(panelAnchors.get('device-panel').left)") === 850);
+        t("the clamped position is what gets persisted as home (no)",
+            run("parseFloat(panelSavedPos(window.__p).left)") === 850);
+        run(`window.innerWidth = 1200; window.dispatch("resize")`);
+        await new Promise(r => setTimeout(r, 250));
+        t("growing the window walks the pane back home",
+            run("parseFloat(window.__p.style.left)") === 850
+            && run("parseFloat(window.__p.style.top)") === 100);
+        // A deliberate move while the window is small becomes the new home.
+        run(`window.innerWidth = 700; window.dispatch("resize")`);
+        await new Promise(r => setTimeout(r, 250));
+        run(`window.__p.style.left = "60px"; window.__p.style.top = "60px"; setPanelAnchor(window.__p)`);
+        run(`window.innerWidth = 1200; window.dispatch("resize")`);
+        await new Promise(r => setTimeout(r, 250));
+        t("a move while small wins over the remembered home",
+            run("parseFloat(window.__p.style.left)") === 60);
+        run(`window.innerWidth = 1200; window.innerHeight = 800; window.__p.style.display = "none"`);
     } catch (e) { t("off-screen pane is clamped back inside", false, String(e).slice(0, 200)); }
     try {
         const raw = memStore.get("indietrotutta:ui");
         const saved = raw ? JSON.parse(raw) : null;
         t("prefs blob persisted", !!(saved && saved.timePreset === "today" && saved.isLive === true));
     } catch (e) { t("prefs blob persisted", false, String(e).slice(0, 120)); }
-    console.log(`\n${25 - failures.length}/25 passed`);
+    console.log(`\n${29 - failures.length}/29 passed`);
     process.exit(failures.length ? 1 : 0);
 })();

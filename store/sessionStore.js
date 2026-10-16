@@ -189,7 +189,7 @@ async function createSession(b) {
         courseId = course.id;
         courseShapeVersion = course.version;
         shapeName = course.name;
-        shape = { marks: course.marks, startLine: course.startLine || null, finishLine: course.finishLine === undefined ? null : course.finishLine };
+        shape = { marks: course.marks, startLine: course.startLine || null, finishLine: course.finishLine === undefined ? null : course.finishLine, buoyDiam: course.buoyDiam };
     } else if (b.snapshot && typeof b.snapshot === "object") {
         const snapErr = validateMarks(b.snapshot.marks, b.snapshot.startLine, b.snapshot.finishLine) ||
             validateLines(b.snapshot.startLine, b.snapshot.finishLine);
@@ -201,6 +201,7 @@ async function createSession(b) {
             marks: b.snapshot.marks,
             startLine: b.snapshot.startLine || null,
             finishLine: b.snapshot.finishLine === undefined ? null : b.snapshot.finishLine,
+            buoyDiam: b.snapshot.buoyDiam,
         };
     } else {
         throw Object.assign(new Error("courseId or snapshot required"), { status: 400 });
@@ -212,7 +213,11 @@ async function createSession(b) {
         windDir: b.windDir,
         scale: b.scale === undefined ? 1 : b.scale,
     };
-    const snapshot = shape.marks;
+    const baseBuoy = shape.buoyDiam === null || shape.buoyDiam === undefined ? 5 : Number(shape.buoyDiam);
+    const snapshot = shape.marks.map((m) => ({
+        ...m,
+        buoyDiam: m && m.buoyDiam !== undefined && m.buoyDiam !== null ? Number(m.buoyDiam) : baseBuoy,
+    }));
     const marks = resolveMarks(snapshot, inst);
     const linesSnap = { startLine: shape.startLine, finishLine: shape.finishLine };
     const lines = resolveLines(linesSnap, inst);

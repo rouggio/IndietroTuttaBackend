@@ -211,6 +211,7 @@ function rowToCourse(r) {
         marks: JSON.parse(r.marks),
         startLine: parseOpt(r.startLine),
         finishLine: parseOpt(r.finishLine),
+        buoyDiam: r.buoyDiam === null || r.buoyDiam === undefined ? 5 : Number(r.buoyDiam),
         version: r.version,
         // null for user courses; the seed key for the five read-only built-ins
         builtinKey: r.builtinKey || null,
@@ -222,7 +223,7 @@ function rowToCourse(r) {
 const memCourses = new Map();
 let memNextId = 1;
 
-async function createCourse({ name, desc = null, owner = null, marks, startLine = null, finishLine = null, builtinKey = null }) {
+async function createCourse({ name, desc = null, owner = null, marks, startLine = null, finishLine = null, buoyDiam, builtinKey = null }) {
     if (typeof name !== "string" || !name.trim() || name.trim().length > 64) {
         throw Object.assign(new Error("name must be 1..64 chars"), { status: 400 });
     }
@@ -232,6 +233,10 @@ async function createCourse({ name, desc = null, owner = null, marks, startLine 
     const err = validateMarks(marks, startLine, finishLine) || validateLines(startLine, finishLine);
     if (err) throw Object.assign(new Error(err), { status: 400 });
     const normFinish = finishLine === "start" ? { sameAs: "start" } : (finishLine === undefined ? null : finishLine);
+    const normBuoy = buoyDiam === null || buoyDiam === undefined ? 5 : Number(buoyDiam);
+    if (!Number.isFinite(normBuoy) || normBuoy < 1 || normBuoy > 30) {
+        throw Object.assign(new Error("buoyDiam must be 1..30m"), { status: 400 });
+    }
 
     const client = getClient();
     const clean = {
@@ -241,6 +246,7 @@ async function createCourse({ name, desc = null, owner = null, marks, startLine 
         marks,
         startLine: startLine || null,
         finishLine: normFinish,
+        buoyDiam: normBuoy,
         builtinKey: builtinKey || null,
     };
     if (!client) {
@@ -252,10 +258,11 @@ async function createCourse({ name, desc = null, owner = null, marks, startLine 
     await initDb();
     const now = new Date().toISOString();
     const res = await client.execute({
-        sql: "INSERT INTO courses (name, desc, owner, marks, startLine, finishLine, version, builtinKey, createdAt) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        sql: "INSERT INTO courses (name, desc, owner, marks, startLine, finishLine, buoyDiam, version, builtinKey, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
         args: [clean.name, clean.desc, clean.owner, JSON.stringify(clean.marks),
             clean.startLine ? JSON.stringify(clean.startLine) : null,
             clean.finishLine ? JSON.stringify(clean.finishLine) : null,
+            clean.buoyDiam,
             clean.builtinKey, now],
     });
     return { id: Number(res.lastInsertRowid), ...clean, version: 1, createdAt: now };
@@ -292,7 +299,7 @@ function assertEditable(course) {
     }
 }
 
-async function updateCourse(id, { name, desc, marks, startLine, finishLine }) {
+async function updateCourse(id, { name, desc, marks, startLine, finishLine, buoyDiam }) {
     const cur = await getCourse(id);
     if (!cur) return null;
     assertEditable(cur);
@@ -304,6 +311,7 @@ async function updateCourse(id, { name, desc, marks, startLine, finishLine }) {
         finishLine: finishLine !== undefined
             ? (finishLine === "start" ? { sameAs: "start" } : finishLine)
             : cur.finishLine,
+        buoyDiam: buoyDiam !== undefined ? buoyDiam : cur.buoyDiam,
     };
     if (typeof next.name !== "string" || !next.name.trim() || next.name.trim().length > 64) {
         throw Object.assign(new Error("name must be 1..64 chars"), { status: 400 });
@@ -313,19 +321,24 @@ async function updateCourse(id, { name, desc, marks, startLine, finishLine }) {
     }
     const err = validateMarks(next.marks, next.startLine, next.finishLine) || validateLines(next.startLine, next.finishLine);
     if (err) throw Object.assign(new Error(err), { status: 400 });
+    const nb = next.buoyDiam === null || next.buoyDiam === undefined ? 5 : Number(next.buoyDiam);
+    if (!Number.isFinite(nb) || nb < 1 || nb > 30) {
+        throw Object.assign(new Error("buoyDiam must be 1..30m"), { status: 400 });
+    }
+    next.buoyDiam = nb;
 
     const client = getClient();
     if (!client) {
-        const updated = { ...cur, name: next.name.trim(), desc: typeof next.desc === "string" && next.desc.trim() ? next.desc.trim().slice(0, 140) : null, marks: next.marks, startLine: next.startLine || null, finishLine: next.finishLine === undefined ? null : next.finishLine, version: cur.version + 1 };
+        const updated = { ...cur, name: next.name.trim(), desc: typeof next.desc === "string" && next.desc.trim() ? next.desc.trim().slice(0, 140) : null, marks: next.marks, startLine: next.startLine || null, finishLine: next.finishLine === undefined ? null : next.finishLine, buoyDiam: next.buoyDiam, version: cur.version + 1 };
         memCourses.set(cur.id, updated);
         return updated;
     }
     await initDb();
     await client.execute({
-        sql: "UPDATE courses SET name = ?, desc = ?, marks = ?, startLine = ?, finishLine = ?, version = version + 1 WHERE id = ?",
+        sql: "UPDATE courses SET name = ?, desc = ?, marks = ?, startLine = ?, finishLine = ?, buoyDiam = ?, version = version + 1 WHERE id = ?",
         args: [next.name.trim(), (typeof next.desc === "string" && next.desc.trim() ? next.desc.trim().slice(0, 140) : null), JSON.stringify(next.marks),
             next.startLine ? JSON.stringify(next.startLine) : null,
-            next.finishLine ? JSON.stringify(next.finishLine) : null, cur.id],
+            next.finishLine ? JSON.stringify(next.finishLine) : null, next.buoyDiam, cur.id],
     });
     return getCourse(cur.id);
 }
