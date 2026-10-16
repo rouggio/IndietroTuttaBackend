@@ -852,7 +852,7 @@ html, body {
     gap: 8px;
 }
 
-/* Open-features pane: numbered list + cost badge (1 cheap .. 5 heavy) */
+/* TODO pane: numbered list + cost badge (1 cheap .. 5 heavy) */
 #features-panel {
     position: absolute;
     top: 58px;

@@ -169,8 +169,8 @@ if (settingsBtn && settingsPanel) {
 }
 document.getElementById("settingsClose")?.addEventListener("click", () => toggleEl("settings-panel", false));
 
-// Open-features pane: the parked roadmap with a cost score per item.
-// Data lives in public/features.json (mirrors PLAN.md § Todo), fetched lazily
+// TODO pane: the parked roadmap (feats + bugs) with a cost score per item.
+// Data lives in public/features.json (mirrors ROADMAP.md § Actionable todos), fetched lazily
 // on first open and cached - it changes with the repo, not with the session.
 let featuresData = null;
 async function loadFeatures() {
@@ -236,7 +236,7 @@ function renderFeatures(data) {
     }).join("");
     list.innerHTML = rows;
 }
-// Manual column sort for the features pane. Click a header: ascending,
+// Manual column sort for the TODO pane. Click a header: ascending,
 // again: descending, third click: back to computed order (featSortKey null).
 // Session-only, not persisted.
 let featSortKey = null; // "n" | "title" | "priority" | "cost" | null
