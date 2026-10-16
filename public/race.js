@@ -190,7 +190,7 @@ async function loadCourses() {
         <div class="device-meta" style="margin:0 0 4px 0"><b>Built-in courses</b></div>
         <div class="course-grid">` + builtins.map(c => `
             <div class="course-card" data-copy-course="${c.id}" title="Built-in: click to save a copy">
-                <b>${escHtml(c.name)}</b>
+                <b>${escHtml(c.name)} <span style="font-size:10.5px;color:#64748b;font-weight:600">#${c.id}</span></b>
                 <span class="device-meta">${c.desc ? escHtml(c.desc) : escHtml(courseSummary(c))}</span>
             </div>`).join("") + `
             <div class="course-card" data-blank-course>
@@ -200,7 +200,7 @@ async function loadCourses() {
             <div class="device-meta" style="margin:8px 0 4px 0"><b>My courses</b></div>
             <div class="course-grid">` + mine.map(c => `
             <div class="course-card" data-open-course="${c.id}">
-                <b>${escHtml(c.name)}</b>
+                <b>${escHtml(c.name)} <span style="font-size:10.5px;color:#64748b;font-weight:600">#${c.id}</span></b>
                 <span class="device-meta">${c.desc ? escHtml(c.desc) : escHtml(courseSummary(c))} · v${c.version}</span>
                 <button data-del-course="${c.id}" title="Delete course" style="float:right;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;font-size:11px">×</button>
             </div>`).join("") + `</div>` : "");
@@ -1417,7 +1417,7 @@ async function renderSessionCreate() {
             <input type="checkbox" data-sb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
         el.innerHTML = `
             <div class="device-meta" style="margin-bottom:6px">Pick a course, place it on the chart, set the wind</div>
-            <div class="builder-row"><select id="sess-course">${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)}${c.builtinKey ? " (built-in)" : ""}</option>`).join("")}</select></div>
+            <div class="builder-row"><select id="sess-course">${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)} · #${c.id}${c.builtinKey ? " (built-in)" : ""}</option>`).join("")}</select></div>
             <div class="builder-row">
                 <span id="sess-origin" class="device-meta" style="flex:2">Origin: —</span>
                 <span class="device-meta" title="Press-drag the course itself to place it; drag anywhere else to pan">drag course to place</span>

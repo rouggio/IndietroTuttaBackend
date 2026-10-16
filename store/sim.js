@@ -1,14 +1,19 @@
 const { getSession } = require("./sessionStore");
 const { getLatestPoint } = require("./gpsStore");
+const {
+    shapeOfSession, compileShapeRoute, resolveRoute,
+    routeForSession, routeForCourse, clampRounding, DEFAULT_ROUNDING_M,
+} = require("./simShape");
 
 // ------------------------------------------------------------------
 // Scripted sim runs (in-memory test rig — lost on restart, by design).
-// Compiles a 1Hz position script off a session's RESOLVED geometry:
-// hold behind the line → cross at the gun → offset roundings in order
-// (gate pairs collapse to a near-buoy crossing threaded through the pair;
-// single marks loop at a fixed radius on the required side) → finish.
-// Legs sail direct rhumb lines; delivery is wall-clock stateless:
-// idx = elapsed seconds since start.
+// The GEOMETRY (hold behind the line → cross at the gun → a 15 m pass on
+// the required side of every mark, gates threaded through the pair → 
+// finish + overrun) comes from store/simShape.js, compiled once per course
+// SHAPE and cached on the course row (todo 32). What lives here is only
+// what is not part of the shape: the speed, the gun, the pre-start hold
+// (metres in real water, not shape units) and the 1 Hz sampling.
+// Delivery is wall-clock stateless: idx = elapsed seconds since start.
 // ------------------------------------------------------------------
 
 const KN_TO_MS = 0.514444;
@@ -47,71 +52,26 @@ function destPt(p, brgDeg, dM) {
     const dLon = (dM * Math.sin(r)) / (DEG_M * Math.cos(p.lat * Math.PI / 180));
     return { lat: p.lat + dLat, lon: p.lon + dLon };
 }
-function segCenter(seg) {
-    return { lat: (seg.latA + seg.latB) / 2, lon: (seg.lonA + seg.lonB) / 2 };
-}
-function effectiveFinish(session) {
-    if (session.finishLine && session.finishLine.sameAs === "start") return session.startLine;
-    return session.finishLine;
-}
 
-// Ordered waypoints the script sails through.
-function scriptWaypoints(session) {
-    const gates = {};
-    session.marks.forEach(m => {
-        if (m.type === "gate" && m.gate) {
-            (gates[m.gate] = gates[m.gate] || []).push(m);
-        }
-    });
-    // Walk marks in order, collapsing gate pairs to pair centers.
-    const ordered = [];
-    const seenGate = new Set();
-    if (session.startLine) ordered.push({ ...segCenter(session.startLine), kind: "line" });
-    session.marks.forEach(m => {
-        if (m.type === "gate" && m.gate) {
-            if (seenGate.has(m.gate)) return;
-            seenGate.add(m.gate);
-            const pair = (gates[m.gate] || []);
-            if (pair.length === 2) {
-                // Cross the gate line near the first buoy (a real threading,
-                // not a center drive-through): 30% across, but never more
-                // than ~18m off the buoy, so wide gates thread close to a
-                // mark. Crossing the segment IS the gate pass.
-                const wdt = Math.max(1, distM(pair[0], pair[1]));
-                const f = Math.min(0.3, 18 / wdt);
-                ordered.push({
-                    lat: pair[0].lat + (pair[1].lat - pair[0].lat) * f,
-                    lon: pair[0].lon + (pair[1].lon - pair[0].lon) * f,
-                    kind: "gate",
-                    buoy: { lat: pair[0].lat, lon: pair[0].lon, r: pair[0].r || 30 },
-                });
-            } else {
-                pair.forEach(q => ordered.push({ lat: q.lat, lon: q.lon, kind: "gate" }));
-            }
-        } else {
-            ordered.push({ lat: m.lat, lon: m.lon, kind: m.type, r: m.r, side: m.side });
-        }
-    });
-    const fin = effectiveFinish(session);
-    if (fin && session.startLine && fin === session.startLine) {
-        // shared finish: line center already at both ends — append once
-        ordered.push({ ...segCenter(session.startLine), kind: "finish" });
-    } else if (fin) {
-        ordered.push({ ...segCenter(fin), kind: "finish" });
-    }
-    return ordered;
-}
+// Ordered waypoints, rounding offsets and gate threading now live in
+// store/simShape.js (compiled per SHAPE, cached on the course — todo 32).
+// What is left here is the sampling: speed, noise, the pre-start hold and
+// the gun.
 
-function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.now(), roundingM = 15 } = {}) {
+function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.now(), roundingM = 15, routeWps = null } = {}) {
     // Clamp raised to 40kn (a fast dinghy is ~25-30); the default moved to
     // 28 so an auto-created run sails at a realistic pace without the
     // caller having to ask.
     const v = Math.max(1, Math.min(40, Number(speedKn) || 28)) * KN_TO_MS; // m/s
-    // Rounding radius: fixed meters (default 15), not mark-coupled — the
-    // device scores angles, so the loop must wrap the same way on every
-    // course. Clamped to a sane band; per-call override for experiments.
-    const roundM = Math.max(5, Math.min(100, Number(roundingM) || 15));
-    const wps = scriptWaypoints(session);
+    const roundM = clampRounding(roundingM === undefined ? DEFAULT_ROUNDING_M : roundingM);
+    // Shape-space route (start line → marks with their 15 m pass → finish),
+    // then placed on the water. A caller that already resolved it through
+    // the course cache hands it in; otherwise it is compiled in place, so
+    // this stays synchronous and pure for the check tools.
+    const route = Array.isArray(routeWps) && routeWps.length
+        ? routeWps
+        : compileShapeRoute(shapeOfSession(session), roundM);
+    const wps = resolveRoute(route, session);
     if (wps.length < 2) throw Object.assign(new Error("session has no sailable route"), { status: 400 });
 
     // Gun: session startTime when sensibly future, else soon.
@@ -143,13 +103,11 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
 
     const rng = lcg(Math.floor(nowMs / 1000) + wps.length * 7919);
     const samples = [];
-    // Fly-bys, not loops: each mark is an offset waypoint holding the
-    // required side (15m abeam reads ~170° of excursion with a clean
-    // 0→180 triangle — everything the device scores by). Arcs that loop
-    // the buoy exit on luck: M1–M3 scored only because their loops
-    // happened to face the next mark, M4's identical loop faced away and
-    // the triangle never cleared 90.
-    const route = offsetRoundings(wps, roundM);
+    // Fly-bys, not loops: each mark waypoint already holds the required
+    // side and sits `roundM` metres off the buoy (the pass IS the
+    // rounding). Arcs that loop the buoy exit on luck: M1–M3 once scored
+    // only because their loops happened to face the next mark, M4's
+    // identical loop faced away and the triangle never cleared 90.
     const pushLeg = (a, b, t0) => {
         const L = distM(a, b);
         const dur = Math.max(1, L / v);
@@ -189,8 +147,7 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
     // legs stay direct — no beating boards (dropped with todo 27), and
     // boards swinging wide of the approach break the rounding the device
     // scores by.
-    const sailed = [route[0]];
-    for (let i = 0; i + 1 < route.length; i++) sailed.push(route[i + 1]);
+    const sailed = [...wps];
 
     // Sail THROUGH the finish line, not up to it.
     //
@@ -203,7 +160,7 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
     // than the device's CROSS_RANGE_M (150m) so the crossing is a sustained
     // stretch of many samples, not a coin flip at the end of the feed.
     const FINISH_OVERRUN_M = 200;
-    if (sailed.length >= 2 && route[route.length - 1].kind === "finish") {
+    if (sailed.length >= 2 && wps[wps.length - 1].kind === "finish") {
         const last = sailed[sailed.length - 1];
         const prev = sailed[sailed.length - 2];
         sailed.push(destPt(last, bearing(prev, last), FINISH_OVERRUN_M));
@@ -220,30 +177,8 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
     return { samples: flat, gunSec: Math.round((gunMs - startMs) / 1000), durationSec: flat.length ? flat[flat.length - 1].t : 0 };
 }
 
-// Rounding offset: aim single marks off-center by the fixed rounding
-// radius, on the required side (P: mark stays left → aim right of course;
-// S: mirror); free sides alternate. The offset IS the rounding: a 15m
-// abeam pass reads ~170° of excursion with a clean triangle — no loops.
-function offsetRoundings(wps, roundM) {
-    return wps.map((w, i) => {
-        if (w.kind !== "mark" || i === 0) return w;
-        const prev = wps[i - 1];
-        const brg = bearing(prev, w) * Math.PI / 180;
-        const nx = Math.cos(brg), ny = -Math.sin(brg); // right of course
-        const c = roundM;
-        const s = w.side === "P" ? 1 : w.side === "S" ? -1 : i % 2 === 0 ? 1 : -1;
-        const cosLat = Math.cos(w.lat * Math.PI / 180);
-        return {
-            ...w,
-            cx: w.lat, cy: w.lon, // true center (arcs need it)
-            lat: w.lat + ((s * c * ny) / DEG_M),
-            lon: w.lon + ((s * c * nx) / (DEG_M * cosLat)),
-        };
-    });
-}
-
-// (Rounding arcs removed: looping the buoy exits on luck — the offset
-// fly-by is the whole rounding. See 2026-10-16 straight-marks M4.)
+// (Rounding offset and gate threading moved to store/simShape.js when the
+// route became a property of the course SHAPE — todo 32.)
 
 async function createRun({ sessionId, deviceId, speedKn, startInSec, roundingM }) {
     const session = await getSession(sessionId);
@@ -252,7 +187,12 @@ async function createRun({ sessionId, deviceId, speedKn, startInSec, roundingM }
         throw Object.assign(new Error("deviceId required"), { status: 400 });
     }
     const nowMs = Date.now();
-    const { samples, gunSec, durationSec } = compileScript(session, { speedKn, startInSec, nowMs, roundingM });
+    const roundM = clampRounding(roundingM === undefined ? DEFAULT_ROUNDING_M : roundingM);
+    // Compile once per course SHAPE: hits the course's stored route when
+    // the shape is unchanged, compiles (and stores) on a miss. Sessions
+    // never compile a route the course already owns.
+    const { wps: routeWps } = await routeForSession(session, roundM);
+    const { samples, gunSec, durationSec } = compileScript(session, { speedKn, startInSec, nowMs, roundingM: roundM, routeWps });
     if (runs.size >= MAX_RUNS) {
         const oldest = [...runs.keys()][0];
         runs.delete(oldest);
@@ -262,7 +202,7 @@ async function createRun({ sessionId, deviceId, speedKn, startInSec, roundingM }
         id, deviceId: deviceId.trim(), sessionId: session.id,
         createdMs: nowMs, startMs: nowMs, gunMs: nowMs + gunSec * 1000,
         speedKn: Math.max(1, Math.min(40, Number(speedKn) || 28)),
-        roundingM: Math.max(5, Math.min(100, Number(roundingM) || 15)),
+        roundingM: roundM,
         samples, gunSec, durationSec,
         echoes: [], // device-reported receipts {t,lat,lon,speed,course,at}
     };
@@ -402,6 +342,7 @@ function activeRunForDevice(deviceId, nowMs = Date.now()) {
 module.exports = {
     createRun, getRun, listRuns, deleteRun, echoSample, nextSample, activeRunForDevice, runMeta,
     compileScript, // exported for unit checks
+    routeForSession, routeForCourse, // todo 32: shape-compiled route (cache-aware)
     wanderSample, wanderAnchorFor, wanderNext, wanderBatch, setPushedAnchor,
     nextBatch, SIM_BATCH_MAX,
 };

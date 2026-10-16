@@ -1,0 +1,45 @@
+meta {
+  name: Course sim route (shape)
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{baseUrl}}/courses/:id/sim-route
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 35
+}
+
+params:query {
+  roundingM: 15
+}
+
+docs {
+  200 { courseId, name, version, builtinKey, roundingM, key, cached, shape:{marks,startLine,finishLine}, wps:[{x,y,kind,side?,ref?}] }
+  404 { error }
+
+  The scripted route compiled on the course SHAPE (todo 32), in wind-frame
+  metres (x = east, y = upwind) and NOT placed on the water: start line
+  centre, then every mark already offset `roundingM` metres to its
+  required side (gates collapsed to a crossing point near the first buoy),
+  then the finish centre. A session only rotates / scales / translates
+  this list onto its own origin and wind.
+
+  `key` is a hash of the shape; it is what makes the stored route
+  self-invalidating. `cached: true` means it came off the course row
+  (compiled once, reused); false means it was compiled for this call and
+  stored. Editing a course changes the shape, hence the key, hence a
+  recompile — there is nothing to invalidate by hand.
+
+  `?roundingM=` recompiles at another pass distance (5..100, default 15).
+  Reading a built-in is fine and nothing here needs write access: the
+  compiled route is stored on the course row as server bookkeeping, and on
+  a built-in only that cache column is ever touched.
+
+  Same source as tools/draw-routes.js, which draws one figure per course
+  so the route can be checked by eye.
+}

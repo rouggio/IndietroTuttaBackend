@@ -353,6 +353,55 @@ async function deleteCourse(id) {
     return res.rowsAffected > 0;
 }
 
+// ------------------------------------------------------------------
+// Compiled simulator route (todo 32).
+//
+// Server bookkeeping on the course row: the scripted route is a property
+// of the SHAPE, so it is compiled once and reused by every session on
+// that shape. Read and written only by store/simShape.js — it is not part
+// of rowToCourse, so it never travels in a course payload.
+//
+// Writable on built-ins too: read-only means the SHAPE cannot change, and
+// this cache is not the shape. `version` is the human-facing trigger for
+// "the course changed"; the stored `key` (a hash of the shape) is the
+// actual guard, so even a stale blob can only miss, never mislead.
+// ------------------------------------------------------------------
+
+function parseSimRoute(v) {
+    if (!v) return null;
+    try {
+        const o = JSON.parse(v);
+        return o && typeof o === "object" && Array.isArray(o.wps) ? o : null;
+    } catch {
+        return null;
+    }
+}
+
+async function getSimRoute(id) {
+    const client = getClient();
+    if (!client) {
+        const c = memCourses.get(Number(id));
+        return c ? parseSimRoute(c.simRoute) : null;
+    }
+    await initDb();
+    const res = await client.execute({ sql: "SELECT simRoute FROM courses WHERE id = ?", args: [Number(id)] });
+    return res.rows.length ? parseSimRoute(res.rows[0].simRoute) : null;
+}
+
+async function putSimRoute(id, route) {
+    const json = JSON.stringify(route);
+    const client = getClient();
+    if (!client) {
+        const c = memCourses.get(Number(id));
+        if (!c) return false;
+        c.simRoute = json;
+        return true;
+    }
+    await initDb();
+    const res = await client.execute({ sql: "UPDATE courses SET simRoute = ? WHERE id = ?", args: [json, Number(id)] });
+    return res.rowsAffected > 0;
+}
+
 // Insert any built-in shape whose builtinKey is absent. Idempotent: after the
 // first run every key exists, so restarts never duplicate. A built-in whose
 // row was hand-edited keeps its edit (we do not overwrite existing keys).
@@ -394,4 +443,6 @@ module.exports = {
     updateCourse,
     deleteCourse,
     seedBuiltinCourses,
+    getSimRoute,
+    putSimRoute,
 };

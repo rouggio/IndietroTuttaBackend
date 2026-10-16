@@ -245,6 +245,15 @@ async function initDb() {
         } catch (e) {
             if (!/duplicate column/i.test(e.message || "")) throw e;
         }
+        // Compiled scripted route for this course's SHAPE (todo 32). JSON
+        // {key, roundingM, wps} — a cache: the key is a hash of the shape, so
+        // an edited course simply misses and recompiles. Writably present on
+        // built-ins too (their shape is read-only, this column is not).
+        try {
+            await c.execute(`ALTER TABLE courses ADD COLUMN simRoute TEXT`);
+        } catch (e) {
+            if (!/duplicate column/i.test(e.message || "")) throw e;
+        }
         // Step 5/6: device run uploads (one row per device per session,
         // re-upload replaces). Step 7: committee signals for devices.
         await c.execute(`

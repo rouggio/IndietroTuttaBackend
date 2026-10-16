@@ -88,4 +88,37 @@ router.delete("/courses/:id", async (req, res) => {
     }
 });
 
+// --------------------------------------------------
+// GET /courses/:id/sim-route — the compiled simulator route for this
+// course's SHAPE (todo 32). Wind-frame metres, no placement: the start
+// line centre, then every mark already offset to the required side by
+// `roundingM` (default 15m), gates collapsed to their crossing point,
+// then the finish centre. A session rotates/scales/places exactly this
+// list; it is compiled once per shape and kept on the course row.
+// `?roundingM=` recompiles at another radius (experiments).
+// --------------------------------------------------
+
+router.get("/courses/:id/sim-route", async (req, res) => {
+    try {
+        const c = await getCourse(req.params.id);
+        if (!c) return res.status(404).json({ error: "course not found" });
+        const { routeForCourse, shapeOfCourse, DEFAULT_ROUNDING_M } = require("../store/simShape");
+        const { key, roundingM, wps, cached } = await routeForCourse(
+            c,
+            req.query.roundingM === undefined ? DEFAULT_ROUNDING_M : req.query.roundingM
+        );
+        res.json({
+            courseId: c.id,
+            name: c.name,
+            version: c.version,
+            builtinKey: c.builtinKey || null,
+            roundingM, key, cached,
+            shape: shapeOfCourse(c),
+            wps,
+        });
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
 module.exports = router;
