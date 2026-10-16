@@ -119,8 +119,8 @@ const segXing = (a, b, c, d) => {
     while (prog < marks.length && (marks[prog].type === "start" || marks[prog].type === "none")) prog++;
 
     // Per-leg engine mirror over the script samples.
-    const leg = { init: false, mn: 0, mx: 0, sm: null, dema: -1, mind: -1, armed: false, tri: false, thr: false, prev: null };
-    const legReset = () => { leg.init = false; leg.mn = leg.mx = 0; leg.sm = null; leg.dema = leg.mind = -1; leg.armed = leg.tri = leg.thr = false; leg.prev = null; };
+    const leg = { init: false, mn: 0, mx: 0, sm: null, st: 0, dema: -1, mind: -1, armed: false, tri: false, thr: false, prev: null };
+    const legReset = () => { leg.init = false; leg.mn = leg.mx = 0; leg.sm = null; leg.st = 0; leg.dema = leg.mind = -1; leg.armed = leg.tri = leg.thr = false; leg.prev = null; };
     const unwrapNear = (ref, a) => {
         let d = a - ref;
         while (d < -180) d += 360;
@@ -144,12 +144,13 @@ const segXing = (a, b, c, d) => {
             if (leg.thr && clears && leg.tri && N) { done.push(`PASS mark ${prog + 1} (gate)`); prog = pairEnd(prog) + 1; legReset(); }
         } else {
             const raw = norm360(courseTo(p, T));
-            if (!leg.init) { leg.sm = raw; leg.mn = leg.mx = raw; leg.init = true; }
+            if (!leg.init) { leg.sm = raw; leg.mn = leg.mx = raw; leg.init = true; leg.st = 0; }
             else {
                 const u = unwrapNear(leg.sm, raw);
                 leg.sm = 0.6 * leg.sm + 0.4 * u;
-                if (leg.sm < leg.mn) leg.mn = leg.sm;
-                if (leg.sm > leg.mx) leg.mx = leg.sm;
+                if (leg.sm < leg.mn) { leg.mn = leg.sm; leg.st = 0; }
+                else if (leg.sm > leg.mx) { leg.mx = leg.sm; leg.st = 0; }
+                else leg.st++;
             }
             const exc = leg.mx - leg.mn;
             const rd = distM(p, T);
@@ -166,11 +167,11 @@ const segXing = (a, b, c, d) => {
             }
             if (tri > TRI_SW) {
                 if (leg.tri) {
-                    if (exc >= PASS_EXC) { done.push(`PASS mark ${prog + 1} (exc=${exc.toFixed(0)} tri=${tri.toFixed(0)})`); prog++; legReset(); }
+                    if (exc >= PASS_EXC && leg.st <= 15) { done.push(`PASS mark ${prog + 1} (exc=${exc.toFixed(0)} tri=${tri.toFixed(0)})`); prog++; legReset(); }
                 } else leg.tri = true;
             } else {
                 leg.tri = false;
-                if (leg.mind > 0 && leg.dema > 2 * leg.mind && tri < 60) { legReset(); leg.prev = p; continue; }
+                if (leg.st > 15 && leg.mind > 0 && leg.dema > 2 * leg.mind && tri < 60) { legReset(); leg.prev = p; continue; }
             }
         }
         leg.prev = p;

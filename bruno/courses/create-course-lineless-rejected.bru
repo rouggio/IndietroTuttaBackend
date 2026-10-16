@@ -1,0 +1,30 @@
+meta {
+  name: Create course without lines is rejected
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/courses
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Lineless attempt",
+    "marks": [
+      { "x": 0, "y": 500, "r": 30, "side": "P", "type": "mark" },
+      { "x": 0, "y": 0, "r": 30, "side": "P", "type": "mark" }
+    ]
+  }
+}
+
+docs {
+  Lines are mandatory: no startLine/finishLine must 400 (a race needs a
+  line to cross). Expects 400 with a startLine/finishLine complaint.
+}

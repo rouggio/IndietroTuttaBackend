@@ -13,7 +13,7 @@
 # Usage: race.sh [distM] [gunSec] [courseId] [windDir]
 set -u
 DIST=${1:-30}; GUN=${2:-80}; COURSE=${3:-34}; WIND=${4:-45}
-DEV=http://192.168.0.106
+DEV=${DEV:-http://192.168.1.13}
 BE=http://localhost:3000
 LOG=/tmp/race_$(date -u +%H%M%S).log
 

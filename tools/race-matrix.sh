@@ -26,13 +26,19 @@ for COURSE in "${COURSES[@]}"; do
   sid=$(echo "$info" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const m=d.match(/session (\d+)/);console.log(m?m[1]:"")})')
   dur=$(echo "$info" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const m=d.match(/ (\d+)s$/m);console.log(m?m[1]:"240")})')
   cap=$(( (GUN + dur + 30) / 4 ))
+  # Baseline: the ring still holds the previous race — only lines never
+  # seen before count (otherwise a stale FINISH ends the new race at once).
+  base=$(mktemp)
+  curl -s --max-time 6 $DEV/serial | grep -oE '\[RACE\] .*' | sort -u > "$base"
   end=0
   for ((i = 1; i <= cap; i++)); do
     snap=$(curl -s --max-time 6 $DEV/serial)
-    echo "$snap" | grep -oE '\[RACE\] (started|passed|wrong side|finished|OCS|RECROSS|ABANDON).*' | sort -u
-    if echo "$snap" | grep -qE 'finished \(line|FINISH.*line|session unassigned|ABANDON'; then end=1; break; fi
+    fresh=$(echo "$snap" | grep -oE '\[RACE\] (started|passed|wrong side|finished|OCS|RECROSS|ABANDON|side armed|re-approach|gate threaded|last mark|session updated).*' | sort -u | grep -vxFf "$base" || true)
+    if [ -n "$fresh" ]; then echo "$fresh"; echo "$fresh" >> "$base"; fi
+    if echo "$fresh" | grep -qE 'finished \(line|session unassigned|ABANDON'; then end=1; break; fi
     sleep 4
   done
+  rm -f "$base"
   echo "--- upload ---"
   curl -s --max-time 10 "$BE/sessions/$sid/runs"
   echo ""

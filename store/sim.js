@@ -75,9 +75,8 @@ function scriptWaypoints(session) {
             if (pair.length === 2) {
                 // Cross the gate line near the first buoy (a real threading,
                 // not a center drive-through): 30% across, but never more
-                // than ~18m off the buoy, so wide gates still thread close
-                // to a mark. The buoy is kept so the script can loop it
-                // (see gateLoop).
+                // than ~18m off the buoy, so wide gates thread close to a
+                // mark. Crossing the segment IS the gate pass.
                 const wdt = Math.max(1, distM(pair[0], pair[1]));
                 const f = Math.min(0.3, 18 / wdt);
                 ordered.push({
@@ -144,9 +143,13 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
 
     const rng = lcg(Math.floor(nowMs / 1000) + wps.length * 7919);
     const samples = [];
-    // Roundings included: marks loop at the fixed radius (side-honored)
-    // until heading to the next (loop spec in roundLoop, below).
-    const route = expandRoundings(offsetRoundings(wps, roundM), roundM);
+    // Fly-bys, not loops: each mark is an offset waypoint holding the
+    // required side (15m abeam reads ~170° of excursion with a clean
+    // 0→180 triangle — everything the device scores by). Arcs that loop
+    // the buoy exit on luck: M1–M3 scored only because their loops
+    // happened to face the next mark, M4's identical loop faced away and
+    // the triangle never cleared 90.
+    const route = offsetRoundings(wps, roundM);
     const pushLeg = (a, b, t0) => {
         const L = distM(a, b);
         const dur = Math.max(1, L / v);
@@ -219,8 +222,8 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
 
 // Rounding offset: aim single marks off-center by the fixed rounding
 // radius, on the required side (P: mark stays left → aim right of course;
-// S: mirror); free sides alternate. The loop (roundLoop) does the actual
-// wrapping; the offset only sets which side it starts from.
+// S: mirror); free sides alternate. The offset IS the rounding: a 15m
+// abeam pass reads ~170° of excursion with a clean triangle — no loops.
 function offsetRoundings(wps, roundM) {
     return wps.map((w, i) => {
         if (w.kind !== "mark" || i === 0) return w;
@@ -239,66 +242,8 @@ function offsetRoundings(wps, roundM) {
     });
 }
 
-// Rounding arc: turn around the buoy from the entry angle until heading
-// to the next waypoint — in ONE steady rotational direction (never
-// S-curves, never full circles). Sense is the mark's directive (P
-// counter-clockwise = mark stays left, S clockwise); free (G) marks take
-// the sense that continues the approach heading (no kink turning in).
-// The arc ends where its exit tangent already points at the next waypoint,
-// so the buoy falls behind and the track flows on.
-function roundLoop(entry, buoy, prevWp, nextWp, side, roundM) {
-    const R = roundM;
-    const D = Math.PI / 180;
-    const norm = x => ((x % 360) + 360) % 360;
-    const kink = (from, to) => Math.abs(norm(to - from + 180) - 180);
-    const a0 = bearing(buoy, entry);
-    const hA = bearing(prevWp, entry);
-    const hE = bearing(entry, nextWp); // exit leg compass bearing
-    let sweep; // +CW, -CCW, degrees, always < 360
-    if (side === "S") {
-        sweep = norm(hE - 90 - a0);
-    } else if (side === "P") {
-        sweep = -norm(a0 - (hE + 90));
-    } else if (kink(hA, a0 + 90) <= kink(hA, a0 - 90)) {
-        sweep = norm(hE - 90 - a0);
-    } else {
-        sweep = -norm(a0 - (hE + 90));
-    }
-    const a0r = a0 * D, swr = sweep * D;
-    const N = Math.max(2, Math.round(Math.abs(sweep) / 30));
-    const cosLat = Math.cos(buoy.lat * Math.PI / 180);
-    const pts = [];
-    for (let k = 1; k <= N; k++) {
-        const a = a0r + (swr * k) / N;
-        pts.push({
-            lat: buoy.lat + (R * Math.cos(a)) / DEG_M,
-            lon: buoy.lon + (R * Math.sin(a)) / (DEG_M * cosLat),
-        });
-    }
-    return pts;
-}
-
-// Splice rounding arcs at every mark and gate crossing (pass-bys get a
-// small bend, turnarounds a wide one — same rule). Arcs need the legs on
-// both sides (approach sets the entry, next sets the exit tangent), so the
-// previous waypoint rides along.
-function expandRoundings(wps, roundM) {
-    const out = [];
-    for (let i = 0; i < wps.length; i++) {
-        const w = wps[i];
-        out.push(w);
-        if (i + 1 >= wps.length) continue;
-        const prev = i > 0 ? wps[i - 1] : w;
-        const gate = w.kind === "gate" && w.buoy;
-        const single = w.kind === "mark" && w.cx !== undefined;
-        if (!gate && !single) continue;
-        const buoy = gate ? w.buoy : { lat: w.cx, lon: w.cy, r: w.r };
-        for (const p of roundLoop(w, buoy, prev, wps[i + 1], gate ? "G" : w.side, roundM)) {
-            out.push({ ...p, kind: gate ? "gate-loop" : "mark-loop" });
-        }
-    }
-    return out;
-}
+// (Rounding arcs removed: looping the buoy exits on luck — the offset
+// fly-by is the whole rounding. See 2026-10-16 straight-marks M4.)
 
 async function createRun({ sessionId, deviceId, speedKn, startInSec, roundingM }) {
     const session = await getSession(sessionId);

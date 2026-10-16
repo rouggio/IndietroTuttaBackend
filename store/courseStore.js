@@ -118,8 +118,8 @@ function byBuiltinThenName(a, b) {
 }
 
 // Returns null when valid, otherwise an error string.
-// A defined startLine replaces the start point (same for finish);
-// without lines, first/last point marks stay mandatory.
+// Start and finish MUST be line segments: point pins are rejected, so a
+// course always has a line to cross (reads stay tolerant of old rows).
 function validateMarks(marks, startLine = null, finishLine = null) {
     if (!Array.isArray(marks) || marks.length < 1 || marks.length > 10) {
         return "marks must be an array of 1..10 entries";
@@ -137,6 +137,9 @@ function validateMarks(marks, startLine = null, finishLine = null) {
         }
         if (!SIDES.includes(m.side)) return `marks[${i}].side must be P, S or G`;
         if (!TYPES.includes(m.type)) return `marks[${i}].type must be start, mark, gate or finish`;
+        if (m.type === "start" || m.type === "finish") {
+            return `marks[${i}] must not be type ${m.type}: define startLine/finishLine instead`;
+        }
         if (m.gate !== undefined && (typeof m.gate !== "string" || !m.gate)) {
             return `marks[${i}].gate must be a non-empty string when present`;
         }
@@ -144,11 +147,8 @@ function validateMarks(marks, startLine = null, finishLine = null) {
             return `marks[${i}].sourceUid must be a string when present`;
         }
     }
-    if (marks[0].type !== "start" && !startLine) return "marks[0] must be type start (or define a startLine)";
-    const hasFinishLine = !!finishLine;
-    if (marks[marks.length - 1].type !== "finish" && !hasFinishLine) {
-        return "last mark must be type finish (or define a finishLine)";
-    }
+    if (!startLine) return "a startLine is required (point pins are not allowed)";
+    if (!finishLine) return "a finishLine is required ({sameAs:start} allowed)";
     // gate entries must come in pairs sharing one id
     const gates = {};
     for (const m of marks) {
