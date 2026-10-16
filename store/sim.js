@@ -183,8 +183,9 @@ function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.no
         });
     }
     // Legs sail direct (rhumb lines + per-sample noise in pushLeg):
-    // beating boards are todo 27's territory, and boards swinging wide of
-    // the approach break the rounding the device scores by.
+    // legs stay direct — no beating boards (dropped with todo 27), and
+    // boards swinging wide of the approach break the rounding the device
+    // scores by.
     const sailed = [route[0]];
     for (let i = 0; i + 1 < route.length; i++) sailed.push(route[i + 1]);
 
