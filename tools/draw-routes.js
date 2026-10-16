@@ -19,7 +19,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { listCourses } = require("../store/courseStore");
-const { shapeOfCourse, compileShapeRoute, resolveRoute } = require("../store/simShape");
+const { shapeOfCourse, compileShapeRoute, resolveRoute, analyzeRoute } = require("../store/simShape");
 
 const OUT_DIR = path.join(__dirname, "..", "out", "sim-routes");
 const ROUNDING_M = 15;      // metri di passaggio dalla boa (lo stesso del generatore)
@@ -43,115 +43,12 @@ function gridStep(span) {
 const sideWord = s => (s === "P" ? "sinistra" : s === "S" ? "destra" : "indifferente");
 
 // -------------------------------------------------------- geometria piana
-// Tutto in coordinate vento: metri, x est, y sopravento.
+// Tutto in coordinate vento: metri, x est, y sopravento. La lettura dei
+// passaggi (lato, distanza, rotazione della boa) sta in store/simShape.js
+// (`analyzeRoute`), condivisa con l'endpoint che serve l'editor.
 
 const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
 const len = v => Math.hypot(v.x, v.y);
-const dot = (a, b) => a.x * b.x + a.y * b.y;
-
-// Punto più vicino su UN segmento, con il lato (segno del prodotto
-// vettoriale: > 0 = punto a sinistra di chi naviga da a verso b).
-function closestOnSeg(a, b, p) {
-    const d = sub(b, a);
-    const L2 = dot(d, d);
-    if (L2 < 1e-9) return { dist: len(sub(p, a)), point: { ...a }, cross: 0 };
-    let t = dot(sub(p, a), d) / L2;
-    t = Math.max(0, Math.min(1, t));
-    const q = { x: a.x + d.x * t, y: a.y + d.y * t };
-    return {
-        dist: len(sub(p, q)),
-        point: q,
-        cross: d.x * (p.y - a.y) - d.y * (p.x - a.x),
-    };
-}
-
-// Punto più vicino dell'intera spezzata (distanza minima vera).
-function closestApproach(poly, p) {
-    let best = null;
-    for (let i = 0; i + 1 < poly.length; i++) {
-        const c = closestOnSeg(poly[i], poly[i + 1], p);
-        if (!best || c.dist < best.dist) best = c;
-    }
-    return best;
-}
-
-// Spezzata fitta (un punto ogni ~5 m) per misurare la rotazione attorno
-// alla boa come la vede il device, non solo sui vertici.
-function densify(poly, stepM = 5) {
-    const dense = [poly[0]];
-    const at = [0];
-    for (let i = 1; i < poly.length; i++) {
-        const a = poly[i - 1], b = poly[i];
-        const L = len(sub(b, a));
-        const n = Math.max(1, Math.round(L / stepM));
-        for (let k = 1; k <= n; k++) {
-            dense.push({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n });
-        }
-        at.push(dense.length - 1);
-    }
-    return { dense, at };
-}
-
-// Di quanto la boa ruota attorno alla barca fra due punti della rotta:
-// quanto varia il rilevamento (barca → boa). È la misura che usa il
-// device per dire «boa girata».
-function sweepAround(poly, from, to, buoy) {
-    const brg = p => {
-        const d = sub(buoy, p);
-        return (Math.atan2(d.x, d.y) * 180) / Math.PI;   // 0° = boa a nord della barca
-    };
-    let prev = null, total = 0, min = Infinity, max = -Infinity;
-    const lo = Math.max(0, from), hi = Math.min(poly.length - 1, to);
-    for (let i = lo; i <= hi; i++) {
-        const b = brg(poly[i]);
-        if (prev !== null) {
-            let d = b - prev;
-            while (d > 180) d -= 360;
-            while (d < -180) d += 360;
-            total += d;
-        }
-        prev = b;
-        min = Math.min(min, total);
-        max = Math.max(max, total);
-    }
-    return { sweep: total, range: max - min };
-}
-
-// ------------------------------------------------------------- analisi
-// Per ogni boa (o porta) del percorso: come passa la rotta, da che lato,
-// a che distanza, e di quanto ruota attorno alla boa.
-//
-// Il LATO si legge sul lato di AVVICINAMENTO (il leg che finisce sul
-// waypoint della boa): è lì che il generatore mira fuori asse, mentre al
-// waypoint la boa è esattamente al traverso e i due lati si equivalgono.
-function analyze(shape, route) {
-    const poly = route.map(w => ({ x: w.x, y: w.y }));
-    const { dense, at } = densify(poly);
-    const rows = [];
-    route.forEach((w, i) => {
-        if (w.kind !== "mark" && w.kind !== "gate") return;
-        const centre = { x: w.cx !== undefined ? w.cx : w.x, y: w.cy !== undefined ? w.cy : w.y };
-        const ca = closestApproach(dense, centre);
-        const inLeg = i > 0 ? closestOnSeg(poly[i - 1], poly[i], centre) : ca;
-        const from = at[Math.max(0, i - 1)], to = at[Math.min(at.length - 1, i + 1)];
-        const sw = sweepAround(dense, from, to, centre);
-        rows.push({
-            label: w.kind === "gate" ? "porta" : "B" + (w.ref + 1),
-            index: w.ref,
-            kind: w.kind,
-            required: w.side || null,
-            passed: inLeg.cross > 0 ? "P" : "S",    // >0 = boa a sinistra
-            dist: ca.dist,                          // distanza minima su tutto il percorso
-            passDist: inLeg.dist,                   // distanza nel punto di passaggio
-            sweep: sw.sweep,
-            range: sw.range,
-            point: inLeg.point,                     // dove la barca gira la boa
-            nearPoint: ca.point,                    // dove le si avvicina di più (può essere altrove)
-            centre,
-        });
-    });
-    return rows;
-}
 
 // ------------------------------------------------------------ disegno
 // Punti fuori percorso disegnati insieme alla rotta: l'attesa dietro la
@@ -380,6 +277,7 @@ function tableFor(rows, course) {
             cells: [r.label, req, (ok ? "OK " : "NO ") + w, n1(r.dist) + " m" + (warn ? " !" : ""), n0(r.range) + "°"],
             ok,
             warn,
+            giroBad: !r.scored,
         };
     });
     return { head, body };
@@ -397,8 +295,9 @@ function tableSvg(table, x, y) {
         const ry = y + 20 + ri * 20;
         let px = x;
         row.cells.forEach((c, i) => {
-            const colour = i === 2 ? (row.ok ? "#15803d" : "#b91c1c") : (i === 3 && row.warn ? "#b45309" : "#0f172a");
-            const weight = i === 2 || (i === 3 && row.warn) ? "700" : "400";
+            const colour = i === 2 ? (row.ok ? "#15803d" : "#b91c1c")
+                : (i === 3 && row.warn) || (i === 4 && row.giroBad) ? "#b45309" : "#0f172a";
+            const weight = i === 2 || (i === 3 && row.warn) || (i === 4 && row.giroBad) ? "700" : "400";
             out += `<text x="${px}" y="${ry}" font-size="13" fill="${colour}" font-weight="${weight}">${esc(c)}</text>`;
             px += cols[i];
         });
@@ -444,7 +343,7 @@ function renderCourse(course, shape, route, rows) {
     <text x="0" y="0" font-size="12" fill="#64748b">Dall'alto si vede la forma del percorso così com'è salvata: la barca entra dal basso, la linea blu è partenza</text>
     <text x="0" y="16" font-size="12" fill="#64748b">(e arrivo), i cerchi tratteggiati sono le boe, la linea arancione è la traccia della barca-simulatore. Il «giro»</text>
     <text x="0" y="32" font-size="12" fill="#64748b">è di quanto la boa ruota attorno alla barca mentre la si passa: se supera 150° il device la conta come girata.</text>
-    <text x="0" y="48" font-size="12" fill="#b45309">Un «!» dopo la distanza vuol dire che la barca sfiora quella boa in un altro punto, non dove la gira.</text>
+    <text x="0" y="48" font-size="12" fill="#b45309">In arancione i «giri» sotto i 150° (il device non li conta) e i «!» (la barca sfiora quella boa in un altro punto).</text>
   </g>
 </svg>
 `;
@@ -512,7 +411,7 @@ async function main() {
     for (const c of courses) {
         const shape = shapeOfCourse(c);
         const route = compileShapeRoute(shape, ROUNDING_M);
-        const rows = analyze(shape, route);
+        const rows = analyzeRoute(shape, route);
         const svg = renderCourse(c, shape, route, rows);
         const file = `corso-${String(c.id).padStart(3, "0")}-${c.name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "corso"}.svg`;
         fs.writeFileSync(path.join(OUT_DIR, file), svg, "utf8");
@@ -520,7 +419,8 @@ async function main() {
         entries.push({ course: c, file, rows, marks: (shape.marks || []).length, total });
         const bad = rows.filter(r => r.required && r.required !== r.passed).map(r => r.label).join(", ");
         const over = rows.filter(r => r.dist < 10 && r.passDist - r.dist > 3).map(r => `${r.label} a ${n1(r.dist)} m`).join(", ");
-        console.log(`#${c.id} ${c.name}: ${rows.length} passaggi, ${bad ? "LATO SBAGLIATO a " + bad : "tutti dal lato giusto"}, giro ${rows.map(r => r.label + " " + n0(r.range) + "°").join(", ")}${over ? " | ci passa sopra: " + over : ""}`);
+        const notScored = rows.filter(r => !r.scored).map(r => `${r.label} ${n0(r.range)}°`).join(", ");
+        console.log(`#${c.id} ${c.name}: ${rows.length} passaggi, ${bad ? "LATO SBAGLIATO a " + bad : "tutti dal lato giusto"}, giro ${rows.map(r => r.label + " " + n0(r.range) + "°").join(", ")}${over ? " | ci passa sopra: " + over : ""}${notScored ? " | IL DEVICE NON CONTA: " + notScored : ""}`);
     }
     fs.writeFileSync(path.join(OUT_DIR, "index.html"), renderIndex(entries), "utf8");
     console.log(`\nscritti ${entries.length} disegni in ${OUT_DIR}`);
@@ -529,4 +429,4 @@ async function main() {
 
 if (require.main === module) main().catch(e => { console.error(e.message || e); process.exit(1); });
 
-module.exports = { analyze, renderCourse, compileShapeRoute, shapeOfCourse, ROUNDING_M };
+module.exports = { analyzeRoute, renderCourse, compileShapeRoute, shapeOfCourse, ROUNDING_M };

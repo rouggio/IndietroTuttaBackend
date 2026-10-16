@@ -6,6 +6,8 @@ const {
     getCourse,
     updateCourse,
     deleteCourse,
+    validateMarks,
+    validateLines,
 } = require("../store/courseStore");
 
 const router = express.Router();
@@ -116,6 +118,33 @@ router.get("/courses/:id/sim-route", async (req, res) => {
             shape: shapeOfCourse(c),
             wps,
         });
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
+// POST /courses/sim-route — compile a route for a shape that is not
+// saved yet (the course editor). Body: {marks, startLine, finishLine,
+// roundingM?} in wind-frame metres. Nothing is stored: same compiler as
+// the course cache (store/simShape.js), so the editor draws exactly the
+// route the simulator will sail. Validation is the course one — a course
+// without lines is not a course, and has no route.
+// -> {roundingM, key, wps, passes}
+// --------------------------------------------------
+
+router.post("/courses/sim-route", async (req, res) => {
+    try {
+        const { marks, startLine, roundingM } = req.body || {};
+        let { finishLine } = req.body || {};
+        if (finishLine === "start") finishLine = { sameAs: "start" };
+        const err = validateMarks(marks, startLine, finishLine) || validateLines(startLine, finishLine);
+        if (err) return res.status(400).json({ error: err });
+        const { compileShapeRoute, analyzeRoute, shapeKey, clampRounding } = require("../store/simShape");
+        const shape = { marks, startLine, finishLine };
+        const R = clampRounding(roundingM);
+        const wps = compileShapeRoute(shape, R);
+        res.json({ roundingM: R, key: shapeKey(shape, R), wps, passes: analyzeRoute(shape, wps) });
     } catch (e) {
         sendErr(res, e);
     }

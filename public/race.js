@@ -247,6 +247,7 @@ const CB = {
     startLine: null, finishLine: null, // wind-frame {ax,ay,bx,by}; finish may be "start"
     lineA: null, lineTarget: "start", // pending first endpoint (absolute) + which line
     showLabels: true,
+    showSimRoute: false,
 };
 // Oriented label span: text rotated along the on-screen line, line color.
 // a,b are [lat,lng]; north-up map, CSS rotate is clockwise.
@@ -294,6 +295,16 @@ function resolveSegJS(seg, o) {
 }
 let coursePreview = null; // L.layerGroup for resolved preview
 let PV = null; // live refs into the preview (route/segments/dots), for in-drag updates
+// Sim route overlay (builder toggle): the route the scripted boat actually
+// sails, compiled by the backend on the CURRENT draft shape — marks are
+// rounded `SIM_ROUNDING_M` metres off the buoy on the required side, gates
+// are threaded near the first buoy. Drawn on top of the shape preview and
+// refreshed (debounced) on every edit.
+let simRouteLayer = null;   // L.layerGroup (separate: survives a preview redraw)
+let simRouteTimer = null;
+let simRouteSeq = 0;        // guards out-of-order responses
+const SIM_ROUNDING_M = 15;
+const SIM_ROUTE_COLOR = "#0d9488";
 // BUILDER_DRAFT_KEY is declared up with UI_KEY (used by the prefs migration).
 
 function builderInst() {
@@ -333,8 +344,9 @@ function openBuilder(init = {}) {
     document.getElementById("builder-scale").value = CB.scale;
     const bd = document.getElementById("builder-buoy-diam");
     if (bd) bd.value = CB.buoyDiam ?? 5;
-    document.getElementById("builder-msg").textContent = "";
+    document.getElementById("builder-msg").innerHTML = "";
     document.getElementById("builderLabels")?.classList.toggle("arming", CB.showLabels);
+    document.getElementById("builderSimRoute")?.classList.toggle("arming", CB.showSimRoute);
     document.getElementById("builder-origin-label").textContent = CB.origin
         ? `Origin: ${CB.origin.lat.toFixed(5)}, ${CB.origin.lon.toFixed(5)}`
         : "Origin: not set (added automatically)";
@@ -347,6 +359,7 @@ function closeBuilder() {
     CB.open = false;
     CB.placing = null;
     if (courseMove) { courseMove = null; if (map.dragging) map.dragging.enable(); }
+    simRouteClear();
     document.getElementById("builder-panel").style.display = "none";
     if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
     syncBuilderArmButtons();
@@ -437,6 +450,15 @@ document.getElementById("builderLabels")?.addEventListener("click", () => {
     CB.showLabels = !CB.showLabels;
     document.getElementById("builderLabels")?.classList.toggle("arming", CB.showLabels);
     updateBuilderPreview(); saveBuilderDraft();
+});
+// Show the route the simulator will sail on THIS draft (marks rounded 15 m
+// off the buoy on the required side) — the same compiler that feeds the
+// mock boat, so what you see is what it sails.
+document.getElementById("builderSimRoute")?.addEventListener("click", () => {
+    CB.showSimRoute = !CB.showSimRoute;
+    document.getElementById("builderSimRoute")?.classList.toggle("arming", CB.showSimRoute);
+    if (!CB.showSimRoute) simRouteClear(); // instant off, no debounce wait
+    updateBuilderPreview();
 });
 document.getElementById("builderMoveCourse")?.addEventListener("click", () => {
     if (CB.placing === "move") { endCourseMove(); return; }
@@ -710,6 +732,7 @@ function updateBuilderPreview() {
     if (!CB.open) return;
     if (coursePreview) { map.removeLayer(coursePreview); coursePreview = null; }
     PV = null;
+    scheduleSimRoute();
     if (!CB.origin || (!CB.marks.length && !CB.startLine && !CB.finishLine && !CB.lineA)) return;
     coursePreview = L.layerGroup().addTo(map);
     PV = { marks: [], circles: [], arrows: [], route: null, legs: [], startSeg: null, finishSeg: null, startDots: [], finishDots: [], startMove: null, finishMove: null, startLenTip: null, finishLenTip: null, gateSegs: [] };
@@ -968,6 +991,88 @@ function updateBuilderPreview() {
             .bindTooltip(`line ${CB.lineTarget}: click second end`);
     }
     // (wind lives in the bottom-left dial, not on the chart)
+}
+
+// --- Sim route overlay (builder toggle) --------------------------------
+// The route the SCRIPTED boat sails, compiled by the backend on the draft
+// as it stands right now: start-line centre, then each mark offset
+// SIM_ROUNDING_M metres to the required side (gates threaded near the
+// first buoy), then the finish centre. Because the compiler is the same one
+// the mock boat uses, the dots answer the real question — does the boat
+// pass every buoy on the correct side, and will the device count the
+// rounding (it needs the buoy to turn 150° around the boat). Debounced: a
+// mark drag fires updateBuilderPreview() per frame.
+function scheduleSimRoute() {
+    if (simRouteTimer) clearTimeout(simRouteTimer);
+    simRouteTimer = setTimeout(drawSimRoute, 250);
+}
+function simRouteClear() {
+    if (simRouteTimer) { clearTimeout(simRouteTimer); simRouteTimer = null; }
+    simRouteSeq++; // orphan any in-flight response
+    if (simRouteLayer) { map.removeLayer(simRouteLayer); simRouteLayer = null; }
+    const msg = document.getElementById("builder-msg");
+    if (msg && msg.innerHTML.startsWith("Sim route")) { msg.innerHTML = ""; msg.className = "boat-info-err"; }
+}
+function simPassTip(pr, n) {
+    if (pr.kind === "gate") return `gate ${n} · the simulator crosses between the two buoys`;
+    const side = pr.passed === "P" ? "left" : "right";
+    const want = pr.required ? (pr.required === "P" ? "left" : "right") : null;
+    const bad = pr.required && !pr.ok ? ` — WRONG SIDE (course says ${want})` : "";
+    const scored = pr.scored
+        ? `counted as rounded (${Math.round(pr.range)}&deg;)`
+        : `NOT counted as rounded: buoy only turns ${Math.round(pr.range)}&deg;, needs 150&deg;`;
+    return `mark ${n} · passed on the ${side}${bad} · ${pr.passDist.toFixed(1)} m off · ${scored}`;
+}
+async function drawSimRoute() {
+    simRouteClear();
+    if (!CB.open || !CB.showSimRoute || !CB.origin || !CB.startLine || !CB.finishLine) return;
+    const seq = simRouteSeq;
+    const finishOut = CB.finishLine === "start" ? { sameAs: "start" } : CB.finishLine;
+    let res;
+    try {
+        res = await fetch("/courses/sim-route", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ marks: CB.marks, startLine: CB.startLine, finishLine: finishOut, roundingM: SIM_ROUNDING_M }),
+        });
+    } catch { return; }
+    let j = null;
+    try { j = await res.json(); } catch { /* empty body */ }
+    if (seq !== simRouteSeq || !CB.open || !CB.showSimRoute) return;
+    const msg = document.getElementById("builder-msg");
+    if (!res.ok) {
+        if (msg) { msg.innerHTML = `Sim route: ${(j && j.error) || "not available yet"}`; msg.className = "boat-info-err"; }
+        return;
+    }
+    if (msg && msg.innerHTML.startsWith("Sim route")) msg.innerHTML = "";
+    const wps = j.wps || [];
+    if (wps.length < 2) return;
+    const inst = builderInst();
+    const toLL = (x, y) => { const p = resolveMarksJS([{ x, y }], inst)[0]; return [p.lat, p.lon]; };
+    simRouteLayer = L.layerGroup().addTo(map);
+    L.polyline(wps.map(w => toLL(w.x, w.y)), { color: SIM_ROUTE_COLOR, weight: 3, opacity: 0.85 })
+        .bindTooltip(`simulator route · marks rounded ${SIM_ROUNDING_M} m off, in sailing order`, { sticky: true })
+        .addTo(simRouteLayer);
+    (j.passes || []).forEach(pr => {
+        const w = wps[pr.wi];
+        if (!w) return;
+        const colour = pr.kind === "gate" ? "#7c3aed" : (pr.ok ? "#15803d" : "#b91c1c");
+        L.circleMarker(toLL(pr.point.x, pr.point.y), { radius: 6, color: colour, weight: 2, fillColor: "#ffffff", fillOpacity: 1 })
+            .bindTooltip(simPassTip(pr, Number(pr.index) + 1))
+            .addTo(simRouteLayer);
+    });
+    if (msg) {
+        const passes = j.passes || [];
+        const wrong = passes.filter(p => p.required && !p.ok).map(p => Number(p.index) + 1);
+        const under = passes.filter(p => p.kind !== "gate" && !p.scored);
+        const roundings = passes.filter(p => p.kind !== "gate").length;
+        let s = "Sim route · " + (wrong.length ? `WRONG SIDE at mark ${wrong.join(", ")}` : "every mark passed on the required side");
+        if (under.length) {
+            s += ` · device counts ${roundings - under.length}/${roundings} roundings (mark ` +
+                under.map(p => `${Number(p.index) + 1} turns ${Math.round(p.range)}&deg;`).join(", ") + ")";
+        }
+        msg.innerHTML = s;
+        msg.className = wrong.length ? "boat-info-err" : "boat-info-ok";
+    }
 }
 
 // --- Save course (shape library only; sessions are born in Sessions) ---

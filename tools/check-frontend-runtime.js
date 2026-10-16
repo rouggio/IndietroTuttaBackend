@@ -10,8 +10,13 @@ const path = require("path");
 const vm = require("vm");
 
 const PUB = path.join(__dirname, "..", "public");
+// The route compiler is pure, so the harness can compile the very shape it
+// feeds the builder and check the drawn overlay against it.
+const { compileShapeRoute, analyzeRoute } = require("../store/simShape");
 const failures = [];
+let tests = 0;
 function t(name, cond, detail) {
+    tests++;
     console.log(`${cond ? "PASS" : "FAIL"}  ${name}${detail ? "  (" + detail + ")" : ""}`);
     if (!cond) failures.push(name);
 }
@@ -81,8 +86,12 @@ const mapStub = {
 };
 const layerStub = () => ({
     addTo() { return this; }, removeLayer() {}, eachLayer() {},
-    setLatLngs() {}, setLatLng() {}, getLatLngs: () => [], getLatLng: () => ({ lat: 0, lng: 0 }),
-    on() {}, setContent() { return this; },
+    // Chainables MUST return this: the bundle chains
+    // `.setLatLng(...).setContent(...).addTo(...)`, and returning undefined
+    // here made every chained call blow up inside the stub, not in the code.
+    setLatLngs() { return this; }, setLatLng() { return this; }, setContent() { return this; },
+    getLatLngs: () => [], getLatLng: () => ({ lat: 0, lng: 0 }),
+    on() { return this; }, bindTooltip() { return this; }, bindPopup() { return this; },
 });
 const jsonRes = (body) => ({
     ok: true, status: 200,
@@ -90,14 +99,31 @@ const jsonRes = (body) => ({
     text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
 });
 const errRes = (status) => ({ ok: false, status, json: async () => ({}), text: async () => "" });
+// Leaflet layer calls are recorded so a test can ask what got DRAWN, not
+// just what got computed (the builder's sim-route overlay).
+const lCalls = [];
+const recLayer = (name) => (...args) => { lCalls.push({ name, args }); return layerStub(); };
+// Last fetch as the bundle issued it (url + method + body), for asserting
+// what the UI actually asked the backend for.
+const lastFetch = { url: null, opts: null };
 const stubSession = {
     id: 999, name: "smoke", date: "2026-10-15", mode: "practice", status: "finished",
     courseVersion: 1, marks: [], windDir: 0, windSpeed: 0, scale: 1,
     startLine: null, finishLine: null, boats: [],
     startTime: new Date(Date.now() - 3600000).toISOString(),
 };
-function stubFetch(url) {
+function stubFetch(url, opts) {
     const u = String(url);
+    // The builder's sim-route toggle: answer with a REAL compiled route for
+    // the shape the frontend posted, so the drawn overlay can be compared
+    // against the compiler's own output.
+    if (u.endsWith("/courses/sim-route")) {
+        const body = JSON.parse((opts && opts.body) || "{}");
+        const shape = { marks: body.marks, startLine: body.startLine, finishLine: body.finishLine };
+        const R = body.roundingM || 15;
+        const wps = compileShapeRoute(shape, R);
+        return Promise.resolve(jsonRes({ roundingM: R, key: "smoke", wps, passes: analyzeRoute(shape, wps) }));
+    }
     const freshSim = [{
         lat: 45.0, lon: 9.0, speed: 5.1, course: 180, altitude: 5, sats: 9,
         timestamp: new Date().toISOString(), receivedAt: new Date().toISOString(),
@@ -135,7 +161,7 @@ const sandbox = {
         setItem: (k, v) => memStore.set(k, String(v)),
         removeItem: (k) => memStore.delete(k),
     },
-    fetch: stubFetch,
+    fetch: (url, opts) => { lastFetch.url = String(url); lastFetch.opts = opts || null; return stubFetch(url, opts); },
     URLSearchParams,
     URL,
     document: {
@@ -152,9 +178,9 @@ const sandbox = {
     L: {
         map: () => mapStub,
         tileLayer: () => ({ addTo() {} }),
-        layerGroup: layerStub,
-        marker: layerStub, circleMarker: layerStub, circle: layerStub,
-        polyline: layerStub, polygon: layerStub, tooltip: layerStub,
+        layerGroup: recLayer("layerGroup"),
+        marker: recLayer("marker"), circleMarker: recLayer("circleMarker"), circle: recLayer("circle"),
+        polyline: recLayer("polyline"), polygon: recLayer("polygon"), tooltip: layerStub,
         divIcon: (o) => o,
         control: () => ({ onAdd: null, addTo() { return this; }, _div: makeEl("ctl") }),
         DomUtil: { create: () => makeEl("dom") },
@@ -334,6 +360,44 @@ try {
         const saved = raw ? JSON.parse(raw) : null;
         t("prefs blob persisted", !!(saved && saved.timePreset === "today" && saved.isLive === true));
     } catch (e) { t("prefs blob persisted", false, String(e).slice(0, 120)); }
-    console.log(`\n${29 - failures.length}/29 passed`);
+
+    // --- builder: the "Sim route" toggle draws the compiled route ---------
+    // The builder posts the CURRENT draft to /courses/sim-route (an unsaved
+    // draft has no id) and draws what comes back, in the same wind frame as
+    // the shape preview. Proves the toggle reaches the compiler and that the
+    // overlay is what the compiler produced — not a JS re-implementation.
+    try {
+        const smokeShape = {
+            marks: [{ x: 0, y: 500, r: 30, side: "P", type: "mark" }, { x: 40, y: 200, r: 30, side: "S", type: "mark" }],
+            startLine: { ax: -40, ay: 0, bx: 40, by: 0 },
+            finishLine: { sameAs: "start" },
+        };
+        const smokeWps = compileShapeRoute(smokeShape, 15);
+        run(`openBuilder({ name: "Smoke", marks: ${JSON.stringify(smokeShape.marks)},
+            startLine: ${JSON.stringify(smokeShape.startLine)}, finishLine: "start",
+            origin: { lat: 45, lon: 9 } })`);
+        t("builder opens on a draft", run("CB.open") === true && run("CB.marks.length") === 2);
+        getEl("builderSimRoute").dispatch("click");
+        t("sim route toggle arms", run("CB.showSimRoute") === true && getEl("builderSimRoute")._cls["arming"] === true);
+        lCalls.length = 0;
+        lastFetch.url = null;
+        await run("drawSimRoute()");
+        t("sim route posts the draft shape", lastFetch.url === "/courses/sim-route" && lastFetch.opts.method === "POST");
+        const body = JSON.parse(lastFetch.opts.body);
+        t("the body carries the draft, not an id",
+            body.marks.length === 2 && body.roundingM === 15 && !body.courseId
+            && body.finishLine.sameAs === "start" && body.startLine.ax === -40);
+        const polys = lCalls.filter(c => c.name === "polyline");
+        t("sim route draws one line, the compiled one", polys.length === 1
+            && polys[0].args[0].length === smokeWps.length, `pts=${polys[0] ? polys[0].args[0].length : 0}/${smokeWps.length}`);
+        t("a pass marker per mark", lCalls.filter(c => c.name === "circleMarker").length === 2);
+        const msg = getEl("builder-msg").innerHTML;
+        t("the message reads out the pass", /Sim route/.test(msg) && /every mark passed on the required side/.test(msg), msg.slice(0, 80));
+        getEl("builderSimRoute").dispatch("click");
+        t("toggling it off clears the overlay", run("CB.showSimRoute") === false && run("simRouteLayer") === null);
+        run("closeBuilder()");
+    } catch (e) { t("builder sim route runs", false, String((e && e.message) || e).slice(0, 160)); }
+
+    console.log(`\n${tests - failures.length}/${tests} passed`);
     process.exit(failures.length ? 1 : 0);
 })();

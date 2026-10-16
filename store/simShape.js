@@ -223,8 +223,122 @@ async function routeForCourse(course, roundingM = DEFAULT_ROUNDING_M) {
     return routeForShape(shapeOfCourse(course), course && course.id, roundingM);
 }
 
+// -------------------------------------------------------------- analysis
+// How the compiled route actually passes each buoy, in SHAPE units. Same
+// maths the figures use (tools/draw-routes.js) and the numbers the device
+// cares about:
+//   dist     — the boat's closest approach over the whole route;
+//   passDist — the closest approach on the leg that AIMS at the mark (the
+//              pass proper) — the two differ when the boat also sails over
+//              a mark somewhere else, e.g. a leeward mark sitting on the
+//              finish line;
+//   passed   — which side of the boat the buoy is left on at the pass, read
+//              from the sign of the cross product on the approach leg;
+//   range    — how far the buoy rotates around the boat while passing
+//              (the "giro"): the device calls a rounding done past 150°,
+//              which is why a mark the boat turns back around reads ~90°
+//              and is never scored.
+const SWEEP_MIN_DEG = 150;
+
+const sub2 = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
+const len2 = v => Math.hypot(v.x, v.y);
+const dot2 = (a, b) => a.x * b.x + a.y * b.y;
+
+function closestOnSeg(a, b, p) {
+    const d = sub2(b, a);
+    const L2 = dot2(d, d);
+    if (L2 < 1e-9) return { dist: len2(sub2(p, a)), point: { ...a }, cross: 0 };
+    let t = dot2(sub2(p, a), d) / L2;
+    t = Math.max(0, Math.min(1, t));
+    const q = { x: a.x + d.x * t, y: a.y + d.y * t };
+    return {
+        dist: len2(sub2(p, q)),
+        point: q,
+        cross: d.x * (p.y - a.y) - d.y * (p.x - a.x), // > 0 = buoy to port
+    };
+}
+
+function closestApproach(poly, p) {
+    let best = null;
+    for (let i = 0; i + 1 < poly.length; i++) {
+        const c = closestOnSeg(poly[i], poly[i + 1], p);
+        if (!best || c.dist < best.dist) best = c;
+    }
+    return best;
+}
+
+// A point every ~5 m: the buoy's rotation is measured along the route, not
+// only at its vertices.
+function densify(poly, stepM = 5) {
+    const dense = [poly[0]];
+    const at = [0];
+    for (let i = 1; i < poly.length; i++) {
+        const a = poly[i - 1], b = poly[i];
+        const n = Math.max(1, Math.round(len2(sub2(b, a)) / stepM));
+        for (let k = 1; k <= n; k++) {
+            dense.push({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n });
+        }
+        at.push(dense.length - 1);
+    }
+    return { dense, at };
+}
+
+function sweepAround(poly, from, to, buoy) {
+    const brg = p => {
+        const d = sub2(buoy, p);
+        return (Math.atan2(d.x, d.y) * 180) / Math.PI; // 0° = buoy due north of the boat
+    };
+    let prev = null, total = 0, min = Infinity, max = -Infinity;
+    for (let i = Math.max(0, from); i <= Math.min(poly.length - 1, to); i++) {
+        const b = brg(poly[i]);
+        if (prev !== null) {
+            let d = b - prev;
+            while (d > 180) d -= 360;
+            while (d < -180) d += 360;
+            total += d;
+        }
+        prev = b;
+        min = Math.min(min, total);
+        max = Math.max(max, total);
+    }
+    return { sweep: total, range: max - min };
+}
+
+function analyzeRoute(shape, wps) {
+    const poly = (wps || []).map(w => ({ x: w.x, y: w.y }));
+    if (poly.length < 2) return [];
+    const { dense, at } = densify(poly);
+    const rows = [];
+    (wps || []).forEach((w, i) => {
+        if (w.kind !== "mark" && w.kind !== "gate") return;
+        const centre = { x: w.cx !== undefined ? w.cx : w.x, y: w.cy !== undefined ? w.cy : w.y };
+        const ca = closestApproach(dense, centre);
+        const inLeg = i > 0 ? closestOnSeg(poly[i - 1], poly[i], centre) : ca;
+        const sw = sweepAround(dense, at[Math.max(0, i - 1)], at[Math.min(at.length - 1, i + 1)], centre);
+        rows.push({
+            label: w.kind === "gate" ? "porta" : "B" + (w.ref + 1),
+            wi: i, // index into `wps` (waypoint this pass belongs to)
+            index: w.ref,
+            kind: w.kind,
+            required: w.side || null,
+            passed: inLeg.cross > 0 ? "P" : "S",
+            ok: !w.side || (inLeg.cross > 0 ? "P" : "S") === w.side,
+            dist: ca.dist,
+            passDist: inLeg.dist,
+            range: sw.range,
+            sweep: sw.sweep,
+            scored: w.kind === "gate" || sw.range >= SWEEP_MIN_DEG,
+            point: inLeg.point,
+            nearPoint: ca.point,
+            centre,
+        });
+    });
+    return rows;
+}
+
 module.exports = {
     DEFAULT_ROUNDING_M,
+    SWEEP_MIN_DEG,
     clampRounding,
     shapeOfCourse,
     shapeOfSession,
@@ -232,6 +346,7 @@ module.exports = {
     shapeWaypoints,
     compileShapeRoute,
     resolveRoute,
+    analyzeRoute,
     routeForShape,
     routeForSession,
     routeForCourse,
