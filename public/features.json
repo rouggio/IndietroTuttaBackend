@@ -39,6 +39,55 @@
         3
       ],
       "title": "Leaderboard overlay in replay (standings at cursor)"
+    },
+    {
+      "n": 33,
+      "cost": 2,
+      "priority": 7,
+      "deps": [],
+      "title": "Deleting a session leaves its runs and signals orphaned"
+    },
+    {
+      "n": 34,
+      "cost": 1,
+      "priority": 6,
+      "deps": [],
+      "title": "The distance readout leaves ghost pixels when it drops below 100"
+    },
+    {
+      "n": 35,
+      "cost": 2,
+      "priority": 6,
+      "deps": [],
+      "title": "Overview -> focus switch leaves ghosts (clipped label, line rows)"
+    },
+    {
+      "n": 36,
+      "cost": 2,
+      "priority": 7,
+      "deps": [],
+      "title": "Course lines are drawn past the race window frame"
+    },
+    {
+      "n": 37,
+      "cost": 2,
+      "priority": 6,
+      "deps": [],
+      "title": "The timer and distance readout mask race pixels underneath"
+    },
+    {
+      "n": 38,
+      "cost": 2,
+      "priority": 6,
+      "deps": [],
+      "title": "A FINISHED banner and the last race time held on screen"
+    },
+    {
+      "n": 39,
+      "cost": 1,
+      "priority": 6,
+      "deps": [],
+      "title": "A second map segment for the boat's own bearing (COG)"
     }
   ]
 }
