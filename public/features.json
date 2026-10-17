@@ -88,6 +88,13 @@
       "priority": 6,
       "deps": [],
       "title": "A second map segment for the boat's own bearing (COG)"
+    },
+    {
+      "n": 40,
+      "cost": 2,
+      "priority": 6,
+      "deps": [],
+      "title": "Highlight the active mark's index inside a piled label (1-3)"
     }
   ]
 }
