@@ -96,7 +96,29 @@ async function listRuns(sessionId) {    const sid = parseInt(sessionId, 10);
     return res.rows.map(rowToRun);
 }
 
-module.exports = { submitRun, listRuns, uploaders, uploadersBySession };
+module.exports = { submitRun, listRuns, uploaders, uploadersBySession, deleteRunsForSession };
+
+// Session-delete cascade (todo 33): a session takes its runs with it. The
+// count is taken BEFORE the delete because libSQL's rowsAffected is not a row
+// count (gpsStore.deletePoints hit the same thing and recounts for the same
+// reason) — the caller reports it, so a wrong number would be a wrong report.
+async function deleteRunsForSession(sessionId) {
+    const sid = parseInt(sessionId, 10);
+    if (!sid) return 0;
+    const client = getClient();
+    if (!client) {
+        const before = memRuns.length;
+        for (let i = memRuns.length - 1; i >= 0; i--) {
+            if (memRuns[i].sessionId === sid) memRuns.splice(i, 1);
+        }
+        return before - memRuns.length;
+    }
+    await initDb();
+    const c = await client.execute({ sql: "SELECT COUNT(*) AS n FROM runs WHERE sessionId = ?", args: [sid] });
+    const n = Number(c.rows[0].n) || 0;
+    if (n) await client.execute({ sql: "DELETE FROM runs WHERE sessionId = ?", args: [sid] });
+    return n;
+}
 
 // DeviceIds with at least one uploaded run (a run means that boat's race
 // is over — finished, DSQ, DNF or RET). Used to infer session status.

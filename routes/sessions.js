@@ -196,11 +196,13 @@ router.put("/sessions/:id", async (req, res) => {
 
 router.delete("/sessions/:id", async (req, res) => {
     try {
-        const ok = await deleteSession(req.params.id);
-        if (!ok) return res.status(404).json({ error: "session not found" });
+        const r = await deleteSession(req.params.id);
+        if (!r.deleted) return res.status(404).json({ error: "session not found" });
         clearGun(req.params.id);
         emit("session.deleted", { id: Number(req.params.id) });
-        res.json({ status: "deleted" });
+        // The cascade is reported, not silent: a delete takes the session's
+        // runs (results) and its signal log with it (todo 33).
+        res.json({ status: "deleted", runs: r.runs, signals: r.signals, routes: r.routes });
     } catch (e) {
         sendErr(res, e);
     }

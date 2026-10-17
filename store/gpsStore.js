@@ -252,9 +252,11 @@ async function countPoints({ deviceIds, start, end }) {
 }
 
 // ------------------------------------------------------------------
-// Ephemeral sim slot: mock uploads live here ONLY (never Turso).
-// One latest point per boat — no history anywhere, so a refresh can
-// only ever pick up upcoming fixes. Lost on restart.
+// Ephemeral sim slot: mock uploads live here for the LIVE map (one latest
+// point per boat, no history, lost on restart) — so a refresh can only ever
+// pick up upcoming fixes. They ALSO persist to gps_points while the boat is
+// racing (todo 9, routes/gps.js racingPersist) so a finished mock session
+// has a track; `node tools/prune-db.js --sim-gps` sweeps those.
 // ------------------------------------------------------------------
 const memSim = new Map(); // deviceId -> latest point
 

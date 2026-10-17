@@ -118,15 +118,20 @@ async function getRoutePoints(sessionId) {
 }
 
 // Called when a session is deleted so the table cannot accumulate orphans.
+// Returns how many rows went (0 when there were none) — the delete response
+// reports it, so the operator sees what the cascade actually did.
 async function deleteRoutesForSession(sessionId) {
     const sid = parseInt(sessionId, 10);
     if (!sid) return 0;
-    memRoutes.delete(sid);
+    const had = memRoutes.delete(sid) ? 1 : 0;
     const client = getClient();
-    if (!client) return 1;
+    if (!client) return had;
     await initDb();
-    await client.execute({ sql: "DELETE FROM sim_routes WHERE sessionId = ?", args: [sid] });
-    return 1;
+    // Counted before the delete: libSQL's rowsAffected is not a row count.
+    const c = await client.execute({ sql: "SELECT COUNT(*) AS n FROM sim_routes WHERE sessionId = ?", args: [sid] });
+    const n = Number(c.rows[0].n) || 0;
+    if (n) await client.execute({ sql: "DELETE FROM sim_routes WHERE sessionId = ?", args: [sid] });
+    return n;
 }
 
 module.exports = { saveRoute, getRoute, getRoutePoints, deleteRoutesForSession, toPoints };

@@ -1,7 +1,7 @@
 const { getClient, initDb } = require("./db");
 const { getCourse, validateMarks, validateLines } = require("./courseStore");
-const { uploaders, uploadersBySession } = require("./runStore");
-const { terminalBoats, terminalBoatsBySession } = require("./signalStore");
+const { uploaders, uploadersBySession, deleteRunsForSession } = require("./runStore");
+const { terminalBoats, terminalBoatsBySession, deleteSignalsForSession } = require("./signalStore");
 
 // ------------------------------------------------------------------
 // Sessions freeze a course onto a day: frozen course copy +
@@ -495,22 +495,44 @@ async function updateSession(id, b) {
     return getSession(cur.id);
 }
 
+// Deleting a session takes its children with it (todo 33): runs, committee
+// signals and the persisted mock route. They are keyed by sessionId and
+// nothing else can reach them once the session row is gone, so "keep them"
+// is not an option — an orphan row with a sessionId that always 404s is
+// invisible garbage that only grows (measured 2026-10-17: 35 orphan runs and
+// 60 orphan signals after a week of testing).
+//
+// Children first, session last: if a child delete throws, the session is
+// still there and the delete can simply be repeated. Each child is guarded
+// on its own so one failure does not stop the others — a stuck signal must
+// not keep a session the operator asked to delete.
 async function deleteSession(id) {
+    const sid = Number(id);
+    const safe = async (label, fn) => {
+        try {
+            return (await fn()) || 0;
+        } catch (e) {
+            console.warn(`[SESSIONS] deleteSession #${sid}: ${label} cleanup failed:`, e.message || e);
+            return 0;
+        }
+    };
+    // Lazy require, as before: only a delete needs the route store.
+    const runs = await safe("runs", () => deleteRunsForSession(sid));
+    const signals = await safe("signals", () => deleteSignalsForSession(sid));
+    const routes = await safe("sim_routes", () => require("./simRoute").deleteRoutesForSession(sid));
+
     const client = getClient();
     if (!client) {
-        memBoats.delete(Number(id));
-        return memSessions.delete(Number(id));
+        await safe("session_boats", async () => memBoats.delete(sid));
+        const deleted = memSessions.delete(sid);
+        return { deleted, runs, signals, routes };
     }
     await initDb();
-    await client.execute({ sql: "DELETE FROM session_boats WHERE sessionId = ?", args: [Number(id)] });
-    const res = await client.execute({ sql: "DELETE FROM sessions WHERE id = ?", args: [Number(id)] });
-    // The persisted mock route hangs off the session; without this the table
-    // accumulates orphans that nothing can reach (there is no run left to
-    // look them up by).
-    try {
-        await require("./simRoute").deleteRoutesForSession(id);
-    } catch { /* route cleanup must not fail the delete */ }
-    return res.rowsAffected > 0;
+    await safe("session_boats", () => client.execute({
+        sql: "DELETE FROM session_boats WHERE sessionId = ?", args: [sid],
+    }));
+    const res = await client.execute({ sql: "DELETE FROM sessions WHERE id = ?", args: [sid] });
+    return { deleted: res.rowsAffected > 0, runs, signals, routes };
 }
 
 // Every session (any status) this device is a boat in.

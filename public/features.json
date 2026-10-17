@@ -41,13 +41,6 @@
       "title": "Leaderboard overlay in replay (standings at cursor)"
     },
     {
-      "n": 33,
-      "cost": 2,
-      "priority": 7,
-      "deps": [],
-      "title": "Deleting a session leaves its runs and signals orphaned"
-    },
-    {
       "n": 34,
       "cost": 1,
       "priority": 6,

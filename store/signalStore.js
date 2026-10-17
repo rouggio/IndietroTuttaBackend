@@ -96,7 +96,27 @@ async function signalsForDevice(sessionId, deviceId) {
     return all.filter(s => !s.deviceId || s.deviceId === deviceId).slice(-20);
 }
 
-module.exports = { raiseSignal, listSignals, signalsForDevice, terminalBoats, terminalBoatsBySession };
+module.exports = { raiseSignal, listSignals, signalsForDevice, terminalBoats, terminalBoatsBySession, deleteSignalsForSession };
+
+// Session-delete cascade (todo 33): the signal log goes with the session.
+// Counted before the delete — see runStore.deleteRunsForSession.
+async function deleteSignalsForSession(sessionId) {
+    const sid = parseInt(sessionId, 10);
+    if (!sid) return 0;
+    const client = getClient();
+    if (!client) {
+        const before = memSignals.length;
+        for (let i = memSignals.length - 1; i >= 0; i--) {
+            if (memSignals[i].sessionId === sid) memSignals.splice(i, 1);
+        }
+        return before - memSignals.length;
+    }
+    await initDb();
+    const c = await client.execute({ sql: "SELECT COUNT(*) AS n FROM signals WHERE sessionId = ?", args: [sid] });
+    const n = Number(c.rows[0].n) || 0;
+    if (n) await client.execute({ sql: "DELETE FROM signals WHERE sessionId = ?", args: [sid] });
+    return n;
+}
 
 // Boats with a terminal committee signal (DSQ/DNF/RET): their race is over
 // even without an uploaded run. Used to infer session finish.

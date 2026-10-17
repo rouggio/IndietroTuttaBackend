@@ -13,3 +13,20 @@ delete {
 params:path {
   id: 1
 }
+
+docs {
+  Deleting a session CASCADES (todo 33): its runs (results), its committee
+  signal log and its persisted mock route go with it, plus its boat rows.
+  They are keyed by sessionId, so once the session is gone nothing can reach
+  them — keeping them only accumulates invisible garbage.
+
+  Expect 200: { status: "deleted", runs: <n>, signals: <n>, routes: <n> } —
+  the counts are the entire point of the response: a delete silently taking
+  a boat's result with it is the failure mode this covers.
+
+  Expect 404 on a second run of the same id (the session no longer exists).
+
+  Local :3000 shares the LIVE Turso DB — this removes production results,
+  with no undo. `node tools/prune-db.js` is the sweep for the orphans that
+  predate the cascade.
+}
