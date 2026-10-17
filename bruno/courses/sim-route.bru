@@ -15,7 +15,7 @@ params:path {
 }
 
 params:query {
-  roundingM: 15
+  roundingM: 30
 }
 
 docs {
@@ -35,7 +35,7 @@ docs {
   stored. Editing a course changes the shape, hence the key, hence a
   recompile — there is nothing to invalidate by hand.
 
-  `?roundingM=` recompiles at another pass distance (5..100, default 15).
+  `?roundingM=` recompiles at another pass distance (5..200, default 30).
   Reading a built-in is fine and nothing here needs write access: the
   compiled route is stored on the course row as server bookkeeping, and on
   a built-in only that cache column is ever touched.

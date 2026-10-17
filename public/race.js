@@ -303,7 +303,12 @@ let PV = null; // live refs into the preview (route/segments/dots), for in-drag 
 let simRouteLayer = null;   // L.layerGroup (separate: survives a preview redraw)
 let simRouteTimer = null;
 let simRouteSeq = 0;        // guards out-of-order responses
-const SIM_ROUNDING_M = 15;
+// REAL metres, matching the generator's default pass distance. It must stay
+// in step with `DEFAULT_ROUNDING_M` in store/simShape.js or the overlay
+// understates how wide the scripted boat actually rounds (the device has to
+// see a traverse described by enough 1Hz fixes, so a lazy rounding is the
+// point, not a tight one).
+const SIM_ROUNDING_M = 30;
 const SIM_ROUTE_COLOR = "#0d9488";
 // BUILDER_DRAFT_KEY is declared up with UI_KEY (used by the prefs migration).
 
@@ -995,12 +1000,12 @@ function updateBuilderPreview() {
 
 // --- Sim route overlay (builder toggle) --------------------------------
 // The route the SCRIPTED boat sails, compiled by the backend on the draft
-// as it stands right now: start-line centre, then each mark offset
-// SIM_ROUNDING_M metres to the required side (gates threaded near the
-// first buoy), then the finish centre. Because the compiler is the same one
+// as it stands right now: start-line centre, then a CCW (P) or CW (S) rounding
+// of every mark (gates threaded, or rounded when the course comes back through),
+// then the finish centre. Because the compiler is the same one
 // the mock boat uses, the dots answer the real question — does the boat
-// pass every buoy on the correct side, and will the device count the
-// rounding (it needs the buoy to turn 150° around the boat). Debounced: a
+// cut every mark's traverse on the declared side (and every gate segment),
+// which is exactly what the device scores. Debounced: a
 // mark drag fires updateBuilderPreview() per frame.
 function scheduleSimRoute() {
     if (simRouteTimer) clearTimeout(simRouteTimer);
@@ -1014,14 +1019,12 @@ function simRouteClear() {
     if (msg && msg.innerHTML.startsWith("Sim route")) { msg.innerHTML = ""; msg.className = "boat-info-err"; }
 }
 function simPassTip(pr, n) {
-    if (pr.kind === "gate") return `gate ${n} · the simulator crosses between the two buoys`;
-    const side = pr.passed === "P" ? "left" : "right";
-    const want = pr.required ? (pr.required === "P" ? "left" : "right") : null;
-    const bad = pr.required && !pr.ok ? ` — WRONG SIDE (course says ${want})` : "";
-    const scored = pr.scored
-        ? `counted as rounded (${Math.round(pr.range)}&deg;)`
-        : `NOT counted as rounded: buoy only turns ${Math.round(pr.range)}&deg;, needs 150&deg;`;
-    return `mark ${n} · passed on the ${side}${bad} · ${pr.passDist.toFixed(1)} m off · ${scored}`;
+    if (pr.kind === "gate") return pr.ok ? `gate ${n} · crosses between the two buoys · counted` : `gate ${n} · does NOT cross between the buoys`;
+    const side = pr.crossSide === "P" ? "P (CCW)" : pr.crossSide === "S" ? "S (CW)" : "—";
+    const want = pr.required ? (pr.required === "P" ? "P (CCW)" : "S (CW)") : null;
+    if (!pr.crossed) return `mark ${n} · never cuts the traverse · required ${want}`;
+    const bad = pr.required && !pr.ok ? ` — WRONG SIDE, must re-round (course says ${want})` : "";
+    return `mark ${n} · cuts the traverse on the ${side}${bad} · counted`;
 }
 async function drawSimRoute() {
     simRouteClear();
@@ -1062,16 +1065,15 @@ async function drawSimRoute() {
     });
     if (msg) {
         const passes = j.passes || [];
-        const wrong = passes.filter(p => p.required && !p.ok).map(p => Number(p.index) + 1);
-        const under = passes.filter(p => p.kind !== "gate" && !p.scored);
-        const roundings = passes.filter(p => p.kind !== "gate").length;
-        let s = "Sim route · " + (wrong.length ? `WRONG SIDE at mark ${wrong.join(", ")}` : "every mark passed on the required side");
-        if (under.length) {
-            s += ` · device counts ${roundings - under.length}/${roundings} roundings (mark ` +
-                under.map(p => `${Number(p.index) + 1} turns ${Math.round(p.range)}&deg;`).join(", ") + ")";
-        }
-        msg.innerHTML = s;
-        msg.className = wrong.length ? "boat-info-err" : "boat-info-ok";
+        const wrongSide = passes.filter(p => p.kind !== "gate" && p.crossed && !p.ok).map(p => Number(p.index) + 1);
+        const neverCut = passes.filter(p => p.kind !== "gate" && !p.crossed).map(p => Number(p.index) + 1);
+        const badGates = passes.filter(p => p.kind === "gate" && !p.ok).length;
+        const parts = [];
+        if (wrongSide.length) parts.push(`WRONG SIDE at mark ${wrongSide.join(", ")} (must re-round)`);
+        if (neverCut.length) parts.push(`mark ${neverCut.join(", ")} never cuts its traverse`);
+        if (badGates) parts.push(`${badGates} gate(s) not crossed`);
+        msg.innerHTML = "Sim route · " + (parts.length ? parts.join("; ") : "every mark passed on the required side");
+        msg.className = parts.length ? "boat-info-err" : "boat-info-ok";
     }
 }
 

@@ -12,9 +12,16 @@
 // the line is placed) is the boat's position shifted DOWNWIND by distM, so
 // the boat begins distM behind the line and approaches it on the gun.
 //
+// SCALE: 0.3 by default. A full-size windward-leeward is a 7-minute mock
+// race and most of that is the boat sailing legs nobody is testing. A scaled
+// course shortens every leg, so the same race is over in ~3 minutes. It does
+// NOT shrink the pass distance: `roundingM` is real metres and the generator
+// widens the shape radius to compensate (store/sim.js), because the radius
+// exists so the device's 1Hz sampling can see a traverse at all.
+//
 // Usage:
-//   node tools/new-mock-session.js [distMetres] [gunSeconds] [courseId] [windDir]
-// Defaults: 30m, 70s, course 34 (Windward-Leeward), wind 45°.
+//   node tools/new-mock-session.js [distMetres] [gunSeconds] [courseId] [windDir] [scale]
+// Defaults: 30m, 70s, course 34 (Windward-Leeward), wind 45°, scale 0.3.
 //
 // windDir is a session-level choice, NOT a course property: courses are
 // wind-frame shapes (+y = upwind) with no direction of their own, so it has
@@ -29,6 +36,9 @@ const distM = Number(process.argv[2]) || 30;
 const gunSec = Number(process.argv[3]) || 70;
 const courseId = Number(process.argv[4]) || 34;
 const windDirArg = Number(process.argv[5]);
+// 0.3 by default: a full-size mock race is ~7 minutes and most of it is
+// legs nobody is testing. Pass 1 to sail the course at real size.
+const scale = Number(process.argv[6]) || 0.3;
 
 const R = 111320;
 const rad = (d) => (d * Math.PI) / 180;
@@ -80,7 +90,7 @@ async function json(path) {
         originLat: +originLat.toFixed(6),
         originLon: +originLon.toFixed(6),
         windDir: wd,
-        scale: 1,
+        scale,
         startTime,
         boats: [{ deviceId: DEVICE }],
     };
@@ -93,9 +103,12 @@ async function json(path) {
     const s = await res.json();
     if (!res.ok) throw new Error(`POST /sessions -> ${res.status} ${JSON.stringify(s)}`);
 
-    console.log(`session ${s.id}  gun ${startTime}  line ${distM}m upwind of boat`);
+    console.log(`session ${s.id}  gun ${startTime}  line ${distM}m upwind of boat  scale ${scale}`);
     console.log(`  boat   ${lat.toFixed(6)},${lon.toFixed(6)}`);
     console.log(`  origin ${originLat.toFixed(6)},${originLon.toFixed(6)} (line here)`);
     const runs = await json(`/sim/runs?sessionId=${s.id}`);
-    if (runs.length) console.log(`  run ${runs[0].id} ${runs[0].speedKn}kn ${runs[0].durationSec}s`);
+    if (runs.length) {
+        console.log(`  run ${runs[0].id} ${runs[0].speedKn}kn ${runs[0].durationSec}s` +
+                    ` pass ${runs[0].roundingM}m off (real)`);
+    }
 })().catch((e) => { console.error("FAILED:", e.message); process.exit(1); });

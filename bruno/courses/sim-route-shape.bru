@@ -12,7 +12,7 @@ post {
 
 body:json {
   {
-    "roundingM": 15,
+    "roundingM": 30,
     "startLine": { "ax": -40, "ay": 0, "bx": 40, "by": 0 },
     "finishLine": { "sameAs": "start" },
     "marks": [
@@ -24,7 +24,7 @@ body:json {
 }
 
 docs {
-  200 { roundingM, key, wps:[{x,y,kind,side?,ref?}], passes:[{label,index,kind,required,passed,ok,dist,passDist,range,scored,point,centre}] }
+  200 { roundingM, key, wps:[{x,y,kind,side?,ref?}], passes:[{label,index,kind,required,crossSide,crossed,entryCrossed,ok,scored,dist,point,entryPoint,centre,trav,entry}] }
   400 { error }
 
   Compiles the scripted route for a shape the editor is still working on,
@@ -35,11 +35,12 @@ docs {
   Validation is the course validation (a startLine and a finishLine are
   required, 1..10 marks, radius 5..200m) — a lineless course has no route.
 
-  `passes` is the read-out the editor shows: per mark the side it is
-  actually left on (`passed` vs `required`), the pass distance, the closest
-  approach anywhere on the route (`dist`, which is smaller when the boat
-  also sails over that buoy somewhere else), and `range` — how far the buoy
-  rotates around the boat while it rounds it. `scored` is `range >= 150°`,
-  the number the device uses to call a rounding done; a mark the boat turns
-  back around reads ~90° and is never scored.
+  `passes` is the read-out the editor shows: per mark which side of the exit
+  traverse the boat cuts on the way to the next mark (`crossSide` vs
+  `required`, right of the axis facing the next mark = the boat passes right
+  of the buoy = P, CCW), whether the entry traverse was cut arriving
+  (`entryCrossed`, the approach latch), and the crossing point (`point`).
+  `ok`/`scored` is what the device will score: cut toward the next mark on
+  the declared side. Gates score by cutting the segment between the buoys.
+  There are no distance minima anywhere: `dist` is informative only.
 }

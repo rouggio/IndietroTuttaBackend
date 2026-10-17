@@ -24,10 +24,24 @@ function sendErr(res, e) {
     return res.status(e.status || 500).json({ error: e.message || "internal error" });
 }
 
+// The device's tape format (see GET /sim/tape): one CSV line per fix.
+// Header carries the run identity, the SESSION it belongs to, and the
+// SERVER's clock — the device anchors its wall clock on it, exactly as it
+// used to from each /sim/next reply, and it will not sail a journey until the
+// race screen is up AND the engine holds that same session (a journey that
+// starts before the engine knows its course is what broke race 182).
+function sendTape(res, runId, sessionId, gunSec, durationSec, total, rows) {
+    const lines = [`#${runId},${sessionId || 0},${gunSec},${durationSec},${total},${Math.floor(Date.now() / 1000)}`];
+    for (const r of rows) lines.push(r.join(","));
+    return res.type("text/plain").send(lines.join("\n") + "\n");
+}
+
 // --------------------------------------------------
 // POST /sim/runs — compile a scripted run off a session.
 // {sessionId, deviceId?, speedKn?, startInSec?, roundingM?} — deviceId absent =
-// one run per session boat. roundingM = rounding radius in meters (default 15).
+// one run per session boat. roundingM = the REAL metres the boat passes off
+// each buoy (default 30); a session that scales its course gets a wider shape
+// radius so that distance survives the scaling.
 // --------------------------------------------------
 
 router.post("/sim/runs", async (req, res) => {
@@ -104,6 +118,58 @@ router.get("/sim/next", async (req, res) => {
             speed: head.speed,
             course: head.course,
         });
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
+// GET /sim/tape — the WHOLE scripted run as one compact CSV tape
+// (?deviceId= newest live run, or ?runId= for a specific one).
+//
+// The batched poll below is still the wander's transport, but it was a bad
+// way to feed a RACE: the window is sliced by the server's clock, so a
+// device that adopted the session late started mid-journey (race 182 began
+// at t=130s and never saw the start or the first mark — a pass is then
+// simply missing for the rest of the race), and a device that ran ahead was
+// handed fixes it had already passed, dropped as replays in 13s lumps.
+// One request buys the whole journey instead: the device plays it from RAM
+// at its own 1Hz and nothing in the race depends on the network.
+//
+// One line per fix: epoch,lat,lon,speed,course — no ISO strings (the device
+// formats the NMEA stamp from the epoch), so a 500s journey is ~20KB and
+// the tool that reads it never builds a JSON tree.
+router.get("/sim/tape", async (req, res) => {
+    try {
+        const { deviceId, runId } = req.query;
+        const run = runId ? getRun(runId) : (deviceId ? activeRunForDevice(deviceId) : null);
+        const from = Math.max(0, Math.floor(Number(req.query.from) || 0));
+        const n = Math.max(1, Math.min(1200, Math.floor(Number(req.query.n) || 1200)));
+        if (run) {
+            const last = Math.min(run.samples.length, from + n);
+            const base = Math.floor(run.startMs / 1000);
+            const rows = [];
+            for (let i = from; i < last; i++) {
+                const s = run.samples[i];
+                rows.push([
+                    base + s.t, s.lat.toFixed(7), s.lon.toFixed(7),
+                    Number(s.speed).toFixed(1), Math.round(s.course),
+                ]);
+            }
+            return sendTape(res, run.id, run.sessionId, run.gunSec, run.durationSec, run.samples.length, rows);
+        }
+        if (!deviceId) return res.status(404).json({ error: "no live run" });
+        // No scripted run: the same tape carries the walk (30 fixes), so the
+        // device needs one URL and one reader whatever the mock is doing.
+        // `from` is a journey cursor and means nothing to a walk.
+        const wb = await wanderBatch(deviceId, SIM_BATCH_MAX, Date.now());
+        if (!wb || !wb.batch.length) return res.status(404).json({ error: "no wander seed available" });
+        const rows = wb.batch.map((s) => [
+            Math.floor(new Date(s.st).getTime() / 1000),
+            (+s.lat).toFixed(7), (+s.lon).toFixed(7),
+            (+s.speed).toFixed(1), Math.round(s.course),
+        ]);
+        return sendTape(res, "wander", 0, 0, 0, rows.length, rows);
     } catch (e) {
         sendErr(res, e);
     }

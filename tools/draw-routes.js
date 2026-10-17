@@ -200,8 +200,11 @@ function drawCourse(course, shape, route, rows) {
         const r = (m.r || 0) * k;
         markLayer += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="none" stroke="#cbd5e1" stroke-dasharray="3 4"/>`;
         markLayer += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5.5" fill="#111827"/>`;
-        const p = placer.label(`B${i + 1}`, x, y, Math.max(16, r + 13));
-        markLayer += `<text x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" font-size="13" font-weight="700" fill="#111827" text-anchor="${p.anchor}">B${i + 1}</text>`;
+        // Lato dichiarato + verso di giro: P = la barca passa a destra e gira CCW,
+        // S = passa a sinistra e gira CW. Le boe di una porta non hanno lato.
+        const turn = m.side === "P" ? " · P CCW" : m.side === "S" ? " · S CW" : "";
+        const p = placer.label(`B${i + 1}${turn}`, x, y, Math.max(16, r + 13));
+        markLayer += `<text x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" font-size="13" font-weight="700" fill="#111827" text-anchor="${p.anchor}">B${i + 1}${turn}</text>`;
     });
     Object.values(gateGroups).forEach(pair => {
         if (pair.length !== 2) return;
@@ -232,26 +235,39 @@ function drawCourse(course, shape, route, rows) {
     routeLayer += stub(last, { x: over.x - last.x, y: over.y - last.y }, "#c2410c", "7 5", `prosegue ${OVERRUN_M} m oltre l'arrivo`);
     for (let i = 0; i + 1 < poly.length; i++) routeLayer += legArrow(poly[i], poly[i + 1], mx, my, "#ea580c");
 
-    // --- passaggi dalle boe: cerchietto sul punto di passaggio, legame
-    // alla boa, e la distanza scritta attorno (mai sopra la boa).
+    // --- passaggi: i due traversi di ogni boa (entrata grigio, uscita verde),
+    // il cerchietto dell'aggancio in entrata, il punto dell'uscita (verde =
+    // lato dichiarato, rosso = lato sbagliato, grigio = non taglia mai).
+    const TRAV_HL = 45; // mezza lunghezza di un traverso disegnato, in metri
+    const travSeg = (c, u, colour, width, dash) => {
+        const tx = -u.uy, ty = u.ux; // lungo la linea, perpendicolare all'asse
+        return `<line x1="${mx(c.x - tx * TRAV_HL).toFixed(1)}" y1="${my(c.y - ty * TRAV_HL).toFixed(1)}" x2="${mx(c.x + tx * TRAV_HL).toFixed(1)}" y2="${my(c.y + ty * TRAV_HL).toFixed(1)}" stroke="${colour}" stroke-width="${width}" stroke-dasharray="${dash}"/>`;
+    };
     let passLayer = "";
     for (const r of rows) {
-        const p = r.point, c = r.centre;
-        const px = mx(p.x), py = my(p.y);
-        // il cerchietto del passaggio è già disegnato: la misura sta attorno
-        placer.hold(px - 9, py - 9, 18, 18);
-        passLayer += `<line x1="${px.toFixed(1)}" y1="${py.toFixed(1)}" x2="${mx(c.x).toFixed(1)}" y2="${my(c.y).toFixed(1)}" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="3 3"/>`;
-        passLayer += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="6" fill="#fff" stroke="#ea580c" stroke-width="2.5"/>`;
-        const lp = placer.label(n1(r.dist) + " m", px, py, 20, 6.2);
-        passLayer += `<text x="${lp.x.toFixed(1)}" y="${lp.y.toFixed(1)}" font-size="11.5" fill="#334155" text-anchor="${lp.anchor}">${n1(r.dist)} m</text>`;
-        // se la barca passa vicino alla boa anche ALTROVE (non dove la gira),
-        // quel punto si marca a parte: è lì che un arbitro guarderebbe
-        if (r.dist < 10 && r.passDist - r.dist > 3) {
-            const nx = mx(r.nearPoint.x), ny = my(r.nearPoint.y);
-            passLayer += `<circle cx="${nx.toFixed(1)}" cy="${ny.toFixed(1)}" r="5" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>`;
-            const np = placer.label("ci passa sopra", nx, ny, 16, 6.2, false);
-            if (np) passLayer += `<text x="${np.x.toFixed(1)}" y="${np.y.toFixed(1)}" font-size="11.5" font-weight="600" fill="#b45309" text-anchor="${np.anchor}">ci passa sopra</text>`;
+        const c = r.centre;
+        if (r.kind === "gate") {
+            const p = r.point, px = mx(p.x), py = my(p.y);
+            placer.hold(px - 9, py - 9, 18, 18);
+            const col = r.ok ? "#7c3aed" : "#b91c1c";
+            passLayer += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="6" fill="#fff" stroke="${col}" stroke-width="2.5"/>`;
+            const lp = placer.label(r.ok ? "attraversa" : "non attraversa", px, py, 20, 6.2);
+            passLayer += `<text x="${lp.x.toFixed(1)}" y="${lp.y.toFixed(1)}" font-size="11.5" font-weight="600" fill="${col}" text-anchor="${lp.anchor}">${r.ok ? "attraversa" : "non attraversa"}</text>`;
+            continue;
         }
+        if (r.entry) passLayer += travSeg(c, r.entry, "#94a3b8", 1.6, "5 4");
+        if (r.trav) passLayer += travSeg(c, r.trav, "#15803d", 2, "7 4");
+        if (r.entryPoint) {
+            const ex = mx(r.entryPoint.x), ey = my(r.entryPoint.y);
+            passLayer += `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="4" fill="none" stroke="#64748b" stroke-width="1.6"/>`;
+        }
+        const p = r.point, px = mx(p.x), py = my(p.y);
+        placer.hold(px - 9, py - 9, 18, 18);
+        const col = !r.crossed ? "#94a3b8" : (r.ok ? "#15803d" : "#b91c1c");
+        passLayer += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="6" fill="#fff" stroke="${col}" stroke-width="2.5"/>`;
+        const word = !r.crossed ? "non taglia" : (r.crossSide === "P" ? "destra (P)" : "sinistra (S)");
+        const lp = placer.label(word, px, py, 20, 6.2);
+        passLayer += `<text x="${lp.x.toFixed(1)}" y="${lp.y.toFixed(1)}" font-size="11.5" font-weight="600" fill="${col}" text-anchor="${lp.anchor}">${word}</text>`;
     }
 
     // --- tabella
@@ -261,30 +277,27 @@ function drawCourse(course, shape, route, rows) {
 
 // ------------------------------------------------------------- tabella
 function tableFor(rows, course) {
-    const head = ["boa", "lato richiesto", "come passa", "distanza minima", "giro attorno alla boa"];
+    const head = ["boa", "lato dichiarato", "taglio", "esito"];
     const body = rows.map(r => {
         if (r.kind === "gate") {
-            return { cells: [r.label, "porta da attraversare", "attraversa", n1(r.dist) + " m", n0(r.range) + "°"], ok: true, warn: false };
+            return {
+                cells: ["porta", "da attraversare", r.crossed ? "attraversa" : "non attraversa", r.crossed ? "buono" : "non taglia"],
+                ok: r.ok, bad: r.crossed ? 0 : 2,
+            };
         }
-        const w = r.passed === "P" ? "sinistra" : "destra";
-        const req = r.required ? sideWord(r.required) : "indifferente";
-        const ok = !r.required || r.required === r.passed;
-        // La barca sfiora questa boa in un punto che non è il passaggio
-        // voluto (tipico quando una boa sta sulla linea fra due altre):
-        // vale la pena vederlo, perché il device potrebbe contarlo.
-        const warn = r.dist < 10 && r.passDist - r.dist > 3;
+        const req = r.required === "P" ? "P · CCW" : r.required === "S" ? "S · CW" : "indifferente";
+        const cut = !r.crossed ? "non taglia" : (r.crossSide === "P" ? "a destra (P)" : "a sinistra (S)");
+        const bad = !r.crossed ? 2 : (r.ok ? 0 : 1);
         return {
-            cells: [r.label, req, (ok ? "OK " : "NO ") + w, n1(r.dist) + " m" + (warn ? " !" : ""), n0(r.range) + "°"],
-            ok,
-            warn,
-            giroBad: !r.scored,
+            cells: [r.label, req, cut, !r.crossed ? "non taglia" : (r.ok ? "buono" : "lato sbagliato")],
+            ok: r.ok, bad,
         };
     });
     return { head, body };
 }
 
 function tableSvg(table, x, y) {
-    const cols = [70, 150, 150, 130, 190];
+    const cols = [70, 150, 190, 150];
     let out = "";
     let cx = x;
     table.head.forEach((h, i) => {
@@ -295,9 +308,9 @@ function tableSvg(table, x, y) {
         const ry = y + 20 + ri * 20;
         let px = x;
         row.cells.forEach((c, i) => {
-            const colour = i === 2 ? (row.ok ? "#15803d" : "#b91c1c")
-                : (i === 3 && row.warn) || (i === 4 && row.giroBad) ? "#b45309" : "#0f172a";
-            const weight = i === 2 || (i === 3 && row.warn) || (i === 4 && row.giroBad) ? "700" : "400";
+            const colour = (i === 3 && row.bad === 1) ? "#b91c1c"
+                : (i === 3 && row.bad === 2) ? "#b45309" : "#0f172a";
+            const weight = (i === 3 && row.bad) ? "700" : "400";
             out += `<text x="${px}" y="${ry}" font-size="13" fill="${colour}" font-weight="${weight}">${esc(c)}</text>`;
             px += cols[i];
         });
@@ -312,13 +325,13 @@ function renderCourse(course, shape, route, rows) {
     const titleH = 74;
     const headerH = 26;
     const tableH = 20 + table.body.length * 20 + 22;
-    const noteH = 62;
+    const noteH = 96;
     const W = Math.max(drawW, 760);
     const H = titleH + drawH + headerH + tableH + noteH;
     const offX = Math.round((W - drawW) / 2);
     const tbl = tableSvg(table, 40, titleH + drawH + headerH + 14);
 
-    const bad = rows.some(r => r.required && r.required !== r.passed);
+    const bad = rows.some(r => !r.ok);
     const marks = (shape.marks || []).length;
     const lineLen = shape.startLine ? Math.hypot(shape.startLine.bx - shape.startLine.ax, shape.startLine.by - shape.startLine.ay) : 0;
     const total = route.slice(1).reduce((s, w, i) => s + Math.hypot(w.x - route[i].x, w.y - route[i].y), 0);
@@ -340,10 +353,11 @@ function renderCourse(course, shape, route, rows) {
     ${tbl.svg}
   </g>
   <g transform="translate(40,${titleH + drawH + headerH + tableH})">
-    <text x="0" y="0" font-size="12" fill="#64748b">Dall'alto si vede la forma del percorso così com'è salvata: la barca entra dal basso, la linea blu è partenza</text>
-    <text x="0" y="16" font-size="12" fill="#64748b">(e arrivo), i cerchi tratteggiati sono le boe, la linea arancione è la traccia della barca-simulatore. Il «giro»</text>
-    <text x="0" y="32" font-size="12" fill="#64748b">è di quanto la boa ruota attorno alla barca mentre la si passa: se supera 150° il device la conta come girata.</text>
-    <text x="0" y="48" font-size="12" fill="#b45309">In arancione i «giri» sotto i 150° (il device non li conta) e i «!» (la barca sfiora quella boa in un altro punto).</text>
+    <text x="0" y="0" font-size="12" fill="#64748b">Dall'alto si vede la forma del percorso così com'è salvata: la barca entra dal basso, la linea blu è partenza (e arrivo),</text>
+    <text x="0" y="16" font-size="12" fill="#64748b">la linea arancione è la traccia della barca-simulatore, che gira ogni boa dal lato dichiarato (CCW per P, CW per S).</text>
+    <text x="0" y="32" font-size="12" fill="#64748b">Per ogni boa sono disegnati i due traversi: quello d'entrata (grigio) e quello d'uscita (verde). Il passaggio vale quando la barca</text>
+    <text x="0" y="48" font-size="12" fill="#64748b">taglia l'entrata allontanandosi dalla boa precedente (cerchietto grigio) e poi taglia l'uscita andando verso la prossima (punto</text>
+    <text x="0" y="64" font-size="12" fill="#64748b">verde se dal lato dichiarato, rosso se dal lato sbagliato). Le porte si passano attraversando il segmento fra le due boe.</text>
   </g>
 </svg>
 `;
@@ -352,18 +366,16 @@ function renderCourse(course, shape, route, rows) {
 // -------------------------------------------------------------- indice
 function renderIndex(entries) {
     const rows = entries.map(e => {
-        const bad = e.rows.some(r => r.required && r.required !== r.passed);
-        const maxSweep = e.rows.length ? Math.max(...e.rows.map(r => r.range)) : 0;
-        const minSweep = e.rows.length ? Math.min(...e.rows.map(r => r.range)) : 0;
-        const worst = e.rows.reduce((a, r) => (r.range < a.range ? r : a), e.rows[0] || { range: 0 });
+        const badMarks = e.rows.filter(r => !r.ok);
+        const good = e.rows.length - badMarks.length;
+        const worst = badMarks.length ? badMarks[0].label : null;
         return `<tr>
       <td>#${e.course.id}</td>
       <td><a href="${esc(e.file)}">${esc(e.course.name)}</a></td>
       <td>${e.marks}</td>
       <td>${n0(e.total)} m</td>
-      <td class="${bad ? "bad" : "ok"}">${bad ? "lato sbagliato" : "lato giusto"}</td>
-      <td>${n0(minSweep)}° – ${n0(maxSweep)}°</td>
-      <td>${e.rows.length ? esc(worst.label) + " " + n0(worst.range) + "°" : "—"}</td>
+      <td class="${badMarks.length ? "bad" : "ok"}">${badMarks.length ? "lato sbagliato" : "lato giusto"}</td>
+      <td>${good}/${e.rows.length} buoni${worst ? ` (primo: ${esc(worst)})` : ""}</td>
     </tr>`;
     }).join("\n");
     return `<!doctype html>
@@ -383,15 +395,15 @@ function renderIndex(entries) {
 </style></head><body>
 <h1>Rotte del simulatore, corso per corso</h1>
 <p class="note">Ogni figura mostra la forma del percorso (x verso destra, y verso l'alto = sopravento, la stessa vista
-del costruttore di corsi) e la rotta che la barca-simulatore percorre: attesa dietro la linea, partenza, passaggio a
-${ROUNDING_M} m dal lato giusto di ogni boa, arrivo e proseguimento oltre la linea. In acqua tutto questo viene solo
+del costruttore di corsi) e la rotta che la barca-simulatore percorre: attesa dietro la linea, partenza, giro intorno a
+ogni boa dal lato dichiarato (CCW per P, CW per S), arrivo e proseguimento oltre la linea. In acqua tutto questo viene solo
 ruotato secondo il vento e spostato sul punto di partenza: la forma non cambia mai. Una figura per corso, il nome dice
 quale è — l'id serve solo per ritrovarlo nell'elenco dei corsi.</p>
-<p class="note">La colonna «giro» dice di quanto la boa ruota attorno alla barca mentre la si passa: il device
-considera girata una boa quando supera i <b>150°</b>. È l'ultima colonna che spiega perché alcune boe — quelle dove si
-torna indietro o si gira di 90° — il device non le conta come girate anche se la rotta le passa correttamente.</p>
+<p class="note">Per ogni boa sono disegnati i due traversi (entrata + uscita): il passaggio vale quando la barca taglia
+l'entrata allontanandosi dalla boa precedente e poi taglia l'uscita andando verso la prossima, dal lato dichiarato.
+Non ci sono distanze minime: conta da che parte si taglia, non quanto vicino si passa.</p>
 <table>
- <tr><th>corso</th><th>nome</th><th>boe</th><th>percorso</th><th>lato</th><th>giro (min–max)</th><th>giro più stretto</th></tr>
+ <tr><th>corso</th><th>nome</th><th>boe</th><th>percorso</th><th>lato</th><th>esito</th></tr>
  ${rows}
 </table>
 </body></html>
@@ -417,10 +429,12 @@ async function main() {
         fs.writeFileSync(path.join(OUT_DIR, file), svg, "utf8");
         const total = route.slice(1).reduce((s, w, i) => s + Math.hypot(w.x - route[i].x, w.y - route[i].y), 0);
         entries.push({ course: c, file, rows, marks: (shape.marks || []).length, total });
-        const bad = rows.filter(r => r.required && r.required !== r.passed).map(r => r.label).join(", ");
-        const over = rows.filter(r => r.dist < 10 && r.passDist - r.dist > 3).map(r => `${r.label} a ${n1(r.dist)} m`).join(", ");
-        const notScored = rows.filter(r => !r.scored).map(r => `${r.label} ${n0(r.range)}°`).join(", ");
-        console.log(`#${c.id} ${c.name}: ${rows.length} passaggi, ${bad ? "LATO SBAGLIATO a " + bad : "tutti dal lato giusto"}, giro ${rows.map(r => r.label + " " + n0(r.range) + "°").join(", ")}${over ? " | ci passa sopra: " + over : ""}${notScored ? " | IL DEVICE NON CONTA: " + notScored : ""}`);
+        const bad = rows.filter(r => !r.ok).map(r => r.label).join(", ");
+        const tagli = rows.map(r => {
+            if (r.kind === "gate") return `${r.label} ${r.crossed ? "attraversa" : "NON attraversa"}`;
+            return `${r.label} req${r.required || "-"} taglio ${!r.crossed ? "MAI" : "a " + (r.crossSide === "P" ? "destra" : "sinistra")} -> ${!r.crossed ? "NON TAGLIA" : (r.ok ? "buono" : "SBAGLIATO")}`;
+        }).join(", ");
+        console.log(`#${c.id} ${c.name}: ${rows.length} passaggi, ${bad ? "DA GUARDARE a " + bad : "tutti buoni"}: ${tagli}`);
     }
     fs.writeFileSync(path.join(OUT_DIR, "index.html"), renderIndex(entries), "utf8");
     console.log(`\nscritti ${entries.length} disegni in ${OUT_DIR}`);

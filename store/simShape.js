@@ -16,21 +16,34 @@ const crypto = require("crypto");
 // ------------------------------------------------------------------
 
 const DEG_M = 111320;
-const DEFAULT_ROUNDING_M = 15;
-const ROUND_MIN = 5;
-const ROUND_MAX = 100;
+// 30 m, doubled from the 15 m the generator started with. The mock boat is
+// not trying to be a good sailor: a big, lazy rounding is sampled by more
+// fixes (and survives a coarser one) than a tight 15 m arc that only two or
+// three samples describe. The device scores the exit traverse, so the radius
+// only has to survive sampling, not look pretty.
+const DEFAULT_ROUNDING_M = 30;
 
-// The rounding offset is part of the shape (see compileShapeRoute), so at
-// scale 1 the boat passes `roundingM` metres off the buoy — the same 15 m
-// the generator has always used. A session scaled by `s` scales the pass
-// distance with it, which is the point: a scaled course stays a scaled
-// course. Distances that exist for the DEVICE's sake (the 200 m finish
-// overrun, the 300 m pre-start hold) are NOT here — they are metres in
-// real water and stay in store/sim.js.
+// The rounding offset is part of the shape (see compileShapeRoute), so it is
+// expressed in SHAPE metres and gets scaled with the rest of the course. That
+// is right for the shape, and wrong for the sampler: the pass distance exists
+// for the DEVICE's sake (it has to be described by enough 1Hz fixes), and at
+// scale 0.3 a 30m rounding would put the boat 9m off the buoy — one or two
+// samples on the arc, the regime that made a rounding a coin toss. So
+// `roundingM` means REAL metres everywhere else in the code and is converted
+// here, once, at the boundary where the shape is compiled.
+const ROUND_MIN = 5;
+const ROUND_MAX = 200;
 function clampRounding(v) {
     const n = Number(v);
     if (!isFinite(n) || n <= 0) return DEFAULT_ROUNDING_M;
     return Math.max(ROUND_MIN, Math.min(ROUND_MAX, n));
+}
+
+// Real metres -> the shape radius that lands that far off the buoy once the
+// session scales the course. scale 1 is the identity.
+function shapeRoundingFor(realM, scale) {
+    const s = Number(scale) > 0 ? Number(scale) : 1;
+    return clampRounding(clampRounding(realM) / s);
 }
 
 // ---------------------------------------------------------------- shape
@@ -91,12 +104,18 @@ function shapeOfSession(session) {
 // Stable identity of a shape (+ rounding radius): identical shapes share
 // one compiled route, an edited course gets a new one. Values are rounded
 // to a millimetre so float noise from the inverse transform cannot fork
-// the key. `version` is not part of it — the shape IS the invalidation.
+// the key. `version` is the COMPILER version: the key must change when the
+// way `compileShapeRoute` draws a rounding changes, or a row compiled by
+// the old code keeps being served (it happened twice: the corner-cutting
+// route, then the inside-only arcs). The shape alone is the invalidation for
+// edits; this is the invalidation for code.
+const COMPILE_VERSION = 3;
 function shapeKey(shape, roundingM = DEFAULT_ROUNDING_M) {
     if (!shape) return null;
     const num = v => (typeof v === "number" && isFinite(v) ? Math.round(v * 1000) / 1000 : null);
     const seg = s => (!s || s.sameAs || !isFinite(s.ax) ? null : [num(s.ax), num(s.ay), num(s.bx), num(s.by)]);
     const payload = JSON.stringify({
+        v: COMPILE_VERSION,
         m: (shape.marks || []).map(m => [num(m.x), num(m.y), num(m.r), m.side || null, m.type || null, m.gate || null]),
         s: seg(shape.startLine),
         f: shape.finishLine && shape.finishLine.sameAs ? "start" : seg(shape.finishLine),
@@ -133,6 +152,7 @@ function shapeWaypoints(shape) {
                     x: pair[0].x + (pair[1].x - pair[0].x) * f,
                     y: pair[0].y + (pair[1].y - pair[0].y) * f,
                     kind: "gate", ref: i,
+                    gx0: pair[0].x, gy0: pair[0].y, gx1: pair[1].x, gy1: pair[1].y,
                 });
             } else {
                 pair.forEach((q, k) => out.push({ x: q.x, y: q.y, kind: "gate", ref: i + k }));
@@ -147,25 +167,138 @@ function shapeWaypoints(shape) {
     return out;
 }
 
-// Offsets every single mark to the required side of its leg: the pass IS
-// the rounding (15 m abeam), there is no loop around the buoy.
-// `side: P` = the mark must stay to port, so the boat aims to starboard of
-// it (right of the leg); `S` mirrors; a free side alternates.
-function offsetMarks(wps, roundM) {
-    return wps.map((w, i) => {
-        if (w.kind !== "mark" || i === 0) return w;
+const unit2 = (dx, dy) => { const L = Math.hypot(dx, dy) || 1; return { x: dx / L, y: dy / L }; };
+// The two normals of a heading: `leftOf` points to port (CCW), `rightOf`
+// to starboard.
+const leftOf = h => ({ x: -h.y, y: h.x });
+const rightOf = h => ({ x: h.y, y: -h.x });
+
+// The pass at one mark. Which of two shapes it is is decided by the course
+// itself, not by a distance:
+//
+//   * the buoy is on the INSIDE of the turn (the course turns toward the
+//     required side — always true at a windward mark, which sends the boat
+//     straight back downwind): the boat sails AROUND the buoy. It runs the
+//     leg in, follows a circle of radius `roundM` about the buoy from the
+//     incoming heading to the outgoing one (which is what puts the buoy
+//     "abeam and then clear astern"), and leaves on the next leg.
+//   * otherwise (the course turns AWAY from the required side, or carries
+//     straight on): the boat still sails around the buoy on the required
+//     side — CCW for `P`, CW for `S` — spanning whatever angle the course
+//     turns that way, even past 180°. A fly-by that merely cuts the corner
+//     never crosses the mark's exit traverse, so under the traverse rule it
+//     would never score: the rounding is what makes the exit cross on the
+//     right side. Only a near-straight carry-on (a degree or two) keeps the
+//     plain offset pass, which crosses cleanly on its own.
+//
+// Either way the buoy is left on the required side at `roundM`.
+const mod360 = x => (((x % 360) + 360) % 360);
+
+// Inclusive segment intersection (a touch counts): the gate event is
+// cutting the segment, however the route meets it.
+function segInt(a, b, c, d) {
+    const rx = b.x - a.x, ry = b.y - a.y;
+    const sx = d.x - c.x, sy = d.y - c.y;
+    const den = rx * sy - ry * sx;
+    if (Math.abs(den) < 1e-12) return false;
+    const t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / den;
+    const u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / den;
+    return t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9;
+}
+
+function arcPoints(B, E, span, ccw, roundM, ref) {
+    const pts = [];
+    const steps = Math.max(2, Math.ceil(span / 10));
+    const a0 = Math.atan2(E.x - B.x, E.y - B.y);
+    for (let k = 1; k < steps; k++) {
+        const a = a0 + (ccw ? -1 : 1) * ((span * k / steps) * Math.PI) / 180;
+        pts.push({ kind: "arc", of: ref, x: B.x + roundM * Math.sin(a), y: B.y + roundM * Math.cos(a) });
+    }
+    return pts;
+}
+
+// A gate the course comes back through (|turn| >= 90°) is rounded CCW
+// around its first buoy — the leeward-mark rounding, not a thread-and-U-turn
+// south of the gate. A gate the course threads (small turn) keeps the plain
+// crossing point. The loop is kept only if it still cuts the gate segment:
+// the event (cutting it) must survive the look.
+function loopGate(w, prev, next, roundM, out) {
+    if (w.gx0 === undefined) return false;
+    const G = { x: w.x, y: w.y };
+    const hIn = unit2(G.x - prev.x, G.y - prev.y);
+    const hOut = unit2(next.x - G.x, next.y - G.y);
+    const turnDeg = (Math.atan2(hIn.x * hOut.y - hIn.y * hOut.x, hIn.x * hOut.x + hIn.y * hOut.y) * 180) / Math.PI;
+    if (Math.abs(turnDeg) < 90) return false;
+    const B = { x: w.gx0, y: w.gy0 };
+    const bIn = unit2(B.x - prev.x, B.y - prev.y);
+    const bOut = unit2(next.x - B.x, next.y - B.y);
+    const bt = (Math.atan2(bIn.x * bOut.y - bIn.y * bOut.x, bIn.x * bOut.x + bIn.y * bOut.y) * 180) / Math.PI;
+    const ccw = Math.abs(bt) > 179 ? true : bt >= 0; // deterministic at a reversal: CCW
+    const rotCCW = mod360(bt);
+    const span = ccw ? rotCCW : mod360(360 - rotCCW);
+    if (!(span > 1 && span < 359)) return false;
+    const nIn = ccw ? leftOf(bIn) : rightOf(bIn);
+    const nOut = ccw ? leftOf(bOut) : rightOf(bOut);
+    const E = { x: B.x - roundM * nIn.x, y: B.y - roundM * nIn.y };
+    const X = { x: B.x - roundM * nOut.x, y: B.y - roundM * nOut.y };
+    const body = [{ ...E }, ...arcPoints(B, E, span, ccw, roundM, w.ref), { ...X }];
+    const s0 = { x: w.gx0, y: w.gy0 }, s1 = { x: w.gx1, y: w.gy1 };
+    let hit = false;
+    for (let k = 0; !hit && k + 1 < body.length; k++) hit = segInt(body[k], body[k + 1], s0, s1);
+    if (!hit) hit = segInt(prev, E, s0, s1) || segInt(X, next, s0, s1);
+    if (!hit) return false;
+    out.push({ ...w, cx: B.x, cy: B.y, x: E.x, y: E.y });
+    body.slice(1).forEach(p => out.push({ kind: "arc", of: w.ref, x: p.x, y: p.y }));
+    return true;
+}
+
+function roundMarks(wps, roundM) {
+    const out = [];
+    for (let i = 0; i < wps.length; i++) {
+        const w = wps[i];
+        if (w.kind !== "mark" && w.kind !== "gate") { out.push(w); continue; }
+        const next = wps[i + 1];
         const prev = wps[i - 1];
-        const dx = w.x - prev.x, dy = w.y - prev.y;
-        const L = Math.hypot(dx, dy) || 1;
-        const rx = dy / L, ry = -dx / L; // right of the leg (east, north)
-        const s = w.side === "P" ? 1 : w.side === "S" ? -1 : (i % 2 === 0 ? 1 : -1);
-        return { ...w, cx: w.x, cy: w.y, x: w.x + s * roundM * rx, y: w.y + s * roundM * ry };
-    });
+        if (!prev || !next) { out.push(w); continue; }
+        if (w.kind === "gate") {
+            if (!loopGate(w, prev, next, roundM, out)) out.push(w);
+            continue;
+        }
+        const centre = { x: w.x, y: w.y };
+        const hIn = unit2(centre.x - prev.x, centre.y - prev.y);
+        const hOut = unit2(next.x - centre.x, next.y - centre.y);
+        const dot = hIn.x * hOut.x + hIn.y * hOut.y;
+        const cr = hIn.x * hOut.y - hIn.y * hOut.x; // > 0 = the course turns to port
+        const turnDeg = (Math.atan2(cr, dot) * 180) / Math.PI;
+        const declared = w.side === "P" || w.side === "S";
+        const side = declared ? w.side : (turnDeg >= 0 ? "P" : "S");
+        // How far the course turns the REQUIRED way (port/CCW for `P`,
+        // starboard/CW for `S`). A mark that sends the boat back the way it
+        // came turns ~180° whichever way you read it, so the raw sign of the
+        // cross product — float noise at exactly 180° — must not decide: the
+        // required side does.
+        const rot = side === "P" ? mod360(turnDeg) : mod360(-turnDeg);
+        const nIn = side === "P" ? leftOf(hIn) : rightOf(hIn); // boat → buoy
+        const doArc = declared ? (rot > 2 && rot < 358) : (rot > 1 && rot <= 180);
+        if (doArc) {
+            const nOut = side === "P" ? leftOf(hOut) : rightOf(hOut);
+            const E = { x: centre.x - roundM * nIn.x, y: centre.y - roundM * nIn.y };
+            const X = { x: centre.x - roundM * nOut.x, y: centre.y - roundM * nOut.y };
+            out.push({ ...w, cx: centre.x, cy: centre.y, x: E.x, y: E.y });
+            arcPoints(centre, E, rot, side === "P", roundM, w.ref)
+                .forEach(p => out.push(p));
+            out.push({ kind: "arc", of: w.ref, x: X.x, y: X.y });
+        } else {
+            const r = side === "P" ? rightOf(hIn) : leftOf(hIn);
+            out.push({ ...w, cx: centre.x, cy: centre.y, x: centre.x + roundM * r.x, y: centre.y + roundM * r.y });
+        }
+    }
+    return out;
 }
 
 function compileShapeRoute(shape, roundingM = DEFAULT_ROUNDING_M) {
     const R = clampRounding(roundingM);
-    return offsetMarks(shapeWaypoints(shape), R);
+    return roundMarks(shapeWaypoints(shape), R);
 }
 
 // ------------------------------------------------------------- resolve
@@ -224,25 +357,23 @@ async function routeForCourse(course, roundingM = DEFAULT_ROUNDING_M) {
 }
 
 // -------------------------------------------------------------- analysis
-// How the compiled route actually passes each buoy, in SHAPE units. Same
-// maths the figures use (tools/draw-routes.js) and the numbers the device
-// cares about:
-//   dist     — the boat's closest approach over the whole route;
-//   passDist — the closest approach on the leg that AIMS at the mark (the
-//              pass proper) — the two differ when the boat also sails over
-//              a mark somewhere else, e.g. a leeward mark sitting on the
-//              finish line;
-//   passed   — which side of the boat the buoy is left on at the pass, read
-//              from the sign of the cross product on the approach leg;
-//   range    — how far the buoy rotates around the boat while passing
-//              (the "giro"): the device calls a rounding done past 150°,
-//              which is why a mark the boat turns back around reads ~90°
-//              and is never scored.
-const SWEEP_MIN_DEG = 150;
-
+// How the compiled route actually passes each buoy, in SHAPE units — the
+// offline proof of the device rule (see the spec: the pass fires when the
+// boat cuts the mark's traverse heading toward the next mark, on the
+// declared side; gates score by cutting the segment between the buoys).
+// Same maths the figures use (tools/draw-routes.js) and the read-out the
+// course editor draws (POST /courses/sim-route).
+//
+// Per single mark the row carries the two traverse axes (entry: A→B,
+// exit: B→C), the exit crossing on the way to C (if any), which side of
+// the axis it is on (right of the axis facing C = the boat passes right
+// of the buoy = P, CCW), and whether the entry traverse was cut arriving
+// (the approach latch). `dist` is only informative: there is no minimum
+// distance anywhere in the rule.
 const sub2 = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
 const len2 = v => Math.hypot(v.x, v.y);
 const dot2 = (a, b) => a.x * b.x + a.y * b.y;
+const unitV = (dx, dy) => { const L = Math.hypot(dx, dy) || 1; return { x: dx / L, y: dy / L }; };
 
 function closestOnSeg(a, b, p) {
     const d = sub2(b, a);
@@ -267,9 +398,9 @@ function closestApproach(poly, p) {
     return best;
 }
 
-// A point every ~5 m: the buoy's rotation is measured along the route, not
-// only at its vertices.
-function densify(poly, stepM = 5) {
+// A point every ~2 m: a crossing is measured along the route, not only at
+// its vertices.
+function densify(poly, stepM = 2) {
     const dense = [poly[0]];
     const at = [0];
     for (let i = 1; i < poly.length; i++) {
@@ -283,54 +414,114 @@ function densify(poly, stepM = 5) {
     return { dense, at };
 }
 
-function sweepAround(poly, from, to, buoy) {
-    const brg = p => {
-        const d = sub2(buoy, p);
-        return (Math.atan2(d.x, d.y) * 180) / Math.PI; // 0° = buoy due north of the boat
-    };
-    let prev = null, total = 0, min = Infinity, max = -Infinity;
-    for (let i = Math.max(0, from); i <= Math.min(poly.length - 1, to); i++) {
-        const b = brg(poly[i]);
-        if (prev !== null) {
-            let d = b - prev;
-            while (d > 180) d -= 360;
-            while (d < -180) d += 360;
-            total += d;
+// Crossings of the directed line through B (axis u) inside a dense window,
+// in sailing order. A touch (a dense point exactly on the line — the arc
+// tangent points sit on it) does not break the tracking: only nonzero
+// signs latch, so a touch reads as the crossing it is.
+function lineCrossings(dense, B, u, j0, j1, wantAlong) {
+    const s = p => (p.x - B.x) * u.x + (p.y - B.y) * u.y;
+    const out = [];
+    let prevSign = 0;
+    for (let j = Math.max(1, j0); j <= Math.min(dense.length - 1, j1); j++) {
+        const v = s(dense[j]);
+        const sign = v === 0 ? 0 : (v > 0 ? 1 : -1);
+        if (sign !== 0) {
+            if (prevSign !== 0 && sign !== prevSign) {
+                const along = (dense[j].x - dense[j - 1].x) * u.x + (dense[j].y - dense[j - 1].y) * u.y > 0;
+                if (along === wantAlong) {
+                    const a0 = Math.abs(s(dense[j - 1]));
+                    const t = a0 / ((a0 + Math.abs(v)) || 1);
+                    out.push({ x: dense[j - 1].x + (dense[j].x - dense[j - 1].x) * t, y: dense[j - 1].y + (dense[j].y - dense[j - 1].y) * t, j });
+                }
+            }
+            prevSign = sign;
         }
-        prev = b;
-        min = Math.min(min, total);
-        max = Math.max(max, total);
     }
-    return { sweep: total, range: max - min };
+    return out;
+}
+
+// Right of the axis facing its direction: the boat crosses there when it
+// passes right of the buoy (P, CCW); left means S (CW).
+function sideOfAxis(p, B, u) {
+    return ((p.x - B.x) * u.y + (p.y - B.y) * -u.x) > 0 ? "P" : "S";
 }
 
 function analyzeRoute(shape, wps) {
     const poly = (wps || []).map(w => ({ x: w.x, y: w.y }));
     if (poly.length < 2) return [];
     const { dense, at } = densify(poly);
+    const skel = shapeWaypoints(shape);
     const rows = [];
     (wps || []).forEach((w, i) => {
         if (w.kind !== "mark" && w.kind !== "gate") return;
-        const centre = { x: w.cx !== undefined ? w.cx : w.x, y: w.cy !== undefined ? w.cy : w.y };
-        const ca = closestApproach(dense, centre);
-        const inLeg = i > 0 ? closestOnSeg(poly[i - 1], poly[i], centre) : ca;
-        const sw = sweepAround(dense, at[Math.max(0, i - 1)], at[Math.min(at.length - 1, i + 1)], centre);
+        // The rule reads A→B→C from the skeleton (the compiled neighbours
+        // are arc points, not course nodes).
+        const si = skel.findIndex(q => q.kind === w.kind && q.ref === w.ref);
+        const prevN = si > 0 ? skel[si - 1] : null;
+        const nextN = si >= 0 && si + 1 < skel.length ? skel[si + 1] : null;
+        let last = i;
+        while (last + 1 < (wps || []).length && wps[last + 1].kind === "arc") last++;
+        const j0 = at[Math.max(0, i - 1)];
+        const j1 = Math.min(dense.length - 1, at[Math.min(at.length - 1, last)] + 8);
+        const ca = closestApproach(dense, { x: w.cx !== undefined ? w.cx : w.x, y: w.cy !== undefined ? w.cy : w.y });
+        if (w.kind === "gate") {
+            const gname = shape && shape.marks && shape.marks[w.ref] ? shape.marks[w.ref].gate : null;
+            const pair = ((shape && shape.marks) || []).filter(m => m.gate && gname && m.gate === gname);
+            let hit = null;
+            if (pair.length === 2) {
+                for (let j = Math.max(1, j0); j <= j1 && !hit; j++) {
+                    if (segInt(dense[j - 1], dense[j], pair[0], pair[1])) {
+                        hit = { x: (dense[j - 1].x + dense[j].x) / 2, y: (dense[j - 1].y + dense[j].y) / 2 };
+                    }
+                }
+            }
+            rows.push({
+                label: "porta",
+                wi: i, // index into `wps` (waypoint this pass belongs to)
+                index: w.ref,
+                kind: "gate",
+                required: null,
+                passed: null,
+                crossSide: null,
+                crossed: !!hit,
+                entryCrossed: false,
+                ok: !!hit,
+                scored: !!hit,
+                dist: ca.dist,
+                point: hit || ca.point,
+                entryPoint: null,
+                centre: { x: w.cx !== undefined ? w.cx : w.x, y: w.cy !== undefined ? w.cy : w.y },
+                trav: null,
+                entry: null,
+            });
+            return;
+        }
+        const B = { x: w.cx !== undefined ? w.cx : w.x, y: w.cy !== undefined ? w.cy : w.y };
+        const uIn = prevN ? unitV(B.x - prevN.x, B.y - prevN.y) : null;
+        const uOut = nextN ? unitV(nextN.x - B.x, nextN.y - B.y) : null;
+        const exits = uOut ? lineCrossings(dense, B, uOut, j0, j1, true) : [];
+        const entries = uIn ? lineCrossings(dense, B, uIn, j0, j1, true) : [];
+        const cross = exits.length ? exits[exits.length - 1] : null;
+        const crossSide = cross && uOut ? sideOfAxis(cross, B, uOut) : null;
+        const ok = !!cross && (!w.side || crossSide === w.side);
         rows.push({
-            label: w.kind === "gate" ? "porta" : "B" + (w.ref + 1),
+            label: "B" + (w.ref + 1),
             wi: i, // index into `wps` (waypoint this pass belongs to)
             index: w.ref,
-            kind: w.kind,
+            kind: "mark",
             required: w.side || null,
-            passed: inLeg.cross > 0 ? "P" : "S",
-            ok: !w.side || (inLeg.cross > 0 ? "P" : "S") === w.side,
+            passed: crossSide,
+            crossSide,
+            crossed: !!cross,
+            entryCrossed: entries.length > 0,
+            ok,
+            scored: ok,
             dist: ca.dist,
-            passDist: inLeg.dist,
-            range: sw.range,
-            sweep: sw.sweep,
-            scored: w.kind === "gate" || sw.range >= SWEEP_MIN_DEG,
-            point: inLeg.point,
-            nearPoint: ca.point,
-            centre,
+            point: cross ? { x: cross.x, y: cross.y } : ca.point,
+            entryPoint: entries.length ? { x: entries[0].x, y: entries[0].y } : null,
+            centre: B,
+            trav: uOut ? { ux: uOut.x, uy: uOut.y } : null,
+            entry: uIn ? { ux: uIn.x, uy: uIn.y } : null,
         });
     });
     return rows;
@@ -338,8 +529,8 @@ function analyzeRoute(shape, wps) {
 
 module.exports = {
     DEFAULT_ROUNDING_M,
-    SWEEP_MIN_DEG,
     clampRounding,
+    shapeRoundingFor,
     shapeOfCourse,
     shapeOfSession,
     shapeKey,

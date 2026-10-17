@@ -94,7 +94,8 @@ router.delete("/courses/:id", async (req, res) => {
 // GET /courses/:id/sim-route — the compiled simulator route for this
 // course's SHAPE (todo 32). Wind-frame metres, no placement: the start
 // line centre, then every mark already offset to the required side by
-// `roundingM` (default 15m), gates collapsed to their crossing point,
+// `roundingM` (default 30m, in shape metres here: a course has no scale),
+// gates collapsed to their crossing point,
 // then the finish centre. A session rotates/scales/places exactly this
 // list; it is compiled once per shape and kept on the course row.
 // `?roundingM=` recompiles at another radius (experiments).

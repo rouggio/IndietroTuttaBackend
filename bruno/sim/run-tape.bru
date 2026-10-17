@@ -1,0 +1,30 @@
+meta {
+  name: Run tape (whole script)
+  type: http
+  seq: 42
+}
+
+get {
+  url: {{baseUrl}}/sim/tape?deviceId={{deviceId}}
+  body: none
+  auth: none
+}
+
+docs {
+  The mock feed as a tape, so the device plays the race from RAM instead of
+  refetching a wall-clock window every ~30s (that is what skipped the first
+  130s of race 182, and what left 13s holes in tracks). text/plain:
+
+  #runId,sessionId,gunSec,durationSec,totalFixes,serverEpoch
+  epoch,lat,lon,speed,course      (one line per 1Hz fix, epoch = seconds)
+
+  sessionId is what the device gates on: a journey may not sail until the
+  race screen is up AND the engine holds that same session, because the
+  engine is what scores it (a journey that starts first has wasted its
+  front — race 182).
+
+  No live run? The same tape carries the server-driven WALK instead
+  (runId "wander", 30 fixes) — one URL and one reader for the device.
+  ?from= / ?n= page a journey longer than the device's tape. 404 only when
+  there is no run AND nothing at all to seed a walk from.
+}

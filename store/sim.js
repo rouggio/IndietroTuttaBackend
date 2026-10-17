@@ -3,17 +3,23 @@ const { getLatestPoint } = require("./gpsStore");
 const {
     shapeOfSession, compileShapeRoute, resolveRoute,
     routeForSession, routeForCourse, clampRounding, DEFAULT_ROUNDING_M,
+    shapeRoundingFor,
 } = require("./simShape");
 
 // ------------------------------------------------------------------
 // Scripted sim runs (in-memory test rig — lost on restart, by design).
-// The GEOMETRY (hold behind the line → cross at the gun → a 15 m pass on
+// The GEOMETRY (hold behind the line → cross at the gun → a 30 m pass on
 // the required side of every mark, gates threaded through the pair → 
 // finish + overrun) comes from store/simShape.js, compiled once per course
 // SHAPE and cached on the course row (todo 32). What lives here is only
 // what is not part of the shape: the speed, the gun, the pre-start hold
 // (metres in real water, not shape units) and the 1 Hz sampling.
 // Delivery is wall-clock stateless: idx = elapsed seconds since start.
+//
+// A session may SCALE the course down (0.3 turns a 7-minute mock race into
+// a 3-minute one) without shrinking the pass distance: `roundingM` is real
+// metres here and is converted to shape metres for the compile, because the
+// radius is for the SAMPLER, not for the shape.
 // ------------------------------------------------------------------
 
 const KN_TO_MS = 0.514444;
@@ -58,16 +64,22 @@ function destPt(p, brgDeg, dM) {
 // What is left here is the sampling: speed, noise, the pre-start hold and
 // the gun.
 
-function compileScript(session, { speedKn = 28, startInSec = 60, nowMs = Date.now(), roundingM = 15, routeWps = null } = {}) {
-    // Clamp raised to 40kn (a fast dinghy is ~25-30); the default moved to
-    // 28 so an auto-created run sails at a realistic pace without the
-    // caller having to ask.
-    const v = Math.max(1, Math.min(40, Number(speedKn) || 28)) * KN_TO_MS; // m/s
-    const roundM = clampRounding(roundingM === undefined ? DEFAULT_ROUNDING_M : roundingM);
-    // Shape-space route (start line → marks with their 15 m pass → finish),
-    // then placed on the water. A caller that already resolved it through
-    // the course cache hands it in; otherwise it is compiled in place, so
-    // this stays synchronous and pure for the check tools.
+function compileScript(session, { speedKn = 14, startInSec = 60, nowMs = Date.now(), roundingM = DEFAULT_ROUNDING_M, routeWps = null } = {}) {
+    // Clamp 1..40; the default is 14kn. The mock sails slowly ON PURPOSE:
+    // at 1Hz a 28kn boat puts ~14m between fixes and a 30m rounding is over
+    // in four samples, so the track is the coarsest thing in the system. At
+    // 14kn a fix is ~7m and the same arc is ~13 samples — the noise floor of
+    // the device's pass rule stops being the sampling rate.
+    const v = Math.max(1, Math.min(40, Number(speedKn) || 14)) * KN_TO_MS; // m/s
+    // REAL metres in, shape metres out: the pass distance exists for the
+    // DEVICE's sake, so it must not shrink with a scaled-down course (see
+    // shapeRoundingFor). Callers that hand in `routeWps` already resolved it.
+    const roundM = shapeRoundingFor(
+        roundingM === undefined ? DEFAULT_ROUNDING_M : roundingM, session.scale);
+    // Shape-space route (start line → marks with their rounding pass →
+    // finish), then placed on the water. A caller that already resolved it
+    // through the course cache hands it in; otherwise it is compiled in
+    // place, so this stays synchronous and pure for the check tools.
     const route = Array.isArray(routeWps) && routeWps.length
         ? routeWps
         : compileShapeRoute(shapeOfSession(session), roundM);
@@ -187,12 +199,18 @@ async function createRun({ sessionId, deviceId, speedKn, startInSec, roundingM }
         throw Object.assign(new Error("deviceId required"), { status: 400 });
     }
     const nowMs = Date.now();
-    const roundM = clampRounding(roundingM === undefined ? DEFAULT_ROUNDING_M : roundingM);
+    // The radius is REAL metres: on a session scaled to 0.3 the shape needs
+    // a 100 m offset to pass 30 m off the buoy, which is the point (the
+    // device only has to see a traverse, it does not care how wide the
+    // course is). Same conversion the sampler does, so the cached route and
+    // the script agree.
+    const realRoundM = clampRounding(roundingM === undefined ? DEFAULT_ROUNDING_M : roundingM);
+    const roundM = shapeRoundingFor(realRoundM, session.scale);
     // Compile once per course SHAPE: hits the course's stored route when
     // the shape is unchanged, compiles (and stores) on a miss. Sessions
     // never compile a route the course already owns.
     const { wps: routeWps } = await routeForSession(session, roundM);
-    const { samples, gunSec, durationSec } = compileScript(session, { speedKn, startInSec, nowMs, roundingM: roundM, routeWps });
+    const { samples, gunSec, durationSec } = compileScript(session, { speedKn, startInSec, nowMs, roundingM: realRoundM, routeWps });
     if (runs.size >= MAX_RUNS) {
         const oldest = [...runs.keys()][0];
         runs.delete(oldest);
@@ -201,8 +219,8 @@ async function createRun({ sessionId, deviceId, speedKn, startInSec, roundingM }
     const run = {
         id, deviceId: deviceId.trim(), sessionId: session.id,
         createdMs: nowMs, startMs: nowMs, gunMs: nowMs + gunSec * 1000,
-        speedKn: Math.max(1, Math.min(40, Number(speedKn) || 28)),
-        roundingM: roundM,
+        speedKn: Math.max(1, Math.min(40, Number(speedKn) || 14)),
+        roundingM: realRoundM, // REAL metres off the buoy (see shapeRoundingFor)
         samples, gunSec, durationSec,
         echoes: [], // device-reported receipts {t,lat,lon,speed,course,at}
     };

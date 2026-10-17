@@ -120,7 +120,7 @@ function stubFetch(url, opts) {
     if (u.endsWith("/courses/sim-route")) {
         const body = JSON.parse((opts && opts.body) || "{}");
         const shape = { marks: body.marks, startLine: body.startLine, finishLine: body.finishLine };
-        const R = body.roundingM || 15;
+        const R = body.roundingM || 30;
         const wps = compileShapeRoute(shape, R);
         return Promise.resolve(jsonRes({ roundingM: R, key: "smoke", wps, passes: analyzeRoute(shape, wps) }));
     }
@@ -385,7 +385,7 @@ try {
         t("sim route posts the draft shape", lastFetch.url === "/courses/sim-route" && lastFetch.opts.method === "POST");
         const body = JSON.parse(lastFetch.opts.body);
         t("the body carries the draft, not an id",
-            body.marks.length === 2 && body.roundingM === 15 && !body.courseId
+            body.marks.length === 2 && body.roundingM === 30 && !body.courseId
             && body.finishLine.sameAs === "start" && body.startLine.ax === -40);
         const polys = lCalls.filter(c => c.name === "polyline");
         t("sim route draws one line, the compiled one", polys.length === 1
