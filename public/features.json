@@ -88,6 +88,13 @@
       "priority": 8,
       "deps": [],
       "title": "An alternative to the TP4086 + booster power path, with a heat sink"
+    },
+    {
+      "n": 42,
+      "cost": 1,
+      "priority": 6,
+      "deps": [],
+      "title": "The NO NETWORK note flickers and lands on the wrong page"
     }
   ]
 }
