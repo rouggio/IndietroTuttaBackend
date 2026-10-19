@@ -55,13 +55,6 @@
       "title": "Course lines are drawn past the race window frame"
     },
     {
-      "n": 37,
-      "cost": 2,
-      "priority": 6,
-      "deps": [],
-      "title": "The timer and distance readout mask race pixels underneath"
-    },
-    {
       "n": 38,
       "cost": 2,
       "priority": 6,
