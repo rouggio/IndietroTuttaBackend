@@ -41,13 +41,6 @@
       "title": "Leaderboard overlay in replay (standings at cursor)"
     },
     {
-      "n": 34,
-      "cost": 1,
-      "priority": 6,
-      "deps": [],
-      "title": "The distance readout leaves ghost pixels when it drops below 100"
-    },
-    {
       "n": 35,
       "cost": 2,
       "priority": 6,
@@ -88,6 +81,13 @@
       "priority": 6,
       "deps": [],
       "title": "Highlight the active mark's index inside a piled label (1-3)"
+    },
+    {
+      "n": 41,
+      "cost": 2,
+      "priority": 8,
+      "deps": [],
+      "title": "An alternative to the TP4086 + booster power path, with a heat sink"
     }
   ]
 }
