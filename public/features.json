@@ -41,25 +41,11 @@
       "title": "Leaderboard overlay in replay (standings at cursor)"
     },
     {
-      "n": 35,
-      "cost": 2,
-      "priority": 6,
-      "deps": [],
-      "title": "Overview -> focus switch leaves ghosts (clipped label, line rows)"
-    },
-    {
       "n": 36,
       "cost": 2,
       "priority": 7,
       "deps": [],
       "title": "Course lines are drawn past the race window frame"
-    },
-    {
-      "n": 41,
-      "cost": 2,
-      "priority": 8,
-      "deps": [],
-      "title": "An alternative to the TP4086 + booster power path, with a heat sink"
     }
   ]
 }
