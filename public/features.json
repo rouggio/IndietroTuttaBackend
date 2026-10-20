@@ -39,13 +39,6 @@
         3
       ],
       "title": "Leaderboard overlay in replay (standings at cursor)"
-    },
-    {
-      "n": 36,
-      "cost": 2,
-      "priority": 7,
-      "deps": [],
-      "title": "Course lines are drawn past the race window frame"
     }
   ]
 }
