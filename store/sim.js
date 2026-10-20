@@ -93,24 +93,33 @@ function compileScript(session, { speedKn = 14, startInSec = 60, nowMs = Date.no
         if (!isNaN(st) && st > nowMs + 15000) gunMs = st;
     }
     const startMs = nowMs;
-    // Pre-start: hold WELL behind the line, then approach to cross after the
-    // gun.
+    // Pre-start: hold behind the line, then approach to cross just after the
+    // gun. `crossAt` is the phase's SPEC, not a detail: the crossing is what
+    // the device scores, and the tape now plays on the run's own clock (the
+    // device skips the fixes already past — see gps_mock.cpp), so `crossAt`
+    // IS the delay after the gun on the water.
     //
-    // The hold distance must clear the device's CROSS_RANGE_M (150m): any
-    // side flip inside that band BEFORE the gun is scored OCS. Holding at
-    // 100m put the boat INSIDE the band for the whole wait, so the hold's
-    // own noise (±15% speed breathing plus per-sample jitter) could flip a
-    // side and raise an OCS that then stuck until a clean re-cross —
-    // observed as a race starting minutes after the gun.
-    const OCS_SAFE_HOLD_M = 300;
+    // 5 s, and the HOLD IS SIZED FROM THE WINDOW instead of pinned at 300 m.
+    // The hold has to clear the device's CROSS_RANGE_M (150m): any side flip
+    // inside that band BEFORE the gun is scored OCS, and holding at 100m put
+    // the boat inside it for the whole wait (the hold's own noise then flipped
+    // a side and the OCS stuck until a clean re-cross). But 300m is ~42 s of
+    // sailing at 14 kn, so any run created less than ~50 s before its gun — a
+    // 30 s practice gun, or a session made on the web — clamped `departAt` to
+    // 2 s and the crossing slid out to departAt + approachT = 44 s: gun+15 in
+    // script time, and ~37 s on the wall clock once the device's discovery lag
+    // was added. That is the "the mock crosses 30 s after the gun" report.
+    const OCS_SAFE_HOLD_M = 300;   // never hold further out than this
+    const OCS_MIN_HOLD_M = 170;    // ...and never inside the 150m band
+    const CROSS_AFTER_GUN_MS = 5000;
     const line = wps[0];
     const firstLegBrg = bearing(line, wps[1]);
-    const hold = destPt(line, (firstLegBrg + 180) % 360, OCS_SAFE_HOLD_M);
+    const crossAt = (gunMs + CROSS_AFTER_GUN_MS - startMs) / 1000; // seconds, script time
+    const windowS = Math.max(1, crossAt - 2);   // seconds available before the crossing
+    const holdM = Math.max(OCS_MIN_HOLD_M, Math.min(OCS_SAFE_HOLD_M, v * windowS));
+    const hold = destPt(line, (firstLegBrg + 180) % 360, holdM);
     const approachDist = distM(hold, line);
     const approachT = approachDist / v;
-    // Cross ~8s after the gun: 3s left no margin once sample times are
-    // rounded to whole seconds and the approach is a straight leg.
-    const crossAt = (gunMs + 8000 - startMs) / 1000; // seconds, script time
     const departAt = Math.max(2, crossAt - approachT);
 
     const rng = lcg(Math.floor(nowMs / 1000) + wps.length * 7919);
