@@ -4,13 +4,6 @@
   "order": "Pane order is computed, not numeric: topological by deps, then priority, then cost, then n.",
   "features": [
     {
-      "n": 53,
-      "cost": 1,
-      "priority": 6,
-      "deps": [],
-      "title": "A stale exit latch can credit a mark early (the tape restart is not a leg reset)"
-    },
-    {
       "n": 3,
       "cost": 3,
       "priority": 8,
