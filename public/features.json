@@ -55,39 +55,11 @@
       "title": "Course lines are drawn past the race window frame"
     },
     {
-      "n": 38,
-      "cost": 2,
-      "priority": 6,
-      "deps": [],
-      "title": "A FINISHED banner and the last race time held on screen"
-    },
-    {
-      "n": 39,
-      "cost": 1,
-      "priority": 6,
-      "deps": [],
-      "title": "A second map segment for the boat's own bearing (COG)"
-    },
-    {
-      "n": 40,
-      "cost": 2,
-      "priority": 6,
-      "deps": [],
-      "title": "Highlight the active mark's index inside a piled label (1-3)"
-    },
-    {
       "n": 41,
       "cost": 2,
       "priority": 8,
       "deps": [],
       "title": "An alternative to the TP4086 + booster power path, with a heat sink"
-    },
-    {
-      "n": 42,
-      "cost": 1,
-      "priority": 6,
-      "deps": [],
-      "title": "The NO NETWORK note flickers and lands on the wrong page"
     }
   ]
 }
