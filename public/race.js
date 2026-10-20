@@ -25,28 +25,36 @@ function routeThread(items) {
     });
     return out;
 }
-// Rounding-direction arrow inside a mark's circle (P = counter-clockwise,
-// S = clockwise; gates/unsided marks get none). Geographic arc at 0.55r so
-// it stays "within the range" at every zoom. Returns {arc, head} latlngs.
-function roundingArc(lat, lon, rM, side) {
-    if (side !== "P" && side !== "S") return null;
-    const R = Math.max(5, rM * 0.55), D = Math.PI / 180;
+// Rounding direction drawn ON the circle (todo 44), not as an arc inside it:
+// four saw-teeth at 45/135/225/315 (the diagonals leave the top, bottom and
+// sides clear), phase fixed to the SCREEN, clockwise for S and counter-clockwise
+// for P. A tooth's LONG side is a stretch of the ARC itself and its SHORT side
+// stands out of the circle at the trailing end (long = 2 x short), so it is
+// filled right up to the ring and nothing is added inside it, where the number
+// and the buoy dot live. Sized as a fraction of the radius so it keeps the
+// device's proportions at every zoom (the device floors the short side at 4 px
+// and caps it at 10 px because its radius is capped too; here everything is
+// geographic and scales).
+// Returns one polygon (latlngs, clockwise) per tooth, or [].
+function roundingArrows(lat, lon, rM, side) {
+    if (side !== "P" && side !== "S") return [];
+    const R = Math.max(1, rM), L = Math.max(1.5, R * 0.4), D = Math.PI / 180;
     const cosLat = Math.cos(lat * Math.PI / 180);
-    const at = b => [lat + (R * Math.cos(b * D)) / 111320, lon + (R * Math.sin(b * D)) / (111320 * cosLat)];
-    const step = (distM, brg) => [lat + (distM * Math.cos(brg * D)) / 111320, lon + (distM * Math.sin(brg * D)) / (111320 * cosLat)];
-    const arc = [];
-    for (let k = 0; k <= 12; k++) arc.push(at(side === "S" ? k * 15 : -k * 15));
-    // arrowhead at the arc end, pointing along travel. Half-circle arcs end
-    // at the bottom: clockwise/S heads west, counter-clockwise/P heads east.
-    const end = at(180);
-    const mB = side === "S" ? 270 : 90; // motion compass bearing at the end
-    const h = R * 0.5;
-    const tip = [end[0] + (h * Math.cos(mB * D)) / 111320, end[1] + (h * Math.sin(mB * D)) / (111320 * cosLat)];
-    const bc = [end[0] - (h * 0.4 * Math.cos(mB * D)) / 111320, end[1] - (h * 0.4 * Math.sin(mB * D)) / (111320 * cosLat)];
-    const pB = (mB + 90) % 360, w = h * 0.4;
-    const w1 = [bc[0] + (w * Math.cos(pB * D)) / 111320, bc[1] + (w * Math.sin(pB * D)) / (111320 * cosLat)];
-    const w2 = [bc[0] - (w * Math.cos(pB * D)) / 111320, bc[1] - (w * Math.sin(pB * D)) / (111320 * cosLat)];
-    return { arc, head: [tip, w1, w2] };
+    const at = (r, brg) => [lat + (r * Math.cos(brg * D)) / 111320, lon + (r * Math.sin(brg * D)) / (111320 * cosLat)];
+    // Bearings grow clockwise, so clockwise travel is +90 from the radius: the
+    // long side spans backwards from the tip, and the corner stands out of the
+    // circle at its trailing end. Capped at 75 deg like the device, so
+    // neighbouring teeth can never meet.
+    const dA = Math.min(75, (2 * L) / R / D);
+    const sgn = side === "S" ? -1 : 1;
+    const out = [];
+    for (let a = 45; a < 360; a += 90) {
+        const pts = [];
+        for (let s = 0; s <= 6; s++) pts.push(at(R, a + (sgn * dA * s) / 6));
+        pts.push(at(R + L, a + sgn * dA));
+        out.push(pts);
+    }
+    return out;
 }
 // Arrow sides per mark: oriented marks show their side. Gates show none —
 // a gate is a through-passage with side choice, not a rounding; the route
@@ -696,9 +704,7 @@ function refreshRouteLive() {
         const p = PV.marks[a.i] ? PV.marks[a.i].getLatLng() : null;
         const cm = CB.marks[a.i];
         if (!p || !cm) return;
-        const arr = roundingArc(p.lat, p.lng, cm.r, a.side);
-        if (arr) { a.arc.setLatLngs(arr.arc); a.head.setLatLngs(arr.head); }
-        else { a.arc.setLatLngs([]); a.head.setLatLngs([]); }
+        a.heads.setLatLngs(roundingArrows(p.lat, p.lng, cm.r, a.side));
     });
     let finishC = null;
     if (CB.finishLine === "start" && startC) {
@@ -795,12 +801,13 @@ function updateBuilderPreview() {
         PV.circles.push(L.circle([m.lat, m.lon], { radius: (m.buoyDiam || CB.buoyDiam || 5) * 0.5, color: "#dc2626", weight: 2, fillOpacity: 0.7, fillColor: "#dc2626" }).addTo(coursePreview));
         const col = MARK_COLORS[m.type] || "#f59e0b";
         arrowSides(m, i, resolved).forEach(sd => {
-            const arr = roundingArc(m.lat, m.lon, m.r, sd);
-            if (!arr) return;
+            const heads = roundingArrows(m.lat, m.lon, m.r, sd);
+            if (!heads.length) return;
+            // One polygon with a ring per head: disjoint triangles, so Leaflet
+            // fills them independently and setLatLngs() moves all eight at once.
             PV.arrows.push({
                 i, side: sd,
-                arc: L.polyline(arr.arc, { color: col, weight: 2, opacity: 0.9 }).addTo(coursePreview),
-                head: L.polygon(arr.head, { color: col, fillColor: col, fillOpacity: 0.9, weight: 1 }).addTo(coursePreview),
+                heads: L.polygon(heads, { color: col, fillColor: col, fillOpacity: 0.9, weight: 1 }).addTo(coursePreview),
             });
         });
         const pile = pileOf(i);
@@ -1403,10 +1410,9 @@ function renderSelectedPreview(s) {
         L.circle([m.lat, m.lon], { radius: (m.buoyDiam || 5) * 0.5, color: "#dc2626", weight: 2, fillOpacity: 0.7, fillColor: "#dc2626" }).addTo(selPreview);
         const col = MARK_COLORS[m.type] || "#f59e0b";
         arrowSides(m, i, s.marks).forEach(sd => {
-            const arr = roundingArc(m.lat, m.lon, m.r || 30, sd);
-            if (!arr) return;
-            L.polyline(arr.arc, { color: col, weight: 2, opacity: 0.9 }).addTo(selPreview);
-            L.polygon(arr.head, { color: col, fillColor: col, fillOpacity: 0.9, weight: 1 }).addTo(selPreview);
+            roundingArrows(m.lat, m.lon, m.r || 30, sd).forEach(hd => {
+                L.polygon(hd, { color: col, fillColor: col, fillOpacity: 0.9, weight: 1 }).addTo(selPreview);
+            });
         });
         L.marker([m.lat, m.lon], {
             icon: L.divIcon({
@@ -1461,10 +1467,9 @@ function renderSessPreview() {
         L.circle([m.lat, m.lon], { radius: (m.buoyDiam || 5) * 0.5, color: "#dc2626", weight: 2, fillOpacity: 0.7, fillColor: "#dc2626" }).addTo(sessPreview);
         const col = MARK_COLORS[m.type] || "#f59e0b";
         arrowSides(m, i, marks).forEach(sd => {
-            const arr = roundingArc(m.lat, m.lon, m.r, sd);
-            if (!arr) return;
-            L.polyline(arr.arc, { color: col, weight: 2, opacity: 0.9 }).addTo(sessPreview);
-            L.polygon(arr.head, { color: col, fillColor: col, fillOpacity: 0.9, weight: 1 }).addTo(sessPreview);
+            roundingArrows(m.lat, m.lon, m.r, sd).forEach(hd => {
+                L.polygon(hd, { color: col, fillColor: col, fillOpacity: 0.9, weight: 1 }).addTo(sessPreview);
+            });
         });
         L.marker([m.lat, m.lon], {
             icon: L.divIcon({
