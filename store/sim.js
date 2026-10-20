@@ -354,13 +354,21 @@ function nextBatch(run, nowMs = Date.now(), n = SIM_BATCH_MAX) {
     return { batch, remaining: Math.max(0, run.durationSec - (run.samples[first] || {}).t) };
 }
 
+// Newest run that is still a FEED for this boat. A finished journey is not one:
+// once the wall clock is past its last fix the tape endpoint must fall back to
+// the wander, or a mock boat sits frozen on the leftover pre-start/overrun fixes
+// until the run is pruned (10 min) — the "boat stopped wandering after the race"
+// report. `getRun`/`listRuns` still keep it the full 10 minutes, which is what
+// /sim/routes/:sessionId (session-keyed) needs to inspect a finished race.
 function activeRunForDevice(deviceId, nowMs = Date.now()) {
     pruneRuns(nowMs);
     let best = null;
     for (const r of runs.values()) {
         if (r.deviceId !== deviceId) continue;
-        const elapsed = (nowMs - r.startMs) / 1000;
-        if (elapsed > r.durationSec + 600) continue;
+        // One test: past the last fix the journey is over, so it is neither a
+        // feed any more nor a reason to keep the entry (pruneRuns has its own
+        // +600 s grace for inspection).
+        if ((nowMs - r.startMs) / 1000 >= r.durationSec) continue;
         if (!best || r.createdMs > best.createdMs) best = r;
     }
     return best;
