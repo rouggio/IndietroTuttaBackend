@@ -4,13 +4,6 @@
   "order": "Pane order is computed, not numeric: topological by deps, then priority, then cost, then n.",
   "features": [
     {
-      "n": 52,
-      "cost": 2,
-      "priority": 4,
-      "deps": [],
-      "title": "Mark pass lost when a big turn re-crosses the entry traverse (latch cancelled mid-round)"
-    },
-    {
       "n": 53,
       "cost": 1,
       "priority": 6,

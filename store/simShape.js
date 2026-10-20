@@ -446,6 +446,31 @@ function sideOfAxis(p, B, u) {
     return ((p.x - B.x) * u.y + (p.y - B.y) * -u.x) > 0 ? "P" : "S";
 }
 
+// Compass bearing from p to B in the shape frame (+y = upwind = "north").
+function bearingTo(p, B) {
+    return ((Math.atan2(B.x - p.x, B.y - p.y) * 180) / Math.PI + 360) % 360;
+}
+function wrap180(d) {
+    let x = ((d + 180) % 360 + 360) % 360 - 180;
+    return x;
+}
+// Accumulated swing of the bearing "boat -> B" along the route, in degrees:
+// negative = CCW (the boat is going round B to port, P), positive = CW (S).
+// Accumulated STEP BY STEP, not as a difference of the endpoints: a 180-degree
+// giro starts and ends on the same bearing line but is not a zero swing, and a
+// full 360 wraps to zero on a simple difference.
+function sweepBetween(poly, B, jFrom, jTo) {
+    let acc = 0;
+    for (let j = Math.max(1, jFrom) + 1; j <= jTo; j++) {
+        acc += wrap180(bearingTo(poly[j], B) - bearingTo(poly[j - 1], B));
+    }
+    return acc;
+}
+// The engine needs 3 consecutive swings of > 2 degrees on 1 Hz fixes, so a
+// "giro" there is at least ~6 degrees of sweep. Same floor here: below it the
+// boat is not going round, it is going back.
+const GIRO_MIN_DEG = 6;
+
 function analyzeRoute(shape, wps) {
     const poly = (wps || []).map(w => ({ x: w.x, y: w.y }));
     if (poly.length < 2) return [];
@@ -501,9 +526,26 @@ function analyzeRoute(shape, wps) {
         const uOut = nextN ? unitV(nextN.x - B.x, nextN.y - B.y) : null;
         const exits = uOut ? lineCrossings(dense, B, uOut, j0, j1, true) : [];
         const entries = uIn ? lineCrossings(dense, B, uIn, j0, j1, true) : [];
+        // Crossings back toward A: a giro wider than 180 degrees produces one
+        // by construction (the traverses are unbounded lines, SPEC 2), so the
+        // engine only loses the arrival when there was NO swing in the
+        // declared direction before it (SPEC 3.2: a return, not a wide giro).
+        const backs = uIn ? lineCrossings(dense, B, uIn, j0, j1, false) : [];
         const cross = exits.length ? exits[exits.length - 1] : null;
         const crossSide = cross && uOut ? sideOfAxis(cross, B, uOut) : null;
-        const ok = !!cross && (!w.side || crossSide === w.side);
+        const firstEntry = entries.length ? entries[0] : null;
+        let entryLost = null;
+        if (firstEntry && uIn) {
+            for (const bk of backs) {
+                if (bk.j <= firstEntry.j) continue;
+                // Sign of the swing of "boat -> B" between the arrival and this
+                // crossing: falling = CCW (P), rising = CW (S).
+                const sw = sweepBetween(dense, B, firstEntry.j, bk.j);
+                const dirOk = w.side === "S" ? sw > GIRO_MIN_DEG : sw < -GIRO_MIN_DEG;
+                if (!dirOk) { entryLost = bk; break; }
+            }
+        }
+        const ok = !!cross && (!w.side || crossSide === w.side) && !entryLost;
         rows.push({
             label: "B" + (w.ref + 1),
             wi: i, // index into `wps` (waypoint this pass belongs to)
@@ -514,6 +556,7 @@ function analyzeRoute(shape, wps) {
             crossSide,
             crossed: !!cross,
             entryCrossed: entries.length > 0,
+            entryLost: !!entryLost,
             ok,
             scored: ok,
             dist: ca.dist,
