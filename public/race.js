@@ -1161,6 +1161,12 @@ function openSessionsPanel(selectId) {
 // per-topic while subscribed and resume on drop (EventSource reconnects).
 let sessEventSrc = null;
 let sessTopics = new Set(); // topics of the live connection
+// Hooks into the open detail pane's two box-refreshers. A run landing or a
+// signal being raised changes exactly one box, so the SSE path patches that
+// box instead of rebuilding the whole pane — the rebuild also re-rendered the
+// header and RE-FIT the map, so every finish upload flashed the panel and
+// jumped the viewport (todo 25). Cleared whenever the pane is (re)rendered.
+const sessRefreshHooks = { results: null, signals: null };
 function sessToast(msg) {
     const t = document.getElementById("sess-toast");
     if (!t) return;
@@ -1204,7 +1210,11 @@ function syncEventStream() {
     src.addEventListener("session.deleted", reloadList);
     src.addEventListener("session.boats", reloadList);
     src.addEventListener("session.runs", () => {
-        if (panelVisible(document.getElementById("session-detail-panel"))) loadSessions(UI.selectedSessionId);
+        // A run landing fills the Results box and nothing else: patch it in
+        // place, keep the pane (and the map's fit) untouched.
+        if (!panelVisible(document.getElementById("session-detail-panel"))) return;
+        if (sessRefreshHooks.results) { sessRefreshHooks.results(); return; }
+        loadSessions(UI.selectedSessionId);
     });
     src.addEventListener("session.status", e => {
         try {
@@ -1216,8 +1226,13 @@ function syncEventStream() {
     src.addEventListener("signal.raised", e => {
         try {
             const d = JSON.parse(e.data || "{}");
-            if (panelVisible(document.getElementById("session-detail-panel"))) loadSessions(UI.selectedSessionId);
-            else reloadList();
+            // A signal appends to the log (and ABANDON sends its own
+            // session.status, which is what refreshes the list): patch the
+            // log box, do not rebuild the pane.
+            if (panelVisible(document.getElementById("session-detail-panel"))) {
+                if (sessRefreshHooks.signals) sessRefreshHooks.signals();
+                else loadSessions(UI.selectedSessionId);
+            } else reloadList();
             if (d.kind === "ABANDON") sessToast(`ABANDON — session ${d.sessionId}`);
             else if (d.kind === "RECALL") sessToast(`RECALL — session ${d.sessionId}`);
         } catch {}
@@ -1921,6 +1936,9 @@ let sessDetailTimers = [];
 function clearSessDetailTimers() {
     sessDetailTimers.forEach(t => clearInterval(t));
     sessDetailTimers = [];
+    // The pane about to be (re)built is the only thing these points at.
+    sessRefreshHooks.results = null;
+    sessRefreshHooks.signals = null;
 }
 let simOverlay = null;
 let simOverlayRun = null;
@@ -2130,6 +2148,9 @@ async function renderSessionDetail() {
         // session showed an empty committee log — the one thing the pane
         // exists to show — until you raised a signal yourself.
         refreshSignals();
+        // Hand both refreshers to the SSE path (see sessRefreshHooks).
+        sessRefreshHooks.results = refreshResults;
+        sessRefreshHooks.signals = refreshSignals;
         el.querySelectorAll("[data-sig]").forEach(b => b.addEventListener("click", async () => {
             const kind = b.getAttribute("data-sig");
             const body = { kind };

@@ -429,9 +429,35 @@ async function getSession(id) {
     await initDb();
     const res = await client.execute({ sql: "SELECT * FROM sessions WHERE id = ?", args: [Number(id)] });
     if (!res.rows.length) return null;
-    const full = rowToSession(res.rows[0], await getBoats(id));
-    full.status = await deriveStatus(full);
+    // Todo 25: boats and the two status maps do not depend on each other, so
+    // they go out together. Serially they were THREE more Turso round trips on
+    // top of the row, which is most of the 535 ms this call used to cost — and
+    // it is the call the detail pane, the 15 s status poll and the runs/signals
+    // routes all sit on. The status rule is the batched one the list already
+    // uses, so detail and list cannot drift apart.
+    const sid = Number(res.rows[0].id);
+    const [boats, ups, term] = await Promise.all([
+        getBoats(sid),
+        uploadersBySession([sid]),
+        terminalBoatsBySession([sid]),
+    ]);
+    const full = rowToSession(res.rows[0], boats);
+    full.status = deriveStatusFromMaps(full, ups, term);
     return full;
+}
+
+// Existence only — for the routes that need a 404 and nothing else.
+// They used to call getSession(), i.e. pay for boats + both status maps
+// (4 round trips) just to decide whether to answer 404; this is one, and it
+// runs in parallel with the payload query.
+async function sessionExists(id) {
+    const sid = Number(id);
+    if (!Number.isFinite(sid)) return false;
+    const client = getClient();
+    if (!client) return memSessions.has(sid);
+    await initDb();
+    const res = await client.execute({ sql: "SELECT id FROM sessions WHERE id = ?", args: [sid] });
+    return res.rows.length > 0;
 }
 
 // Pre-start edits (wind/origin/scale/startTime/status) re-resolve + bump version.
@@ -697,6 +723,7 @@ module.exports = {
     createSession,
     listSessions,
     getSession,
+    sessionExists,
     updateSession,
     deleteSession,
     addBoat,

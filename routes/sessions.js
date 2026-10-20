@@ -4,6 +4,7 @@ const {
     createSession,
     listSessions,
     getSession,
+    sessionExists,
     updateSession,
     deleteSession,
     addBoat,
@@ -280,11 +281,18 @@ router.post("/sessions/:id/runs", async (req, res) => {
     }
 });
 
+// The 404 guard and the payload go out together (todo 25): the guard used to
+// be a full getSession() — boats + both status maps — which cost four Turso
+// round trips to answer a question one `SELECT id` answers, and it ran BEFORE
+// the query it was guarding. Now the two are parallel: the child table read is
+// wasted only on a 404.
 router.get("/sessions/:id/runs", async (req, res) => {
     try {
-        const s = await getSession(req.params.id);
-        if (!s) return res.status(404).json({ error: "session not found" });
-        res.json(await listRuns(s.id));
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id)) return res.status(404).json({ error: "session not found" });
+        const [exists, runs] = await Promise.all([sessionExists(id), listRuns(id)]);
+        if (!exists) return res.status(404).json({ error: "session not found" });
+        res.json(runs);
     } catch (e) {
         sendErr(res, e);
     }
@@ -314,9 +322,11 @@ router.post("/sessions/:id/signals", async (req, res) => {
 
 router.get("/sessions/:id/signals", async (req, res) => {
     try {
-        const s = await getSession(req.params.id);
-        if (!s) return res.status(404).json({ error: "session not found" });
-        res.json(await listSignals(s.id));
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id)) return res.status(404).json({ error: "session not found" });
+        const [exists, sigs] = await Promise.all([sessionExists(id), listSignals(id)]);
+        if (!exists) return res.status(404).json({ error: "session not found" });
+        res.json(sigs);
     } catch (e) {
         sendErr(res, e);
     }
