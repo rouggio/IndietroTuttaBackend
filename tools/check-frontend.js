@@ -315,6 +315,13 @@ function hasAll(src, subs) {
         !/selectedDeviceId\b/.test(appJs.replace(/selectedDeviceIds/g, "")));
     check("session-detail: no re-open button (abandon is terminal in the UI)",
         !appJs.includes("sess-reopen"));
+    // Add-boat is a pre-start action: the pane renders the select + Add only
+    // while the session is still scheduled, and the listener is optional --
+    // without the `?.` the missing element threw and took the rest of the
+    // pane's wiring (delete, results, signals) down with it.
+    check("session-detail: add-boat control only while the session is scheduled",
+        /s\.status === "scheduled" \? `[\s\S]{0,500}sess-add-boat/.test(appJs)
+        && appJs.includes('document.getElementById("sess-add-btn")?.addEventListener'));
 }
 
 // --- live HTTP: what the page fetches on load ------------------------------------------

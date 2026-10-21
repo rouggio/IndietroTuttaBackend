@@ -112,6 +112,9 @@ const stubSession = {
     startLine: null, finishLine: null, boats: [],
     startTime: new Date(Date.now() - 3600000).toISOString(),
 };
+// /sessions/:id answers with this status: the add-boat gating test flips it
+// between "scheduled" (controls present) and "live" (controls gone).
+const stubDetail = { status: "scheduled" };
 function stubFetch(url, opts) {
     const u = String(url);
     // The builder's sim-route toggle: answer with a REAL compiled route for
@@ -133,7 +136,7 @@ function stubFetch(url, opts) {
     if (u.includes("/sessions/") && u.includes("/runs")) return Promise.resolve(jsonRes([]));
     if (u.includes("/sessions/") && u.includes("/signals")) return Promise.resolve(jsonRes([]));
     if (/\/sessions\/\d+/.test(u)) return Promise.resolve(jsonRes({
-        id: 84, name: "Smoke race", date: "2026-10-15", mode: "practice", status: "scheduled",
+        id: 84, name: "Smoke race", date: "2026-10-15", mode: "practice", status: stubDetail.status,
         courseVersion: 1, marks: [], windDir: 0, windSpeed: 0, scale: 1,
         startLine: null, finishLine: null, boats: [{ deviceId: "BOAT1", startOffsetSec: 0 }],
         startTime: new Date(Date.now() + 60000).toISOString(),
@@ -298,6 +301,33 @@ try {
             run("sessFilter.from") === "2026-10-14" && run("sessFilter.to") === "2026-10-15");
         run(`sessFilter.from = ""; sessFilter.to = ""`);
     } catch (e) { t("session filter chips are wired at boot", false, String(e).slice(0, 160)); }
+    // Add-boat is a pre-start action (todo: "remove the add boat controls on a
+    // non-scheduled session"): the pane renders the select + Add only while the
+    // session is scheduled. Pinned at runtime because the element ids the
+    // listeners grab afterwards would silently vanish with it.
+    try {
+        run(`UI.selectedSessionId = 84; lastDevices = [{ deviceId: "BOAT1", username: "Smoke" }]`);
+        stubDetail.status = "scheduled";
+        await run("renderSessionDetail()");
+        const schedHtml = getEl("tab-session-detail").innerHTML;
+        t("session-detail: add-boat shown while scheduled",
+            schedHtml.includes("sess-add-boat") && schedHtml.includes("sess-add-btn"));
+        stubDetail.status = "live";
+        // The bundle's boot refresh may clear a selection between awaits, so
+        // pin it again right before the second render (the fetch URL is built
+        // from it synchronously).
+        run("UI.selectedSessionId = 84");
+        await run("renderSessionDetail()");
+        const liveHtml = getEl("tab-session-detail").innerHTML;
+        t("session-detail: add-boat gone once live",
+            !liveHtml.includes("sess-add-boat") && !liveHtml.includes("sess-add-btn"));
+        // The rest of the pane must survive the missing element.
+        t("session-detail: the pane keeps its other controls",
+            liveHtml.includes("sess-del") && liveHtml.includes("sess-results"),
+            `live html ${liveHtml.length} chars`);
+        stubDetail.status = "scheduled";
+        run("UI.selectedSessionId = null");
+    } catch (e) { t("session-detail: add-boat gating", false, String(e).slice(0, 200)); }
     // Todo 28: panes stay reachable. The clamp was partial everywhere it
     // existed (left/top origin only) and absent on resize entirely.
     try {

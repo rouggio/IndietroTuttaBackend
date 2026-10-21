@@ -2030,10 +2030,11 @@ async function renderSessionDetail() {
                     <input id="sess-post-mins" type="number" value="5" min="1" max="120" title="Minutes to push the gun" style="max-width:70px">
                     <button id="sess-post" title="Push the gun later by this many minutes (pre-start only)">Postpone</button>
                 </div>` : ""}
+                ${s.status === "scheduled" ? `
                 <div class="builder-row">
                     <select id="sess-add-boat">${lastDevices.map(d => `<option value="${escHtml(d.deviceId)}">${escHtml(d.username || d.deviceId.slice(-5))}</option>`).join("")}</select>
                     <button id="sess-add-btn" title="Add the boat — everyone shares the session gun">Add</button>
-                </div>
+                </div>` : ""}
                 ${["finished", "abandoned"].includes(s.status) ? "" : `
                 <div class="builder-row">
                     <button id="sess-sim-preview" title="Show/hide the scripted mock traces on the map">Mock traces</button>
@@ -2088,7 +2089,9 @@ async function renderSessionDetail() {
             const base = s.startTime ? Math.max(new Date(s.startTime).getTime(), Date.now()) : Date.now();
             put({ startTime: new Date(base + mins * 60 * 1000).toISOString() });
         });
-        document.getElementById("sess-add-btn").addEventListener("click", async () => {
+        // Present only while the session is still scheduled (the pane hides the
+        // control once the gun has passed), so the listener must be optional.
+        document.getElementById("sess-add-btn")?.addEventListener("click", async () => {
             const id = document.getElementById("sess-add-boat").value;
             const errBox = document.getElementById("sess-detail-err");
             if (!id) return;
