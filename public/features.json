@@ -18,13 +18,6 @@
       "title": "Auth: replace the bare MAC header identity"
     },
     {
-      "n": 6,
-      "cost": 2,
-      "priority": 7,
-      "deps": [],
-      "title": "Screen capture in bands so it works on a prod-connected device"
-    },
-    {
       "n": 26,
       "cost": 2,
       "priority": 5,
