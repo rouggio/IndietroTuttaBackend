@@ -328,6 +328,32 @@ try {
         stubDetail.status = "scheduled";
         run("UI.selectedSessionId = null");
     } catch (e) { t("session-detail: add-boat gating", false, String(e).slice(0, 200)); }
+    // Results used to need a manual ↻: the detail pane was not subscribed to
+    // the `session` topic, so a run landing under an open pane never appeared.
+    // The pane now drives the subscription itself.
+    try {
+        run(`document.getElementById("session-panel").style.display = "none";
+             document.getElementById("session-detail-panel").style.display = "block"`);
+        t("session-detail: subscribes the session topic on its own",
+            [...run("sessWantTopics()")].includes("session"));
+        run(`document.getElementById("session-detail-panel").style.display = "none"`);
+        t("session-detail: closing the pane drops the topic",
+            ![...run("sessWantTopics()")].includes("session"));
+        t("session-detail: results box has no manual reload",
+            !getEl("tab-session-detail").innerHTML.includes("sess-res-refresh"));
+    } catch (e) { t("session-detail: results ride the event stream", false, String(e).slice(0, 200)); }
+    // A re-render (focus reload, status tick) used to flash the signals box
+    // empty — "no signals" blinked. The template seeds both boxes from the
+    // last paint, keyed by session id.
+    try {
+        t("session-detail: a re-render seeds the log from the last paint",
+            run(`sessBoxPainted({ id: 84 }, "signals", "<div>OCS</div>");
+                 sessBoxSeed({ id: 84 }, "signals", "")`) === "<div>OCS</div>");
+        t("session-detail: another session never inherits the log",
+            run(`sessBoxSeed({ id: 85 }, "signals", "")`) === "");
+        t("session-detail: an unpainted box keeps its empty label",
+            run(`sessBoxSeed({ id: 84 }, "results", "no runs yet")`) === "no runs yet");
+    } catch (e) { t("session-detail: live boxes are seeded", false, String(e).slice(0, 200)); }
     // Todo 28: panes stay reachable. The clamp was partial everywhere it
     // existed (left/top origin only) and absent on resize entirely.
     try {

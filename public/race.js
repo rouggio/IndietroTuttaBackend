@@ -1180,6 +1180,11 @@ function sessWantTopics() {
     // Resubscribing reconnects the single connection — never a second one.
     const t = new Set(["signal", "device"]);
     if (panelVisible(document.getElementById("session-panel"))) t.add("session");
+    // The detail pane needs the topic on its own: it is the pane that shows
+    // the Results box, and `session.runs` is what patches a run in the moment
+    // it lands. Without this the box only ever showed what existed when the
+    // pane was opened, and the ↻ button was the sole way to re-read it.
+    if (panelVisible(document.getElementById("session-detail-panel"))) t.add("session");
     if (panelVisible(document.getElementById("device-panel"))) t.add("boat");
     return t;
 }
@@ -1276,6 +1281,10 @@ function openSessionDetail() {
     renderSessionDetail();
 }
 if (sessionDetailPanel) {
+    // Topics follow the pane: opening it subscribes to `session` (so a run
+    // landing patches Results in place), closing it drops the topic again.
+    new MutationObserver(() => { syncEventStream(); })
+        .observe(sessionDetailPanel, { attributes: true, attributeFilter: ["style"] });
     document.getElementById("sessionDetailClose")?.addEventListener("click", () => {
         sessionDetailPanel.style.display = "none";
         saveUI();
@@ -1932,6 +1941,23 @@ function sessLinesText(s) {
 
 // Session-detail live timers (gun countdown) + sim map overlay (scripted
 // boat preview + moving dot for indoor testing). Timers die on re-render.
+// The two live boxes (signals log, results table) are painted only after their
+// fetch lands, so any re-render — a focus reload, a status tick — used to flash
+// them empty first: the "no signals" label visibly blinked. Remember the last
+// paint per session and seed the template with it, so a rebuild starts from
+// what was already on screen and the fetch can only confirm it.
+const sessBoxes = { id: null, signals: "", results: "" };
+function sessBoxSeed(s, key, empty) {
+    return sessBoxes.id === String(s.id) ? (sessBoxes[key] || empty) : empty;
+}
+function sessBoxPainted(s, key, html) {
+    if (sessBoxes.id !== String(s.id)) {
+        sessBoxes.id = String(s.id);
+        sessBoxes.signals = "";
+        sessBoxes.results = "";
+    }
+    sessBoxes[key] = html;
+}
 let sessDetailTimers = [];
 function clearSessDetailTimers() {
     sessDetailTimers.forEach(t => clearInterval(t));
@@ -2053,9 +2079,9 @@ async function renderSessionDetail() {
                     <button data-sig="SCP" title="Scoring penalty: add seconds">SCP</button>
                     <button data-sig="RECALL" title="General recall (fleet)">Recall</button>
                 </div>` : ""}
-                <div id="sess-signals" class="device-meta"></div>
-                <div class="builder-row"><b>Results</b><button id="sess-res-refresh" title="Reload results">↻</button></div>
-                <div id="sess-results" class="device-meta">no runs yet</div>
+                <div id="sess-signals" class="device-meta">${sessBoxSeed(s, "signals", "")}</div>
+                <div class="builder-row"><b>Results</b></div>
+                <div id="sess-results" class="device-meta">${sessBoxSeed(s, "results", "no runs yet")}</div>
                 <div class="builder-row">
                     ${s.status === "abandoned" || s.status === "finished"
                         ? ""
@@ -2133,8 +2159,8 @@ async function renderSessionDetail() {
                     return `<tr><td>${r.result === "FINISHED" ? i + 1 : "–"}</td><td>${boatName(r.deviceId)}</td><td>${fmtEl(r.elapsedSec)}</td><td>${splits}</td><td>${r.result}${pens ? ` (${pens})` : ""}</td></tr>`;
                 }).join("")}</table>` : "no runs yet";
             } catch { box.textContent = "results unavailable"; }
+            sessBoxPainted(s, "results", box.innerHTML);
         };
-        document.getElementById("sess-res-refresh").addEventListener("click", refreshResults);
         refreshResults();
         const refreshSignals = async () => {
             const box = document.getElementById("sess-signals");
@@ -2145,6 +2171,7 @@ async function renderSessionDetail() {
                     `<div>${escHtml(g.kind)}${g.deviceId ? ` → ${boatName(g.deviceId)}` : " (fleet)"}${g.detail ? ` ${escHtml(g.detail)}` : ""}</div>`
                 ).join("") : "no signals";
             } catch { box.textContent = "signals unavailable"; }
+            sessBoxPainted(s, "signals", box.innerHTML);
         };
         // Load the signal log on OPEN, not only after posting one. It used to
         // be called only from the POST handler's success path, so opening a

@@ -22,8 +22,16 @@ setInterval(() => {
 // feed can sit stale until something kicks a refresh. An open Sessions pane
 // reloads its list too, so deleted sessions drop out instead of stranding
 // the map on ghosts.
+// Coming back to the window fires BOTH events, a few ms apart, and each used
+// to reload the list — two identical passes, three requests each, and the open
+// detail pane rebuilt twice. One pass is enough.
+let lastSessReloadAt = 0;
 const reloadSessionListIfOpen = () => {
-    if (panelVisible(document.getElementById("session-panel"))) loadSessions();
+    if (!panelVisible(document.getElementById("session-panel"))) return;
+    const now = Date.now();
+    if (now - lastSessReloadAt < 500) return;
+    lastSessReloadAt = now;
+    loadSessions();
 };
 document.addEventListener("visibilitychange", () => {
     if (!document.hidden) { refresh(); refreshDevices(); reloadSessionListIfOpen(); }

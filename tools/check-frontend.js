@@ -322,6 +322,20 @@ function hasAll(src, subs) {
     check("session-detail: add-boat control only while the session is scheduled",
         /s\.status === "scheduled" \? `[\s\S]{0,500}sess-add-boat/.test(appJs)
         && appJs.includes('document.getElementById("sess-add-btn")?.addEventListener'));
+    // Results ride the event stream: the detail pane subscribes to the
+    // `session` topic itself, so a run landing patches the box in place and the
+    // manual ↻ reload button is gone.
+    check("session-detail: results ride the event stream, no reload button",
+        !appJs.includes("sess-res-refresh")
+        && /function sessWantTopics\(\)[\s\S]{0,900}session-detail-panel/.test(appJs)
+        && appJs.includes('"session.runs"'));
+    // A re-render (focus reload, status tick) must not flash the live boxes
+    // empty: both are seeded from the last paint, per session.
+    check("session-detail: signals/results boxes are seeded, not rendered empty",
+        /id="sess-signals"[^>]*>\$\{sessBoxSeed\(s, "signals"/.test(appJs)
+        && /id="sess-results"[^>]*>\$\{sessBoxSeed\(s, "results"/.test(appJs)
+        && appJs.includes('sessBoxPainted(s, "signals"')
+        && appJs.includes('sessBoxPainted(s, "results"'));
 }
 
 // --- live HTTP: what the page fetches on load ------------------------------------------
