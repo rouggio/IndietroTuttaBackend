@@ -222,6 +222,13 @@ function renderFeatures(data) {
     const legend = document.getElementById("features-legend");
     if (!list || !legend) return;
     legend.textContent = `${data.scale || ""} - ${data.features.length} open, ordered by dependency/priority/cost (P = build priority, 1 first)`;
+    // Release 1 closed 2026-10-21: an empty backlog is a STATE, not a bug, and
+    // an empty box reads like a failed fetch. Say so once, in the same muted
+    // style the other empty panes use.
+    if (!data.features.length) {
+        list.innerHTML = `<div class="device-meta">${escHtml(data.state || "No open todos.")}</div>`;
+        return;
+    }
     const rows = (featSortKey ? manualSortFeatures(data.features) : sortFeatures(data.features)).map(f => {
         const deps = [...new Set(f.deps || [])].filter(d => d !== f.n);
         const depHint = deps.length ? ` (depends on ${deps.join(", ")})` : "";

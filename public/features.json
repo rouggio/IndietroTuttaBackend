@@ -2,27 +2,6 @@
   "scale": "Cost: 1 trivial - 5 large / cross-system",
   "source": "Mirrors the numbered actionable todos in ROADMAP.md (root) - keep both in step.",
   "order": "Pane order is computed, not numeric: topological by deps, then priority, then cost, then n.",
-  "features": [
-    {
-      "n": 26,
-      "cost": 2,
-      "priority": 5,
-      "deps": [],
-      "title": "Leaderboard overlay in replay (standings at cursor)"
-    },
-    {
-      "n": 54,
-      "cost": 2,
-      "priority": 6,
-      "deps": [],
-      "title": "Device POS readout (rank on the race screen)"
-    },
-    {
-      "n": 5,
-      "cost": 5,
-      "priority": 8,
-      "deps": [],
-      "title": "Auth: replace the bare MAC header identity"
-    }
-  ]
+  "state": "Release 1 closed 2026-10-21: no open todos. Re-opening the backlog goes through the feature intake - number it in ROADMAP.md, give it cost/priority/deps here.",
+  "features": []
 }
