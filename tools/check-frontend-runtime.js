@@ -133,6 +133,18 @@ function stubFetch(url, opts) {
         deviceId: "BOAT1", username: "Smoke", simulated: 1,
     }];
     if (u.includes("/gps/sim-live")) return Promise.resolve(jsonRes(freshSim));
+    // Standings (todo 3): the race table the detail pane renders. Two finishers
+    // (the second with 5 s of SCP) and a DNF, so rank, gap, penalty and the
+    // unranked row are all exercised.
+    if (u.includes("/standings")) return Promise.resolve(jsonRes({
+        final: stubDetail.status === "finished",
+        computedAt: stubDetail.status === "finished" ? "2026-10-15T12:00:00.000Z" : null,
+        standings: [
+            { deviceId: "BOAT1", rank: 1, result: "FINISHED", elapsedSec: 200, penaltySec: 0, correctedSec: 200, splits: [60, 120] },
+            { deviceId: "BOAT2", rank: 2, result: "FINISHED", elapsedSec: 215, penaltySec: 5, correctedSec: 220, splits: [65, 135] },
+            { deviceId: "BOAT3", rank: null, result: "DNF", elapsedSec: null, penaltySec: 0, correctedSec: null, splits: [] },
+        ],
+    }));
     if (u.includes("/sessions/") && u.includes("/runs")) return Promise.resolve(jsonRes([]));
     if (u.includes("/sessions/") && u.includes("/signals")) return Promise.resolve(jsonRes([]));
     if (/\/sessions\/\d+/.test(u)) return Promise.resolve(jsonRes({
@@ -210,6 +222,10 @@ try {
     process.exit(1);
 }
 const run = (src) => vm.runInContext(src, sandbox);
+// Let the bundle's own fetches (all stubbed microtasks) land before asserting:
+// several pane refreshers are fire-and-forget, so the DOM right after
+// `await renderSessionDetail()` still shows the previous paint.
+const settle = () => new Promise((r) => setTimeout(r, 0));
 
 // --- assertions ------------------------------------------------------------
 try {
@@ -352,8 +368,37 @@ try {
         t("session-detail: another session never inherits the log",
             run(`sessBoxSeed({ id: 85 }, "signals", "")`) === "");
         t("session-detail: an unpainted box keeps its empty label",
-            run(`sessBoxSeed({ id: 84 }, "results", "no runs yet")`) === "no runs yet");
+            run(`sessBoxSeed({ id: 999 }, "results", "no runs yet")`) === "no runs yet");
     } catch (e) { t("session-detail: live boxes are seeded", false, String(e).slice(0, 200)); }
+    // Standings (todo 3): the Results block is the race table — rank, corrected
+    // time, gap to the leader, SCP seconds, and a provisional/final tag.
+    try {
+        run(`UI.selectedSessionId = 84;
+             lastDevices = [{ deviceId: "BOAT1", username: "Alpha" },
+                            { deviceId: "BOAT2", username: "Bravo" },
+                            { deviceId: "BOAT3", username: "Charlie" }]`);
+        stubDetail.status = "live";
+        await run("renderSessionDetail()");
+        await settle();
+        // Assert on the results box, not the pane's stored markup: the stub DOM
+        // keeps innerHTML as a string, so a later paint of a child does not show
+        // up in the parent's string.
+        const live = getEl("sess-results").innerHTML;
+        t("standings: finishers are ranked with a gap to the leader",
+            live.includes("Alpha") && live.includes("Bravo") && live.includes("+0:20"));
+        t("standings: a penalised boat shows its SCP seconds", live.includes("SCP:5s"));
+        t("standings: a DNF is listed unranked", live.includes("DNF") && live.includes("Charlie"));
+        t("standings: an open race is PROVISIONAL",
+            live.includes("PROVISIONAL") && !live.includes(">FINAL<"));
+        stubDetail.status = "finished";
+        run("UI.selectedSessionId = 84");
+        await run("renderSessionDetail()");
+        await settle();
+        t("standings: a closed race is FINAL",
+            getEl("sess-results").innerHTML.includes(">FINAL<"));
+        stubDetail.status = "scheduled";
+        run("UI.selectedSessionId = null");
+    } catch (e) { t("standings: the race table renders", false, String(e).slice(0, 200)); }
     // Todo 28: panes stay reachable. The clamp was partial everywhere it
     // existed (left/top origin only) and absent on resize entirely.
     try {

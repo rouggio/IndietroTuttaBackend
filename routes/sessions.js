@@ -27,6 +27,12 @@ const {
 } = require("../store/deviceStore");
 
 const {
+    getStandings,
+    finalizeStandings,
+    deleteStandingsForSession,
+} = require("../store/standings");
+
+const {
     createRun,
 } = require("../store/sim");
 
@@ -183,6 +189,11 @@ router.put("/sessions/:id", async (req, res) => {
     try {
         const s = await updateSession(req.params.id, req.body || {});
         if (!s) return res.status(404).json({ error: "session not found" });
+        // Re-opening a closed race un-freezes its result: the table goes back to
+        // PROVISIONAL and the next close recomputes the snapshot.
+        if ((req.body || {}).status === "scheduled") {
+            try { await deleteStandingsForSession(s.id); } catch {}
+        }
         emit("session.updated", { id: s.id, status: s.status });
         scheduleGun(s.id, s.startTime);
         res.json(s);
@@ -202,8 +213,9 @@ router.delete("/sessions/:id", async (req, res) => {
         clearGun(req.params.id);
         emit("session.deleted", { id: Number(req.params.id) });
         // The cascade is reported, not silent: a delete takes the session's
-        // runs (results) and its signal log with it (todo 33).
-        res.json({ status: "deleted", runs: r.runs, signals: r.signals, routes: r.routes });
+        // runs (results), its signal log and its frozen standings with it
+        // (todo 33 + todo 3).
+        res.json({ status: "deleted", runs: r.runs, signals: r.signals, routes: r.routes, results: r.results });
     } catch (e) {
         sendErr(res, e);
     }
@@ -274,6 +286,16 @@ router.post("/sessions/:id/runs", async (req, res) => {
         const s = await getSession(req.params.id);
         if (!s) return res.status(404).json({ error: "session not found" });
         const run = await submitRun({ ...(req.body || {}), sessionId: s.id });
+        // This upload may be the one that closes the race. Freeze the standings
+        // BEFORE announcing it: a client that reloads the table on the event
+        // must find the final snapshot, not one computed a moment earlier.
+        // Non-fatal: the run is stored either way and the next close recomputes.
+        try {
+            const after = await getSession(s.id);
+            if (after && after.status === "finished") await finalizeStandings(s.id);
+        } catch (e) {
+            console.warn(`[SESSIONS] finalize #${s.id} failed:`, e.message || e);
+        }
         emit("session.runs", { id: s.id });
         res.status(201).json(run);
     } catch (e) {
@@ -299,6 +321,41 @@ router.get("/sessions/:id/runs", async (req, res) => {
 });
 
 // --------------------------------------------------
+// GET /sessions/:id/standings — the race table (todo 3).
+// {final, computedAt, standings:[{deviceId, rank, result, elapsedSec,
+//  penaltySec, correctedSec, splits}]}
+//   final: true  — frozen when the race closed (`session_results`)
+//   final: false — PROVISIONAL, computed from runs + signals right now
+// A CLOSED race with no snapshot yet (it finished before this feature, or on a
+// committee signal) is frozen on first read, so "FINAL" never lies.
+// Corrected = elapsed + SCP seconds; a DSQ/DNF/RET signal outranks the run's
+// own result; only finishers carry a rank (see store/standings.js).
+// --------------------------------------------------
+
+router.get("/sessions/:id/standings", async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id)) return res.status(404).json({ error: "session not found" });
+        const s = await getSession(id);
+        if (!s) return res.status(404).json({ error: "session not found" });
+        let table = await getStandings(id);
+        // Backfill on first sight of a CLOSED race: sessions that finished
+        // before this feature existed (or closed on a committee signal rather
+        // than an upload) have no snapshot, and the pane's tag is the presence
+        // of one — so a finished race would read "PROVISIONAL" forever. The
+        // rules are deterministic, so freezing here produces the same rows the
+        // closing event would have written.
+        if (!table.final && s.status === "finished") {
+            await finalizeStandings(id);
+            table = await getStandings(id);
+        }
+        res.json(table);
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
 // POST /sessions/:id/signals — committee raises a signal
 // {kind: OCS|DSQ|DNF|RET|SCP|RECALL|ABANDON, deviceId?, detail?}
 // GET /sessions/:id/signals — signal log
@@ -309,6 +366,18 @@ router.post("/sessions/:id/signals", async (req, res) => {
         const s = await getSession(req.params.id);
         if (!s) return res.status(404).json({ error: "session not found" });
         const sig = await raiseSignal(s.id, req.body || {});
+        // A terminal signal ends a boat's race without any run, so it can also
+        // be the event that CLOSES the session (deriveStatus counts DSQ/DNF/RET
+        // as done). Freeze the standings then — before announcing the signal,
+        // for the same reason the run upload does.
+        if (["DSQ", "DNF", "RET"].includes(sig.kind)) {
+            try {
+                const after = await getSession(s.id);
+                if (after && after.status === "finished") await finalizeStandings(s.id);
+            } catch (e) {
+                console.warn(`[SESSIONS] finalize #${s.id} after ${sig.kind} failed:`, e.message || e);
+            }
+        }
         emit("signal.raised", { sessionId: s.id, kind: sig.kind, deviceId: sig.deviceId || null });
         if ((req.body || {}).kind === "ABANDON") {
             clearGun(s.id);

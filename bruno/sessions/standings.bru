@@ -1,0 +1,14 @@
+meta {
+  name: Standings (race table)
+  type: http
+  seq: 31
+}
+
+get {
+  url: {{baseUrl}}/sessions/:id/standings
+  auth: none
+}
+
+params:path {
+  id: 15
+}

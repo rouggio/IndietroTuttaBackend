@@ -546,19 +546,21 @@ async function deleteSession(id) {
     const runs = await safe("runs", () => deleteRunsForSession(sid));
     const signals = await safe("signals", () => deleteSignalsForSession(sid));
     const routes = await safe("sim_routes", () => require("./simRoute").deleteRoutesForSession(sid));
+    // Frozen standings (todo 3) belong to the race that produced them.
+    const results = await safe("session_results", () => require("./standings").deleteStandingsForSession(sid));
 
     const client = getClient();
     if (!client) {
         await safe("session_boats", async () => memBoats.delete(sid));
         const deleted = memSessions.delete(sid);
-        return { deleted, runs, signals, routes };
+        return { deleted, runs, signals, routes, results };
     }
     await initDb();
     await safe("session_boats", () => client.execute({
         sql: "DELETE FROM session_boats WHERE sessionId = ?", args: [sid],
     }));
     const res = await client.execute({ sql: "DELETE FROM sessions WHERE id = ?", args: [sid] });
-    return { deleted: res.rowsAffected > 0, runs, signals, routes };
+    return { deleted: res.rowsAffected > 0, runs, signals, routes, results };
 }
 
 // Every session (any status) this device is a boat in.
@@ -720,6 +722,7 @@ module.exports = {
     resolveSegment,
     windFrameSegment,
     effectiveFinishLine,
+    getBoats,
     createSession,
     listSessions,
     getSession,

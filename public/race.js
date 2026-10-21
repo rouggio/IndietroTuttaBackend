@@ -2151,13 +2151,29 @@ async function renderSessionDetail() {
             const box = document.getElementById("sess-results");
             if (!box) return;
             try {
-                const runs = await (await fetch(`/sessions/${s.id}/runs`)).json();
-                box.innerHTML = runs.length ? `<table>${runs.map((r, i) => {
-                    const pens = r.events.filter(e => ["OCS", "WRONG", "SIG"].includes(e.e))
-                        .map(e => e.e + (e.v ? `:${escHtml(e.v)}` : "")).join(" ");
-                    const splits = r.splits.length ? r.splits.map(fmtEl).join(" ") : "—";
-                    return `<tr><td>${r.result === "FINISHED" ? i + 1 : "–"}</td><td>${boatName(r.deviceId)}</td><td>${fmtEl(r.elapsedSec)}</td><td>${splits}</td><td>${r.result}${pens ? ` (${pens})` : ""}</td></tr>`;
-                }).join("")}</table>` : "no runs yet";
+                // The standings endpoint owns the ranking rules (store/standings.js):
+                // corrected time, SCP seconds, DSQ/DNF/RET placement. It answers
+                // `final:true` only when the race closed and the snapshot was
+                // frozen, so the tag below says which kind of table this is.
+                const t = await (await fetch(`/sessions/${s.id}/standings`)).json();
+                const rows = (t && t.standings) || [];
+                if (!rows.length) {
+                    box.innerHTML = `no runs yet<div class="device-meta">${t && t.final ? "FINAL" : "PROVISIONAL"}</div>`;
+                } else {
+                    const lead = rows.find(r => r.result === "FINISHED" && r.correctedSec != null);
+                    const gap = r => (lead && r.correctedSec != null && r.correctedSec > lead.correctedSec)
+                        ? `+${fmtEl(r.correctedSec - lead.correctedSec)}` : "";
+                    box.innerHTML = `<table>${rows.map(r => {
+                        const fin = r.result === "FINISHED";
+                        const splits = (r.splits || []).length ? r.splits.map(fmtEl).join(" ") : "—";
+                        const pen = r.penaltySec ? ` <span class="device-meta">SCP:${r.penaltySec}s</span>` : "";
+                        return `<tr><td>${r.rank == null ? "–" : r.rank}</td>`
+                            + `<td>${boatName(r.deviceId)}</td>`
+                            + `<td title="${fin ? "corrected time" : "no finishing time"}">${fmtEl(fin ? r.correctedSec : r.elapsedSec)}${pen}</td>`
+                            + `<td>${fin ? gap(r) : ""}</td><td>${splits}</td><td>${r.result}</td></tr>`;
+                    }).join("")}</table>`
+                        + `<div class="device-meta">${t.final ? "FINAL" : "PROVISIONAL"}</div>`;
+                }
             } catch { box.textContent = "results unavailable"; }
             sessBoxPainted(s, "results", box.innerHTML);
         };

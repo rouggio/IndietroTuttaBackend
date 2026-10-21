@@ -284,6 +284,29 @@ async function initDb() {
         `);
         await c.execute(`CREATE INDEX IF NOT EXISTS idx_signals_session ON signals(sessionId)`);
 
+        // Frozen standings (todo 3): the race result as it stood when the race
+        // closed, one row per boat. Written by finalizeStandings() from the same
+        // event that flips the session to `finished` (a run upload or a terminal
+        // committee signal), or on the first read of a closed race that has
+        // none, so the record cannot drift from the runs that produced it; until
+        // then the pane computes a PROVISIONAL table on the fly and nothing is
+        // stored here.
+        await c.execute(`
+            CREATE TABLE IF NOT EXISTS session_results (
+                sessionId INTEGER NOT NULL,
+                deviceId TEXT NOT NULL,
+                rank INTEGER,
+                result TEXT NOT NULL,
+                elapsedSec INTEGER,
+                penaltySec INTEGER NOT NULL DEFAULT 0,
+                correctedSec INTEGER,
+                splits TEXT NOT NULL DEFAULT '[]',
+                computedAt TEXT NOT NULL,
+                PRIMARY KEY (sessionId, deviceId)
+            )
+        `);
+        await c.execute(`CREATE INDEX IF NOT EXISTS idx_session_results_session ON session_results(sessionId)`);
+
         // The scripted route a mock boat sailed, one row per session.
         // Runs themselves are in-memory and pruned 10 minutes after they
         // end, and mock uploads never reach gps_points, so without this a

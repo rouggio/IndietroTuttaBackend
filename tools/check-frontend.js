@@ -336,6 +336,16 @@ function hasAll(src, subs) {
         && /id="sess-results"[^>]*>\$\{sessBoxSeed\(s, "results"/.test(appJs)
         && appJs.includes('sessBoxPainted(s, "signals"')
         && appJs.includes('sessBoxPainted(s, "results"'));
+    // Standings (todo 3): one route owns the ranking rules, one bruno entry
+    // documents it, and the pane reads it instead of re-deriving an order from
+    // the raw runs.
+    {
+        const sessRoutesSrc = fs.readFileSync(path.join(__dirname, "..", "routes", "sessions.js"), "utf8");
+        check("standings: /sessions/:id/standings routed, documented and used",
+            sessRoutesSrc.includes('router.get("/sessions/:id/standings"')
+            && fs.existsSync(path.join(__dirname, "..", "bruno", "sessions", "standings.bru"))
+            && appJs.includes("/standings"));
+    }
 }
 
 // --- live HTTP: what the page fetches on load ------------------------------------------
