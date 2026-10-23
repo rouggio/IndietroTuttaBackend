@@ -1,7 +1,7 @@
 const { getClient, initDb } = require("./db");
 const { listRuns } = require("./runStore");
 const { listSignals } = require("./signalStore");
-const { getBoats } = require("./sessionStore");
+const { getBoats, getSession } = require("./sessionStore");
 
 // --------------------------------------------------
 // Standings (todo 3, the minimal slice).
@@ -163,14 +163,45 @@ async function finalizeStandings(sessionId) {
     return standings;
 }
 
+// A frozen table is only "the race's table" if it was computed against the same
+// participants the session has. Participants are declared once, at creation
+// (todo 55), so a disagreement means these rows are not a record of anything:
+// either they were written before that rule, or something wrote them wrong.
+async function snapshotMatchesSession(sessionId, stored) {
+    const boats = await getBoats(sessionId);
+    const want = new Set((boats || []).map(b => b.deviceId));
+    const have = new Set(stored.map(r => r.deviceId));
+    if (want.size !== have.size) return false;
+    for (const id of want) if (!have.has(id)) return false;
+    return true;
+}
+
 // The pane's one call: the frozen table when the race is closed, a provisional
 // one computed now when it is not. `final` is what the UI labels the table with.
+//
+// Healing (todo 55): a snapshot whose boats are not the session's boats is not
+// a record of anything, so it never reaches the pane. A closed race is
+// recomputed and re-frozen on the spot; a race that is still running (only
+// possible from pre-55 data) loses the stale snapshot and reads PROVISIONAL,
+// which is what a race in progress should say. This is the only read that
+// writes, so it logs when it does.
 async function getStandings(sessionId) {
     const stored = await readStandings(sessionId);
-    if (stored.length) {
+    if (!stored.length) {
+        return { final: false, computedAt: null, standings: await computeStandings(sessionId) };
+    }
+    if (await snapshotMatchesSession(sessionId, stored)) {
         return { final: true, computedAt: stored[0].computedAt || null, standings: stored };
     }
-    return { final: false, computedAt: null, standings: await computeStandings(sessionId) };
+    const s = await getSession(sessionId);
+    const closed = !!s && (s.status === "finished" || s.status === "abandoned");
+    console.warn(`[standings] session ${sessionId}: snapshot has ${stored.length} boats that are ` +
+        `not the session's boats — ${closed ? "re-freezing" : "dropping it (race not closed)"}`);
+    if (!closed) {
+        await deleteStandingsForSession(sessionId);
+        return { final: false, computedAt: null, standings: await computeStandings(sessionId) };
+    }
+    return { final: true, computedAt: new Date().toISOString(), standings: await finalizeStandings(sessionId) };
 }
 
 async function deleteStandingsForSession(sessionId) {

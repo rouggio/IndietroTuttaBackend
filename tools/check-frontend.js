@@ -179,7 +179,8 @@ function hasAll(src, subs) {
     check("pursuit-offset: gone from store, routes, UI and payloads",
         !storeJs.includes("SELECT deviceId, startOffsetSec")
         && !storeJs.includes("startOffsetSec: (mine")
-        && !sessRoutes.includes("addBoat(req.params.id, deviceId, startOffsetSec)")
+        && !storeJs.includes("function addBoat(")
+        && !storeJs.includes("function removeBoat(")
         && !appJs.includes("sess-add-off")
         && !appJs.includes("startOffsetSec: off"));
     check("pursuit-offset: a nonzero offset is a 400, not a silent drop",
@@ -315,13 +316,17 @@ function hasAll(src, subs) {
         !/selectedDeviceId\b/.test(appJs.replace(/selectedDeviceIds/g, "")));
     check("session-detail: no re-open button (abandon is terminal in the UI)",
         !appJs.includes("sess-reopen"));
-    // Add-boat is a pre-start action: the pane renders the select + Add only
-    // while the session is still scheduled, and the listener is optional --
-    // without the `?.` the missing element threw and took the rest of the
-    // pane's wiring (delete, results, signals) down with it.
-    check("session-detail: add-boat control only while the session is scheduled",
-        /s\.status === "scheduled" \? `[\s\S]{0,500}sess-add-boat/.test(appJs)
-        && appJs.includes('document.getElementById("sess-add-btn")?.addEventListener'));
+    // Participants are declared once, at creation (todo 55): there is no
+    // add/remove control at ANY status and no route behind one, so the frozen
+    // table and the boat list cannot drift apart.
+    check("session-detail: no add/remove-boat control at any status",
+        !appJs.includes("sess-add-boat")
+        && !appJs.includes("sess-add-btn")
+        && !appJs.includes("data-unboat")
+        && !fs.readFileSync(path.join(__dirname, "..", "routes", "sessions.js"), "utf8")
+            .includes('router.post("/sessions/:id/boats"')
+        && !fs.readFileSync(path.join(__dirname, "..", "routes", "sessions.js"), "utf8")
+            .includes('router.delete("/sessions/:id/boats/:deviceId"'));
     // Results ride the event stream: the detail pane subscribes to the
     // `session` topic itself, so a run landing patches the box in place and the
     // manual ↻ reload button is gone.

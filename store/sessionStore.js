@@ -2,6 +2,7 @@ const { getClient, initDb } = require("./db");
 const { getCourse, validateMarks, validateLines } = require("./courseStore");
 const { uploaders, uploadersBySession, deleteRunsForSession } = require("./runStore");
 const { terminalBoats, terminalBoatsBySession, deleteSignalsForSession } = require("./signalStore");
+const { ensureDevice, fictiveName } = require("./deviceStore");
 
 // ------------------------------------------------------------------
 // Sessions freeze a course onto a day: frozen course copy +
@@ -146,6 +147,12 @@ let memNextId = 1;
 // release — dropping it while the deployed build still SELECTs it breaks
 // prod (see the schema note in AGENTS.md); the drop goes out with the next
 // `sc`. Nothing reads or writes it in the meantime.
+//
+// PARTICIPANTS ARE DECLARED ONCE, AT CREATION (todo 55, decision 2026-10-22):
+// there is no add/remove path any more — not "before the gun", not at all. A
+// session's boat list is part of what was created, exactly like its geometry
+// and its gun, and `POST /sessions` is the only way in (`repeatSession` creates
+// a NEW session, so carrying the boats over is still creation).
 async function getBoats(sessionId) {
     const client = getClient();
     if (!client) return memBoats.get(Number(sessionId)) || [];
@@ -165,9 +172,11 @@ async function createSession(b) {
         (b.windDir === undefined ? "windDir required" : null);
     if (err) throw Object.assign(new Error(err), { status: 400 });
 
-    // Boats may ride along with the create call (one round trip). Each is
-    // validated by the same rules addBoat applies — including the 409 when
-    // the boat already belongs to another scheduled/live session.
+    // Boats may ride along with the create call (one round trip). This is the
+    // ONLY moment a participant list can be set (todo 55): each boat is
+    // validated against the one-active-session rule here, and an id the server
+    // has never seen is recorded immediately under a fictive name so it can be
+    // renamed later instead of being an invisible phantom.
     let boats = [];
     if (b.boats !== undefined && b.boats !== null) {
         if (!Array.isArray(b.boats)) {
@@ -245,8 +254,11 @@ async function createSession(b) {
         const id = memNextId++;
         const s = { id, ...base };
         memSessions.set(id, s);
-        memBoats.set(id, []);
-        return { ...s, boats: [] };
+        // Participants are part of creation here too (they used to be dropped
+        // in the in-memory fallback, which made a DB-less run look boat-less).
+        const list = boats.map((x) => ({ deviceId: x.deviceId.trim() }));
+        memBoats.set(id, list);
+        return { ...s, boats: list };
     }
     await initDb();
 
@@ -268,7 +280,9 @@ async function createSession(b) {
     });
     const id = Number(res.lastInsertRowid);
     for (const boat of boats) {
-        await addBoat(id, boat.deviceId);
+        const dev = boat.deviceId.trim();
+        await ensureDevice(dev, fictiveName(dev));
+        await insertBoat(id, dev);
     }
     return rowToSession({
         id, ...base,
@@ -607,46 +621,24 @@ function boatBusyError(conflict) {
     );
 }
 
-async function addBoat(sessionId, deviceId) {
-    const cur = await getSession(sessionId);
-    if (!cur) return null;
-    if (typeof deviceId !== "string" || !deviceId.trim()) {
-        throw Object.assign(new Error("deviceId required"), { status: 400 });
-    }
-    const dev = deviceId.trim();
-    const conflicts = await activeSessionsForDevice(dev, cur.id);
-    if (conflicts.length) throw boatBusyError(conflicts[0]);
+// The ONLY writer of a participant row, and it is internal: creation (and a
+// repeat, which creates a new session) call it. There is no add/remove API —
+// see the note above getBoats (todo 55).
+async function insertBoat(sessionId, deviceId) {
+    // startOffsetSec is omitted: the column still exists (its drop lands with a
+    // later `sc`) but its DEFAULT 0 applies. Pursuit starts were removed.
     const client = getClient();
     if (!client) {
-        const list = memBoats.get(cur.id) || [];
-        if (!list.some(x => x.deviceId === dev)) list.push({ deviceId: dev });
-        memBoats.set(cur.id, list);
-        return getSession(cur.id);
+        const list = memBoats.get(Number(sessionId)) || [];
+        if (!list.some(x => x.deviceId === deviceId)) list.push({ deviceId });
+        memBoats.set(Number(sessionId), list);
+        return;
     }
     await initDb();
-    // startOffsetSec is omitted: the column still exists (drop lands with the
-    // next `sc`) but its DEFAULT 0 applies. Pursuit starts were removed.
     await client.execute({
         sql: "INSERT OR REPLACE INTO session_boats (sessionId, deviceId) VALUES (?, ?)",
-        args: [cur.id, dev],
+        args: [Number(sessionId), deviceId],
     });
-    return getSession(cur.id);
-}
-
-async function removeBoat(sessionId, deviceId) {
-    const cur = await getSession(sessionId);
-    if (!cur) return null;
-    const client = getClient();
-    if (!client) {
-        memBoats.set(cur.id, (memBoats.get(cur.id) || []).filter(x => x.deviceId !== deviceId));
-        return getSession(cur.id);
-    }
-    await initDb();
-    await client.execute({
-        sql: "DELETE FROM session_boats WHERE sessionId = ? AND deviceId = ?",
-        args: [cur.id, deviceId],
-    });
-    return getSession(cur.id);
 }
 
 // Repeat a session onto a new day: same frozen geometry + placement,
@@ -709,10 +701,10 @@ async function repeatSession(id, { date, mode, name } = {}) {
     });
     const newId = Number(res.lastInsertRowid);
     for (const b of cur.boats) {
-        await client.execute({
-            sql: "INSERT INTO session_boats (sessionId, deviceId) VALUES (?, ?)",
-            args: [newId, b.deviceId],
-        });
+        // Same participants, but on a NEW session: creation is still the only
+        // moment a list is declared, so the repeat is the declaration (todo 55).
+        await ensureDevice(b.deviceId, fictiveName(b.deviceId));
+        await insertBoat(newId, b.deviceId);
     }
     return getSession(newId);
 }
@@ -729,8 +721,6 @@ module.exports = {
     sessionExists,
     updateSession,
     deleteSession,
-    addBoat,
-    removeBoat,
     repeatSession,
     sessionsForDevice,
     activeSessionsForDevice,

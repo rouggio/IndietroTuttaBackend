@@ -2049,7 +2049,7 @@ async function renderSessionDetail() {
                     <tr><td>Lines</td><td>${sessLinesText(s)}</td></tr>
                     <tr><td>Start</td><td>${s.startTime ? escHtml(new Date(s.startTime).toLocaleString()) : "—"}</td></tr>
                     <tr><td>Gun</td><td id="sess-countdown">—</td></tr>
-                    <tr><td>Boats</td><td>${s.boats.length ? s.boats.map(b => `${escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))} <a href="#" data-unboat="${escHtml(b.deviceId)}" style="color:#dc2626">×</a>`).join(", ") : "—"}</td></tr>
+                    <tr><td>Boats</td><td>${s.boats.length ? s.boats.map(b => escHtml((lastDevices.find(d => d.deviceId === b.deviceId) || {}).username || b.deviceId.slice(-5))).join(", ") : "—"}</td></tr>
                 </table>
                 ${s.status !== "abandoned" && (!s.startTime || Date.now() < new Date(s.startTime).getTime()) ? `
                 <div class="builder-row" id="sess-post-row">
@@ -2057,10 +2057,7 @@ async function renderSessionDetail() {
                     <button id="sess-post" title="Push the gun later by this many minutes (pre-start only)">Postpone</button>
                 </div>` : ""}
                 ${s.status === "scheduled" ? `
-                <div class="builder-row">
-                    <select id="sess-add-boat">${lastDevices.map(d => `<option value="${escHtml(d.deviceId)}">${escHtml(d.username || d.deviceId.slice(-5))}</option>`).join("")}</select>
-                    <button id="sess-add-btn" title="Add the boat — everyone shares the session gun">Add</button>
-                </div>` : ""}
+                <div class="builder-row device-meta" title="Boats are declared once, when the session is created">Boats are fixed at creation — create a new session to change the fleet</div>` : ""}
                 ${["finished", "abandoned"].includes(s.status) ? "" : `
                 <div class="builder-row">
                     <button id="sess-sim-preview" title="Show/hide the scripted mock traces on the map">Mock traces</button>
@@ -2115,26 +2112,8 @@ async function renderSessionDetail() {
             const base = s.startTime ? Math.max(new Date(s.startTime).getTime(), Date.now()) : Date.now();
             put({ startTime: new Date(base + mins * 60 * 1000).toISOString() });
         });
-        // Present only while the session is still scheduled (the pane hides the
-        // control once the gun has passed), so the listener must be optional.
-        document.getElementById("sess-add-btn")?.addEventListener("click", async () => {
-            const id = document.getElementById("sess-add-boat").value;
-            const errBox = document.getElementById("sess-detail-err");
-            if (!id) return;
-            const r = await fetch(`/sessions/${s.id}/boats`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ deviceId: id }),
-            });
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) { if (errBox) errBox.textContent = j.error || "Could not add boat."; return; }
-            if (errBox) errBox.textContent = "";
-            loadSessions(s.id);
-        });
-        el.querySelectorAll("[data-unboat]").forEach(a => a.addEventListener("click", async e => {
-            e.preventDefault();
-            await fetch(`/sessions/${s.id}/boats/${encodeURIComponent(a.getAttribute("data-unboat"))}`, { method: "DELETE" });
-            loadSessions(s.id);
-        }));
+        // No add/remove-boat wiring: participants are declared on the create
+        // call and the API has no path to change them (todo 55).
         document.getElementById("sess-del").addEventListener("click", async () => {
             if (!confirm("Delete this session?")) return;
             await fetch(`/sessions/${s.id}`, { method: "DELETE" });

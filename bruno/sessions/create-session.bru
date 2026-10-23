@@ -33,7 +33,10 @@ body:json {
 docs {
   courseId  = lineage into the courses table (snapshot + marks are frozen onto
               the session either way)
-  boats[]   = optional; the server applies the same 409 conflict guard as
-              POST /sessions/:id/boats and auto-starts a mock boat's sim
+  boats[]   = the participants. THIS IS THE ONLY MOMENT they can be declared
+              (todo 55): there is no add/remove endpoint. An id the server has
+              never seen is recorded immediately as a device named "Boat XXXX"
+              (no lastSeen, so it reads offline until it heartbeats) and can be
+              renamed later in the boats pane.
   409       = this boat is already in another scheduled/live session
 }

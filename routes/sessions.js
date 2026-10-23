@@ -7,8 +7,6 @@ const {
     sessionExists,
     updateSession,
     deleteSession,
-    addBoat,
-    removeBoat,
     repeatSession,
 } = require("../store/sessionStore");
 
@@ -49,9 +47,9 @@ function sendErr(res, e) {
 }
 
 // A mock boat auto-starts its scripted sim (same as the Simulate button)
-// so it begins sailing without a manual step. Used both by
-// POST /sessions/:id/boats and by boats[] riding along a create call.
-// Non-fatal: a failure here never blocks the boat being added.
+// so it begins sailing without a manual step. Used by the create call, which
+// is the only way a boat joins a session since todo 55.
+// Non-fatal: a failure here never blocks the session from being created.
 async function autoSimMockBoats(session, deviceIds) {
     for (const raw of deviceIds || []) {
         const deviceId = typeof raw === "string" ? raw.trim() : "";
@@ -239,40 +237,12 @@ router.post("/sessions/:id/repeat", async (req, res) => {
     }
 });
 
-// --------------------------------------------------
-// POST /sessions/:id/boats - {deviceId}
-// (a nonzero startOffsetSec is rejected: pursuit starts were removed)
-// --------------------------------------------------
-
-router.post("/sessions/:id/boats", async (req, res) => {
-    try {
-        const pursuitErr = rejectPursuitOffset(req.body);
-        if (pursuitErr) throw pursuitErr;
-        const { deviceId } = req.body || {};
-        const s = await addBoat(req.params.id, deviceId);
-        if (!s) return res.status(404).json({ error: "session not found" });
-await autoSimMockBoats(s, typeof deviceId === "string" ? [deviceId] : []);
-    emit("session.boats", { id: s.id });
-    res.status(201).json(s);
-    } catch (e) {
-        sendErr(res, e);
-    }
-});
-
-// --------------------------------------------------
-// DELETE /sessions/:id/boats/:deviceId
-// --------------------------------------------------
-
-router.delete("/sessions/:id/boats/:deviceId", async (req, res) => {
-    try {
-        const s = await removeBoat(req.params.id, req.params.deviceId);
-        if (!s) return res.status(404).json({ error: "session not found" });
-        emit("session.boats", { id: s.id });
-        res.json(s);
-    } catch (e) {
-        sendErr(res, e);
-    }
-});
+// Participants are declared ONCE, on the create call (todo 55, decision
+// 2026-10-22): there is deliberately no POST/DELETE /sessions/:id/boats any
+// more. A closed race cannot gain or lose a boat, so the frozen table and the
+// participant list can never disagree — and a late add can no longer
+// un-finish a finished race (status is derived; a boat with no run makes
+// "every boat uploaded" false). Express answers 404 for the old paths.
 
 // --------------------------------------------------
 // POST /sessions/:id/runs — device run upload at finish

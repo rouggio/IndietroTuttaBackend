@@ -152,6 +152,49 @@ async function getDevice(deviceId) {
     return row ? { ...row, mock: mockFlag(row.mock) } : null;
 }
 
+// A boat a session DECLARES that the server has never seen (todo 55): record it
+// immediately under a readable, obviously fictive name, so it is visible in the
+// boat list and can be given its real details later. Three rules:
+//   - it never overwrites an existing row (`INSERT OR IGNORE`), because a
+//     declaration is not a fact about the boat;
+//   - it carries NO last-seen claim. `devices.lastSeen` is NOT NULL, so the
+//     "never heard from" value is the empty string: `computeStatus("")` reads
+//     `offline`, the boat list prints "-", and declaring a boat can never paint
+//     it live on the map (the migration-free way to say "no heartbeat yet");
+//   - it is not a mock and has no ip: nothing is assumed about it.
+async function ensureDevice(deviceId, fictiveName) {
+    if (!deviceId) return null;
+    const clean = sanitizeUsername(fictiveName);
+    const now = new Date().toISOString();
+    const client = getClient();
+    if (!client) {
+        const have = memDevices.get(deviceId);
+        if (have) return have;
+        const row = {
+            deviceId, username: clean, firmware: null, boat: null, ip: null,
+            mock: 0, firstSeen: now, lastSeen: "",
+        };
+        memDevices.set(deviceId, row);
+        return row;
+    }
+    await initDb();
+    await client.execute({
+        sql: `INSERT OR IGNORE INTO devices
+                (deviceId, username, firmware, boat, ip, mock, firstSeen, lastSeen)
+              VALUES (?, ?, NULL, NULL, NULL, 0, ?, '')`,
+        args: [deviceId, clean, now],
+    });
+    return getDevice(deviceId);
+}
+
+// The fictive label for an unknown boat: "Boat EE02". Last four hex chars of the
+// id, which is enough to tell two phantoms apart on screen and fits the
+// username whitelist (a MAC's colons do not).
+function fictiveName(deviceId) {
+    const tail = String(deviceId || "").replace(/[^A-Za-z0-9]/g, "").slice(-4).toUpperCase();
+    return tail ? `Boat ${tail}` : "Boat";
+}
+
 function computeStatus(lastSeen) {
     if (!lastSeen) return "offline";
     const ageMs = Date.now() - new Date(lastSeen).getTime();
@@ -182,4 +225,4 @@ async function deleteDevice(deviceId) {
     return res.rowsAffected > 0;
 }
 
-module.exports = { sanitizeUsername, sanitizeFirmware, sanitizeBoat, upsertDevice, setDeviceMock, renameDevice, getDevice, getDevices, deleteDevice };
+module.exports = { sanitizeUsername, sanitizeFirmware, sanitizeBoat, upsertDevice, setDeviceMock, renameDevice, getDevice, getDevices, deleteDevice, ensureDevice, fictiveName };

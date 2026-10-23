@@ -317,17 +317,17 @@ try {
             run("sessFilter.from") === "2026-10-14" && run("sessFilter.to") === "2026-10-15");
         run(`sessFilter.from = ""; sessFilter.to = ""`);
     } catch (e) { t("session filter chips are wired at boot", false, String(e).slice(0, 160)); }
-    // Add-boat is a pre-start action (todo: "remove the add boat controls on a
-    // non-scheduled session"): the pane renders the select + Add only while the
-    // session is scheduled. Pinned at runtime because the element ids the
-    // listeners grab afterwards would silently vanish with it.
+    // Participants are declared once, at creation (todo 55): the pane must not
+    // offer an add/remove control at ANY status, because the API has no route
+    // behind one. Pinned at runtime so a reintroduced control cannot slip in.
     try {
         run(`UI.selectedSessionId = 84; lastDevices = [{ deviceId: "BOAT1", username: "Smoke" }]`);
         stubDetail.status = "scheduled";
         await run("renderSessionDetail()");
         const schedHtml = getEl("tab-session-detail").innerHTML;
-        t("session-detail: add-boat shown while scheduled",
-            schedHtml.includes("sess-add-boat") && schedHtml.includes("sess-add-btn"));
+        t("session-detail: no add-boat control while scheduled",
+            !schedHtml.includes("sess-add-boat") && !schedHtml.includes("sess-add-btn")
+            && !schedHtml.includes("data-unboat"));
         stubDetail.status = "live";
         // The bundle's boot refresh may clear a selection between awaits, so
         // pin it again right before the second render (the fetch URL is built
@@ -335,15 +335,16 @@ try {
         run("UI.selectedSessionId = 84");
         await run("renderSessionDetail()");
         const liveHtml = getEl("tab-session-detail").innerHTML;
-        t("session-detail: add-boat gone once live",
-            !liveHtml.includes("sess-add-boat") && !liveHtml.includes("sess-add-btn"));
-        // The rest of the pane must survive the missing element.
+        t("session-detail: no add-boat control once live either",
+            !liveHtml.includes("sess-add-boat") && !liveHtml.includes("sess-add-btn")
+            && !liveHtml.includes("data-unboat"));
+        // The rest of the pane must survive the change.
         t("session-detail: the pane keeps its other controls",
             liveHtml.includes("sess-del") && liveHtml.includes("sess-results"),
             `live html ${liveHtml.length} chars`);
         stubDetail.status = "scheduled";
         run("UI.selectedSessionId = null");
-    } catch (e) { t("session-detail: add-boat gating", false, String(e).slice(0, 200)); }
+    } catch (e) { t("session-detail: no add/remove-boat control", false, String(e).slice(0, 200)); }
     // Results used to need a manual ↻: the detail pane was not subscribed to
     // the `session` topic, so a run landing under an open pane never appeared.
     // The pane now drives the subscription itself.

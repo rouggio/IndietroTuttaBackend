@@ -1,0 +1,42 @@
+meta {
+  name: Participants are immutable (removed route → 404)
+  type: http
+  seq: 32
+}
+
+post {
+  url: {{baseUrl}}/sessions/:id/boats
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 229
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "deviceId": "{{deviceId}}"
+  }
+}
+
+docs {
+  Todo 55 (2026-10-22): participants are declared ONCE, on POST /sessions, and
+  nothing can change them afterwards — not before the gun, not after. This
+  request must answer 404: POST /sessions/:id/boats and
+  DELETE /sessions/:id/boats/:deviceId no longer exist.
+
+  Why the endpoints went instead of gaining a status guard: status is DERIVED
+  on read (only `abandoned` is stored). Adding a boat to a finished race makes
+  "every boat uploaded a run" false, so the race silently un-finishes, comes
+  back on the health piggyback and can drag the boat into a race that is over.
+  A guard fixes that one hole; no route closes the class.
+
+  The frozen table is protected too: GET /sessions/:id/standings re-freezes a
+  snapshot whose boats are not the session's boats (it logs when it does), and
+  node tools/prune-db.js --standings sweeps the rest in bulk.
+}
