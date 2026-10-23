@@ -11,10 +11,14 @@ delete {
 }
 
 params:path {
-  id: 1
+  id: 230
 }
 
 docs {
+  Target is 230, the abandoned two-boat test session (SCP + ABANDON, two
+  participants, no results). 229 is the finished mock race — deleting it
+  takes its one result with it.
+
   Deleting a session CASCADES (todo 33): its runs (results), its committee
   signal log and its persisted mock route go with it, plus its boat rows.
   They are keyed by sessionId, so once the session is gone nothing can reach

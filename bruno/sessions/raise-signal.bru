@@ -11,7 +11,7 @@ post {
 }
 
 params:path {
-  id: 15
+  id: 230
 }
 
 headers {
@@ -24,4 +24,12 @@ body:json {
     "deviceId": "08:D1:F9:C8:4D:24",
     "detail": ""
   }
+}
+
+docs {
+  Target is 230, the abandoned two-boat test session (it already carries an
+  SCP and an ABANDON). Writes to the live Turso DB.
+
+  A terminal DSQ/DNF/RET freezes the standings of a FINISHED race; on an
+  abandoned session status is stored, so nothing un-abandons it.
 }

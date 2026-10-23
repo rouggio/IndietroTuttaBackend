@@ -11,7 +11,7 @@ put {
 }
 
 params:path {
-  id: 1
+  id: 230
 }
 
 body:json {
@@ -19,4 +19,11 @@ body:json {
     "windDir": 300,
     "status": "scheduled"
   }
+}
+
+docs {
+  Target is 230, the abandoned test session: `status: "scheduled"` is the
+  re-open path (abandoned is the only other accepted value). Changing the
+  geometry bumps the session's own courseVersion and drops any frozen
+  standings snapshot.
 }

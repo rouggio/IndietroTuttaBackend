@@ -11,12 +11,21 @@ put {
 }
 
 params:path {
-  id: 1
+  id: 41
 }
 
 body:json {
   {
     "name": "Saturday stick (long legs)"
   }
+}
+
+docs {
+  Target is 41 "straight marks", a scratch user course (rename it back or
+  delete it afterwards). A built-in (34-38) answers 403: they are read-only,
+  copy-only.
+
+  The PUT bumps `version`, which invalidates the compiled scripted route for
+  the shape — that is why the course editor re-POSTs /courses/sim-route.
 }
 

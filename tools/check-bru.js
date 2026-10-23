@@ -96,11 +96,60 @@ function check(file) {
   if (!isEnv) {
     if (methodCount === 0) problems.push("no HTTP method block (get/post/put/...)");
     if (methodCount === 1 && !urlInMethod) problems.push("method block has no url:");
+    problems.push(...checkUrl(text));
+  }
+  return problems;
+}
+
+// The class of bug the grammar pass cannot see: a `{{var}}` that only LOOKS
+// like a path param. 2026-10-23, sim/run-route-by-session.bru sent
+// `{{sessionId}}` declared in a bare `params { }` block, so it never resolved
+// and the request went out as /sim/routes/%7B%7BsessionId%7D%7D → 400
+// "sessionId required". The file parsed fine; it just could not work.
+//
+// Also the inverse: a `:param` in the url with nothing in `params:path` sends
+// the literal ":id" and 404s.
+function checkUrl(text) {
+  const problems = [];
+  const url = (text.match(/^\s*url\s*:\s*(.+)$/im) || [])[1] || "";
+  if (!url) return problems;
+
+  const inUrl = [...url.matchAll(/:([A-Za-z_][A-Za-z0-9_]*)/g)].map(m => m[1]);
+  const block = (text.match(/params:path\s*\{([\s\S]*?)\}/) || [])[1] || "";
+  const declared = [...block.matchAll(/^\s*(\w+)\s*:\s*(.+)$/gm)].map(m => m[1]);
+
+  for (const p of inUrl) {
+    if (!declared.includes(p)) {
+      problems.push(`url has :${p} but params:path does not declare it (sends the literal ":${p}")`);
+    }
+  }
+  for (const d of declared) {
+    if (!inUrl.includes(d)) problems.push(`params:path declares "${d}" but the url has no :${d}`);
+  }
+  for (const m of url.matchAll(/\{\{(\w+)\}\}/g)) {
+    if (!ENV_VARS.has(m[1])) problems.push(`undefined variable {{${m[1]}}} — declare it in environments/ or use params:path`);
+  }
+  if (/(^|\n)[ \t]*params[ \t]*\{/.test(text)) {
+    problems.push("bare `params { }` block — Bruno only reads params:path / params:query / params:url");
   }
   return problems;
 }
 
 const roots = process.argv.slice(2);
+if (!roots.length) roots.push("bruno");
+
+// Variables a .bru may interpolate: whatever environments/*.bru declares.
+const ENV_VARS = new Set(["baseUrl", "deviceId", "username"]);
+for (const r of roots) {
+  const envDir = path.join(r, "environments");
+  if (!fs.existsSync(envDir)) continue;
+  for (const f of fs.readdirSync(envDir)) {
+    if (!f.endsWith(".bru")) continue;
+    const t = fs.readFileSync(path.join(envDir, f), "utf8");
+    for (const m of t.matchAll(/^\s*(\w+)\s*:/gm)) ENV_VARS.add(m[1]);
+  }
+}
+
 const files = roots.flatMap(r => walk(r));
 let bad = 0;
 for (const f of files.sort()) {

@@ -12,3 +12,13 @@ get {
 params:path {
   id: sim-1
 }
+
+docs {
+  sim-1 is a placeholder on purpose: run ids exist only while the run is in
+  memory. Copy a real id from GET /sim/runs (start one with POST /sim/runs),
+  and note a run is pruned 10 minutes after it ends and a backend restart
+  empties the whole rig.
+
+  That is why the session-keyed route exists — use
+  sim/run-route-by-session.bru to inspect a FINISHED race.
+}

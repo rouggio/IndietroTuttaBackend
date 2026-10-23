@@ -11,7 +11,7 @@ post {
 }
 
 params:path {
-  id: 15
+  id: 230
 }
 
 headers {
@@ -27,4 +27,10 @@ body:json {
     "events": [{"t": 1790000000, "e": "START"}, {"t": 1790001200, "e": "FINISH"}],
     "result": "FINISHED"
   }
+}
+
+docs {
+  Target is 230 (abandoned two-boat test session), so a fake result never
+  overwrites a real race: re-uploading REPLACES a boat's run, and 229 is the
+  finished mock race whose only result would be destroyed.
 }

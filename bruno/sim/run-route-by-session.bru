@@ -5,21 +5,27 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/sim/routes/{{sessionId}}
+  url: {{baseUrl}}/sim/routes/:sessionId
   body: none
   auth: none
 }
 
-params {
-  sessionId: 1
+params:path {
+  sessionId: 229
 }
 
 docs {
   200 { runId, sessionId, deviceId, startMs, gunMs, durationSec, points:[{t,lat,lon}] }
-  404 { error }
+  400 { error }  // sessionId not a number (param unresolved)
+  404 { error }  // no persisted route for this session
 
   The scripted route the mock boat sailed for this SESSION, keyed by session
   rather than by run id.
+
+  Set a real session id in the path param: ids are autoincrement, so they do not
+  restart at 1 (the 2026-10 DB rewrite left the live sessions at 196+). A stale
+  id answers 404 "no scripted route for this session" — that is the route being
+  right, not the request.
 
   Keyed by session on purpose: the frontend only holds a selected session id,
   so /sim/runs/:id/points is unreachable exactly when it is needed. A run is
