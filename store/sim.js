@@ -25,6 +25,12 @@ const {
 const KN_TO_MS = 0.514444;
 const DEG_M = 111320;
 
+// How long after the gun the script crosses the start line. Module scope
+// because `runMeta` reports it: a device-free bench (tools/mock-fleet.js) has
+// to stamp the run's startEpoch at the CROSSING, not at the gun, or every
+// elapsed time carries this offset twice.
+const CROSS_AFTER_GUN = 5000;
+
 const runs = new Map(); // runId -> run
 let runSeq = 1;
 const MAX_RUNS = 20;
@@ -111,7 +117,7 @@ function compileScript(session, { speedKn = 14, startInSec = 60, nowMs = Date.no
     // was added. That is the "the mock crosses 30 s after the gun" report.
     const OCS_SAFE_HOLD_M = 300;   // never hold further out than this
     const OCS_MIN_HOLD_M = 170;    // ...and never inside the 150m band
-    const CROSS_AFTER_GUN_MS = 5000;
+    const CROSS_AFTER_GUN_MS = CROSS_AFTER_GUN;   // module scope: the bench needs it
     const line = wps[0];
     const firstLegBrg = bearing(line, wps[1]);
     const crossAt = (gunMs + CROSS_AFTER_GUN_MS - startMs) / 1000; // seconds, script time
@@ -265,6 +271,9 @@ function runMeta(run, nowMs = Date.now()) {
         createdMs: run.createdMs, startMs: run.startMs, gunMs: run.gunMs,
         speedKn: run.speedKn, roundingM: run.roundingM, samples: run.samples.length,
         gunSec: run.gunSec, durationSec: run.durationSec,
+        // the start crossing, in ms after the gun — a bench stamps its
+        // startEpoch here so elapsed is line-to-line, as the device scores it
+        crossMs: CROSS_AFTER_GUN,
         elapsedSec: elapsed,
         done: elapsed >= run.durationSec,
         echoCount: echoes.length,
