@@ -162,7 +162,9 @@ async function initDb() {
                 marks TEXT NOT NULL,
                 createdAt TEXT NOT NULL,
                 startLine TEXT,
-                finishLine TEXT
+                finishLine TEXT,
+                simulated INTEGER NOT NULL DEFAULT 0,
+                timeScale REAL NOT NULL DEFAULT 1
             )`;
         await c.execute(SESSIONS_DDL);
         // Migrate pre-rename schemas: courseId/courseShapeVersion/courseSnapshot
@@ -199,6 +201,8 @@ async function initDb() {
                 ["createdAt", ["createdAt"], "NULL"],
                 ["startLine", ["startLine"], "NULL"],
                 ["finishLine", ["finishLine"], "NULL"],
+                ["simulated", ["simulated"], "0"],
+                ["timeScale", ["timeScale"], "1"],
             ];
             const cols = map.map(([t]) => t).join(", ");
             const exprs = map
@@ -231,6 +235,20 @@ async function initDb() {
                 } catch (e) {
                     if (!/duplicate column/i.test(e.message || "")) throw e;
                 }
+            }
+        }
+        // Todo 63: mark a session the backend sailed itself (no device), and
+        // reserve the clock factor 66 needs. `timeScale` ships with the column
+        // even though only 1x is allowed today — the sandbox clamps it (see
+        // store/simPlayer.js), so 66 lifts a clamp instead of migrating again.
+        for (const [col, type] of [
+            ["simulated", "INTEGER NOT NULL DEFAULT 0"],
+            ["timeScale", "REAL NOT NULL DEFAULT 1"],
+        ]) {
+            try {
+                await c.execute(`ALTER TABLE sessions ADD COLUMN ${col} ${type}`);
+            } catch (e) {
+                if (!/duplicate column/i.test(e.message || "")) throw e;
             }
         }
         // Course description (editable in builder, shown in course list).

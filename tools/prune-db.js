@@ -21,12 +21,19 @@
 //     read recomputes them. Session 231 is the specimen: a boat added after the
 //     freeze left a FINAL table that never contained it.
 //
+//  4. SIMULATED SESSIONS — `sessions.simulated = 1` (todo 63): a race the
+//     backend sailed itself, with synthetic boats and no device. They are test
+//     data by definition, and a sandbox race leaves a session, its runs, its
+//     routes and a frozen table behind. Deleted through the session cascade, so
+//     nothing is orphaned. Never touches a real session.
+//
 // Usage:
 //   node tools/prune-db.js                 # dry run: report only
 //   node tools/prune-db.js --yes           # execute every sweep
 //   node tools/prune-db.js --orphans       # only the orphan sweep
 //   node tools/prune-db.js --sim-gps       # only the simulated points
 //   node tools/prune-db.js --standings     # only the stale standings
+//   node tools/prune-db.js --sim-sessions  # only the sandbox sessions (63)
 //   node tools/prune-db.js --sim-gps --yes # execute just that
 //
 // Dry run is the default on purpose: this talks to the LIVE Turso DB that
@@ -39,10 +46,12 @@ const EXECUTE = argv.includes("--yes");
 const onlyOrphans = argv.includes("--orphans");
 const onlySimGps = argv.includes("--sim-gps");
 const onlyStandings = argv.includes("--standings");
-const onlySome = onlyOrphans || onlySimGps || onlyStandings;
+const onlySimSessions = argv.includes("--sim-sessions");
+const onlySome = onlyOrphans || onlySimGps || onlyStandings || onlySimSessions;
 const doOrphans = onlyOrphans || !onlySome;
 const doSimGps = onlySimGps || !onlySome;
 const doStandings = onlyStandings || !onlySome;
+const doSimSessions = onlySimSessions || !onlySome;
 
 const ORPHAN_TABLES = ["runs", "signals", "sim_routes", "session_boats"];
 
@@ -139,6 +148,31 @@ async function main() {
             console.log("    (each recomputes and re-freezes on its next standings read)");
         } else {
             console.log(`    mismatched     ${String(bad.length).padStart(6)}  session(s) ${bad.join(", ")}`);
+        }
+    }
+
+    if (doSimSessions) {
+        // Deleted through the session cascade (runs/signals/routes/results),
+        // not with raw SQL: the cascade already exists and is the only thing
+        // that knows every child table. Listing, though, is one query.
+        const r = await client.execute(
+            "SELECT id, name, date, status FROM sessions WHERE simulated = 1 ORDER BY id ASC");
+        const rows = r.rows || [];
+        console.log("\n  simulated sessions (sailed by the sandbox, todo 63)");
+        if (!rows.length) {
+            console.log("    sessions             0  (clean)");
+        } else if (EXECUTE) {
+            const { deleteSession } = require("../store/sessionStore");
+            let n = 0;
+            for (const row of rows) {
+                const out = await deleteSession(row.id);
+                if (out) n++;
+            }
+            console.log(`    deleted        ${String(n).padStart(6)}  session(s) ${rows.map(x => x.id).join(", ")}`);
+            console.log("    (cascade took their runs, signals, routes and frozen tables)");
+        } else {
+            console.log(`    sessions       ${String(rows.length).padStart(6)}  ${rows.map(x => x.id).join(", ")}`);
+            console.log("    (each one also takes its runs, signals, routes and frozen table)");
         }
     }
 

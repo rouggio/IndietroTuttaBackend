@@ -44,9 +44,18 @@ app.use("/", eventsRoutes);
 // Start server
 // --------------------------------------------------
 
-initDb().then(() => {
+initDb().then(async () => {
     primeGuns();
     primeBoats();
+    // Todo 63: a sandbox player lives in RAM, so whatever the last process
+    // was sailing is gone. Abandon those sessions before serving anything —
+    // a simulated race with no runs derives `live` for ever, which is the
+    // one state nobody can clean up from the UI.
+    try {
+        await require("./store/simPlayer").sweepOrphanedSimSessions();
+    } catch (e) {
+        console.warn("[simPlayer] boot sweep failed:", e.message);
+    }
     app.listen(PORT, () => {
         console.log(`IndietroTutta server listening on port ${PORT}`);
     });

@@ -153,6 +153,9 @@ function stubFetch(url, opts) {
         startLine: null, finishLine: null, boats: [{ deviceId: "BOAT1", startOffsetSec: 0 }],
         startTime: new Date(Date.now() + 60000).toISOString(),
         createdAt: new Date().toISOString(),
+        // Todo 63: carried through so one case can render a sandbox session.
+        simulated: stubDetail.simulated ? 1 : 0,
+        timeScale: stubDetail.timeScale || 1,
     }));
     if (/\/sessions\/\d+/.test(u)) return Promise.resolve(jsonRes(stubSession));
     if (u.includes("/sessions")) return Promise.resolve(jsonRes([]));
@@ -345,6 +348,23 @@ try {
         stubDetail.status = "scheduled";
         run("UI.selectedSessionId = null");
     } catch (e) { t("session-detail: no add/remove-boat control", false, String(e).slice(0, 200)); }
+    // Sandbox (todo 63): a simulated session must SAY so on the panel and offer
+    // the stop that closes it — a sim race whose pane looks like a real one is
+    // how a half-sailed race stays live for ever.
+    try {
+        run(`UI.selectedSessionId = 84; lastDevices = [{ deviceId: "BOAT1", username: "Smoke" }]`);
+        stubDetail.status = "live";
+        stubDetail.simulated = 1;
+        stubDetail.timeScale = 1;
+        await run("renderSessionDetail()");
+        const simHtml = getEl("tab-session-detail").innerHTML;
+        t("sandbox: the detail pane tags a simulated session",
+            simHtml.includes("SIM") && /Sandbox/.test(simHtml), `${simHtml.length} chars`);
+        t("sandbox: a live sim session offers Stop",
+            simHtml.includes("sess-sim-stop"));
+        stubDetail.simulated = 0;
+        run("UI.selectedSessionId = null");
+    } catch (e) { t("sandbox: simulated session is visible and stoppable", false, String(e).slice(0, 200)); }
     // Results used to need a manual ↻: the detail pane was not subscribed to
     // the `session` topic, so a run landing under an open pane never appeared.
     // The pane now drives the subscription itself.

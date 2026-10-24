@@ -17,6 +17,8 @@ const {
     SIM_BATCH_MAX,
 } = require("../store/sim");
 const { getRoutePoints } = require("../store/simRoute");
+const simPlayer = require("../store/simPlayer");
+const { emit } = require("./events");
 
 const router = express.Router();
 
@@ -296,6 +298,51 @@ router.delete("/sim/runs/:id", async (req, res) => {
     try {
         if (!deleteRun(req.params.id)) return res.status(404).json({ error: "run not found" });
         res.json({ status: "deleted" });
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+// --------------------------------------------------
+// The sandbox (todo 63): a simulated session sailed by the SERVER, with no
+// device on the other end. Three verbs, one resource.
+//
+//   POST   /sim/players {sessionId, boats?:[{deviceId,speedKn}], timeScale?}
+//          → 201 the player status. One run per boat, fixes replayed into
+//          /gps as that boat's DeviceId, run uploaded at its own finish.
+//   GET    /sim/players/:sessionId → the same status, or {running:false}
+//   DELETE /sim/players/:sessionId → stop the loops, drop the scripts and
+//          abandon the session (a half-sailed race that stays live never
+//          closes and keeps blocking its boats).
+//
+// RAM-only, like the scripts themselves: a restart loses the players, and
+// store/simPlayer.sweepOrphanedSimSessions() abandons what it left behind.
+// --------------------------------------------------
+
+router.post("/sim/players", async (req, res) => {
+    try {
+        const { sessionId, boats, timeScale } = req.body || {};
+        const st = await simPlayer.start({ sessionId, boats, timeScale });
+        emit("session.updated", { id: st.sessionId, status: "live" });
+        res.status(201).json(st);
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+router.get("/sim/players/:sessionId", async (req, res) => {
+    try {
+        res.json(simPlayer.status(req.params.sessionId));
+    } catch (e) {
+        sendErr(res, e);
+    }
+});
+
+router.delete("/sim/players/:sessionId", async (req, res) => {
+    try {
+        const out = await simPlayer.stop(req.params.sessionId);
+        emit("session.updated", { id: out.sessionId, status: out.abandoned ? "abandoned" : "live" });
+        res.json(out);
     } catch (e) {
         sendErr(res, e);
     }
