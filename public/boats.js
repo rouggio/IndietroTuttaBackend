@@ -42,26 +42,42 @@ function getBoatPanel(id) {
 function renderBoatPanel(panel) {
     const div = panel.control._div;
     const p = panel.point;
-    if (!panel.open || !p) { div.style.display = "none"; panel.renderedKey = null; return; }
+    // The panel is a Leaflet control parked in a corner: it does NOT need a fix
+    // to exist. `!p` used to hide it, so a boat that has never sent a point (a
+    // freshly flashed board with no GPS lock, a device that just joined) was
+    // clickable in the boats list and visibly did nothing at all.
+    if (!panel.open) { div.style.display = "none"; panel.renderedKey = null; return; }
     const name = boatDisplayName(panel.id, p);
+    const rec = boatRecord(panel.id);
     // skip rebuild when nothing changed — keeps links clickable during playback
-    const key = `${name}|${p.id ?? p.timestamp}|${panel.expanded}`;
+    const key = p
+        ? `${name}|${p.id ?? p.timestamp}|${panel.expanded}`
+        : `${name}|nofix|${rec?.status || ""}|${rec?.firmware || ""}|${rec?.lastSeen || ""}`;
     if (panel.renderedKey === key && div.style.display !== "none") return;
     panel.renderedKey = key;
-    div.innerHTML = `
-        <h4>${boatDisplayName(panel.id, p)}<span class="pane-actions"><span class="pane-btn" title="Center map on boat" onclick="centerBoatOnMap('${panel.id}')">⌖</span><span class="pane-btn" title="Boat info" onclick="openBoatInfo('${panel.id}')">ⓘ</span><span class="pane-btn pane-close" title="Close" onclick="closeBoatPanel('${panel.id}')">×</span></span></h4>
-        <table>
+    const rows = p
+        ? `
             <tr><td>Speed</td><td>${typeof p.speed === "number" ? p.speed.toFixed(1) : "-"} knots</td></tr>
             <tr><td>Course</td><td>${p.course ?? "-"}&deg;</td></tr>
             <tr><td>Time</td><td>${fmtDateTime(p.timestamp || p.receivedAt)}</td></tr>
-            ${boatRecord(panel.id)?.boat ? `<tr><td>Boat</td><td>${boatRecord(panel.id).boat}</td></tr>` : ""}
+            ${rec?.boat ? `<tr><td>Boat</td><td>${escHtml(rec.boat)}</td></tr>` : ""}
             ${panel.expanded ? `
             <tr><td>Lat</td><td>${p.lat.toFixed(6)}</td></tr>
             <tr><td>Lon</td><td>${p.lon.toFixed(6)}</td></tr>
             <tr><td>Sats</td><td>${p.sats ?? "-"}</td></tr>
-            <tr><td>Altitude</td><td>${p.altitude ?? "-"} m</td></tr>` : ""}
+            <tr><td>Altitude</td><td>${p.altitude ?? "-"} m</td></tr>` : ""}`
+        : `
+            <tr><td>Speed</td><td>-</td></tr>
+            <tr><td>Course</td><td>-</td></tr>
+            <tr><td>Time</td><td>no fix yet</td></tr>
+            ${rec?.boat ? `<tr><td>Boat</td><td>${escHtml(rec.boat)}</td></tr>` : ""}
+            <tr><td>Status</td><td>${escHtml(rec?.status || "-")}${rec?.firmware ? " &middot; v" + escHtml(rec.firmware) : ""}</td></tr>
+            <tr><td>Last seen</td><td>${rec?.lastSeen ? fmtDateTime(rec.lastSeen) : "never"}</td></tr>`;
+    div.innerHTML = `
+        <h4>${name}<span class="pane-actions"><span class="pane-btn" title="Center map on boat" onclick="centerBoatOnMap('${panel.id}')">⌖</span><span class="pane-btn" title="Boat info" onclick="openBoatInfo('${panel.id}')">ⓘ</span><span class="pane-btn pane-close" title="Close" onclick="closeBoatPanel('${panel.id}')">×</span></span></h4>
+        <table>${rows}
         </table>
-        <a href="#" style="font-size:12px;color:#2563eb" onclick="toggleBoatMore(event,'${panel.id}');return false">${panel.expanded ? "less..." : "more..."}</a>
+        ${p ? `<a href="#" style="font-size:12px;color:#2563eb" onclick="toggleBoatMore(event,'${panel.id}');return false">${panel.expanded ? "less..." : "more..."}</a>` : ""}
     `;
     div.style.display = "block";
 }
@@ -85,6 +101,55 @@ window.centerBoatOnMap = function (id) {
 function boatRecord(id) {
     return lastDevices.find(x => x.deviceId === id) || null;
 }
+
+// Which server a boat was last pointed at FROM THIS BROWSER. RAM only, and
+// deliberately not authoritative: the device owns the choice (NVS `srv`) and the
+// backend stores nothing, so a fresh page shows "?" instead of inventing a mode.
+const boatServerState = new Map(); // deviceId -> { mode, base }
+
+// Are we being served by Render? Then the boat portal is unreachable (private
+// address): the switch only works from the laptop backend, and the DEV address
+// is derived server-side from the machine serving the page.
+function uiIsCloud() {
+    return /(^|\.)onrender\.com$/.test(location.hostname);
+}
+function boatServerText(id) {
+    const st = boatServerState.get(id);
+    if (!st) return "?";
+    return st.mode === "dev" ? `DEV · ${st.base || "-"}` : "PROD";
+}
+// Both buttons need to reach the boat over the LAN, so from Render they cannot
+// work at all (a device's portal address is private). Say that, do not 502.
+function serverBtnTitle(mode) {
+    if (uiIsCloud()) {
+        return "Open the UI on the laptop backend (:3000) - a boat's portal is only reachable on its own LAN";
+    }
+    return mode === "prod"
+        ? "Point this boat at PROD (Render)"
+        : "Point this boat at DEV (this machine's backend)";
+}
+window.setBoatServer = async function (id, mode) {
+    const el = document.getElementById("boat-info-server");
+    if (el) el.textContent = mode === "dev" ? "switching to DEV…" : "switching to PROD…";
+    try {
+        const res = await fetch(`/boats/${encodeURIComponent(id)}/server`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            if (el) el.textContent = res.status === 409
+                ? "no LAN address known (never heartbeated on a LAN)"
+                : (j.error || `switch failed (${res.status})`);
+            return;
+        }
+        boatServerState.set(id, { mode: j.mode || mode, base: j.base || "" });
+        if (el) el.textContent = boatServerText(id);
+    } catch (e) {
+        if (el) el.textContent = "Network error.";
+    }
+};
 window.openBoatInfo = function (id) {
     const d = boatRecord(id) || {};
     const panel = boatPanels.get(id);
@@ -100,9 +165,13 @@ window.openBoatInfo = function (id) {
             <label>Boat name<input id="boat-info-name" maxlength="32" value="${esc(d.username || p.username || "")}" placeholder="e.g. Ciccio"></label>
             <label>Make / model<input id="boat-info-boat" maxlength="64" value="${esc(d.boat || "")}" placeholder="e.g. First 27.7"></label>
             <table>
+                <tr><td>IP</td><td>${esc(d.ip || "-")}</td></tr>
                 <tr><td>Device</td><td>${esc(id)}</td></tr>
                 <tr><td>Status</td><td>${esc(d.status || "-")}</td></tr>
                 <tr><td>Firmware</td><td>${d.firmware ? "v" + esc(d.firmware) : "-"}</td></tr>
+                <tr><td>Server</td><td><span id="boat-info-server" title="Last switch made from this browser">${esc(boatServerText(id))}</span>
+                    <button id="boat-info-srv-prod" ${uiIsCloud() ? "disabled" : ""} title="${serverBtnTitle("prod")}">PROD</button>
+                    <button id="boat-info-srv-dev" ${uiIsCloud() ? "disabled" : ""} title="${serverBtnTitle("dev")}">DEV</button></td></tr>
                 <tr><td>GPS fix</td><td>${d.mock ? "MOCK (simulated)" : "REAL (receiver)"} <button id="boat-info-mock" title="Toggle mock GPS via the device portal over LAN">→ ${d.mock ? "Real" : "Mock"}</button></td></tr>
                 <tr><td>Last seen</td><td>${d.lastSeen ? esc(new Date(d.lastSeen).toLocaleString()) : "-"}</td></tr>
                 <tr><td>First seen</td><td>${d.firstSeen ? esc(new Date(d.firstSeen).toLocaleString()) : "-"}</td></tr>
@@ -119,6 +188,8 @@ window.openBoatInfo = function (id) {
     document.getElementById("boat-info-cancel").addEventListener("click", () => closeBoatInfo());
     document.getElementById("boat-info-save").addEventListener("click", () => saveBoatInfo(id));
     document.getElementById("boat-info-mock").addEventListener("click", () => toggleBoatMock(id, !boatRecord(id)?.mock));
+    document.getElementById("boat-info-srv-prod").addEventListener("click", () => setBoatServer(id, "prod"));
+    document.getElementById("boat-info-srv-dev").addEventListener("click", () => setBoatServer(id, "dev"));
 };
 window.toggleBoatMock = async function (id, on) {
     const errEl = document.getElementById("boat-info-err");

@@ -1,0 +1,34 @@
+meta {
+  name: Switch device server (prod/dev)
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/devices/:id/server
+  body: json
+  auth: none
+}
+
+params:path {
+  id: {{deviceId}}
+}
+
+body:json {
+  {
+    "mode": "dev"
+  }
+}
+
+docs {
+  Points the boat at PROD (Render) or DEV (this backend's LAN address + port).
+
+  - mode=prod: sys.server = https://indietrotutta.onrender.com
+  - mode=dev with no host: sys.server = http://<this machine's LAN ip>:3000
+  - mode=dev with host: sys.server = http://<host>
+
+  Proxied to the device portal over LAN (POST http://<device-ip>/server?mode=...),
+  so it needs a known device ip: 409 when the boat never heartbeated on a LAN,
+  502 when the portal does not answer. Writes are POST-only; the device owns the
+  choice in NVS, and the response is its own {mode, host, base} reply.
+}

@@ -40,6 +40,21 @@ function cleanIp(value) {
     return v ? v.slice(0, 64) : null;
 }
 
+function isLoopbackIp(v) {
+    return v === "localhost" || /^127\./.test(v);
+}
+
+// A loopback heartbeat says nothing about where the DEVICE lives on a LAN: on
+// Render every request arrives via the proxy as 127.0.0.1, so storing it wiped
+// the real address a local heartbeat had learned - and that address is what
+// POST /boats/:id/server (and the mock toggle) need to reach the portal. Keep
+// the known LAN address and only overwrite it with another real one.
+function mergeIp(incoming, stored) {
+    if (!incoming) return stored || null;
+    if (isLoopbackIp(incoming) && stored && !isLoopbackIp(stored)) return stored;
+    return incoming;
+}
+
 async function upsertDevice(deviceId, { username = null, firmware = null, ip = null } = {}) {
     if (!deviceId) return null;
 
@@ -53,7 +68,8 @@ async function upsertDevice(deviceId, { username = null, firmware = null, ip = n
         const device = memDevices.get(deviceId) || { deviceId, username: null, firmware: null, boat: null, ip: null, mock: 0, firstSeen: now };
         if (clean) device.username = clean;
         if (cleanFw) device.firmware = cleanFw;
-        if (ipAddr) device.ip = ipAddr;
+        const memIp = mergeIp(ipAddr, device.ip);
+        if (memIp) device.ip = memIp;
         device.lastSeen = now;
         memDevices.set(deviceId, device);
         return device;
@@ -81,7 +97,7 @@ async function upsertDevice(deviceId, { username = null, firmware = null, ip = n
         const firstSeen = row.firstSeen;
         const newUsername = clean || row.username;
         const newFirmware = cleanFw || row.firmware || null;
-        const newIp = ipAddr || row.ip || null;
+        const newIp = mergeIp(ipAddr, row.ip);
         await client.execute({
             sql: "UPDATE devices SET username = ?, firmware = ?, ip = ?, lastSeen = ? WHERE deviceId = ?",
             args: [newUsername, newFirmware, newIp, now, deviceId],
