@@ -2,7 +2,8 @@ const express = require("express");
 
 const {
     getPointCount,
-    getLatestPoint
+    getLatestPoint,
+    getSimSince
 } = require("../store/gpsStore");
 
 const {
@@ -45,7 +46,16 @@ function distKm(lat1, lon1, lat2, lon2) {
 
 async function venueWind(deviceId) {
     try {
-        const p = await getLatestPoint(deviceId);
+        let p = await getLatestPoint(deviceId);
+        if (!p) {
+            // A mock boat never persists its fixes (simulated uploads go to the
+            // ephemeral slot unless the boat is racing), so `getLatestPoint`
+            // is null and the device got `wind: null` — the compass arrow and
+            // the WIND cell stayed dead for the whole bench session. Fall back
+            // to the live sim slot, the same point /gps/sim-live serves.
+            const sim = getSimSince(deviceId);
+            p = sim.length ? sim[0] : null;
+        }
         const lat = p ? Number(p.lat) : NaN;
         const lon = p ? Number(p.lon) : NaN;
         if (!isFinite(lat) || !isFinite(lon)) return null;

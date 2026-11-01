@@ -180,6 +180,29 @@ async function handleServer(req, res) {
 router.post("/devices/:id/server", handleServer);
 router.post("/boats/:id/server", handleServer);
 
+// GET /devices/:id/server — what the boat is actually pointed at, read from the
+// device's own `GET /server` ({mode, host, base}). The PROD/DEV row must not
+// guess: a page reload has no memory of the last switch, and the boat is the
+// only authority on its own NVS setting. Same 409/502 shape as the POST.
+async function handleServerState(req, res) {
+    const device = await getDevice(req.params.id);
+    if (!device) return res.status(404).json({ error: "Device not found" });
+    if (!device.ip) return res.status(409).json({ error: "no known LAN ip for device" });
+    try {
+        const r = await fetch(`http://${device.ip}/server`, { method: "GET", timeout: 5000 });
+        if (!r.ok) {
+            return res.status(502).json({ error: `device portal refused server state (http ${r.status})` });
+        }
+        const body = await r.json().catch(() => ({}));
+        return res.json({ deviceId: req.params.id, ip: device.ip, ...body });
+    } catch (e) {
+        return res.status(502).json({ error: "device portal unreachable" });
+    }
+}
+
+router.get("/devices/:id/server", handleServerState);
+router.get("/boats/:id/server", handleServerState);
+
 router.put("/boats/:id", handleRename);
 
 router.post("/boats/:id/mock", handleMock);

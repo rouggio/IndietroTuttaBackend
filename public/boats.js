@@ -102,10 +102,10 @@ function boatRecord(id) {
     return lastDevices.find(x => x.deviceId === id) || null;
 }
 
-// Which server a boat was last pointed at FROM THIS BROWSER. RAM only, and
-// deliberately not authoritative: the device owns the choice (NVS `srv`) and the
-// backend stores nothing, so a fresh page shows "?" instead of inventing a mode.
-const boatServerState = new Map(); // deviceId -> { mode, base }
+// Which server the boat is on. Read from the device (GET /boats/:id/server →
+// the portal's own GET /server), so a page reload shows the truth instead of the
+// last switch this browser happened to make.
+const boatServerState = new Map(); // deviceId -> { mode, base } | { error }
 
 // Are we being served by Render? Then the boat portal is unreachable (private
 // address): the switch only works from the laptop backend, and the DEV address
@@ -115,8 +115,28 @@ function uiIsCloud() {
 }
 function boatServerText(id) {
     const st = boatServerState.get(id);
-    if (!st) return "?";
+    if (!st) return "…";
+    if (st.error) return st.error;
     return st.mode === "dev" ? `DEV · ${st.base || "-"}` : "PROD";
+}
+// Read the mode out of the boat. Safe to call on every modal open: it is one
+// LAN round-trip, and a failure is shown as "unreachable", never as a stale mode.
+async function loadBoatServer(id) {
+    try {
+        const res = await fetch(`/boats/${encodeURIComponent(id)}/server`, { method: "GET" });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            boatServerState.set(id, {
+                error: res.status === 409 ? "no LAN address known" : "unreachable over LAN",
+            });
+        } else {
+            boatServerState.set(id, { mode: j.mode || "?", base: j.base || "" });
+        }
+    } catch (e) {
+        boatServerState.set(id, { error: "unreachable over LAN" });
+    }
+    const el = document.getElementById("boat-info-server");
+    if (el) el.textContent = boatServerText(id);
 }
 // Both buttons need to reach the boat over the LAN, so from Render they cannot
 // work at all (a device's portal address is private). Say that, do not 502.
@@ -190,6 +210,8 @@ window.openBoatInfo = function (id) {
     document.getElementById("boat-info-mock").addEventListener("click", () => toggleBoatMock(id, !boatRecord(id)?.mock));
     document.getElementById("boat-info-srv-prod").addEventListener("click", () => setBoatServer(id, "prod"));
     document.getElementById("boat-info-srv-dev").addEventListener("click", () => setBoatServer(id, "dev"));
+    // Fill the Server row from the boat itself (one LAN round-trip, async).
+    loadBoatServer(id);
 };
 window.toggleBoatMock = async function (id, on) {
     const errEl = document.getElementById("boat-info-err");

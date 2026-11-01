@@ -1,0 +1,26 @@
+meta {
+  name: Read device server mode
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/devices/:id/server
+  body: none
+  auth: none
+}
+
+params:path {
+  id: {{deviceId}}
+}
+
+docs {
+  What the boat is actually pointed at, read from its own `GET /server`
+  (the portal answers `{mode, host, base}`). The UI uses this to fill the
+  PROD/DEV row, so a page reload does not have to guess.
+
+  Proxied over LAN, so it needs a known device ip: 409 when the boat never
+  heartbeated on a LAN, 502 when the portal does not answer. From Render it
+  cannot work at all (a boat's portal address is private), which is why the
+  UI disables the buttons there.
+}

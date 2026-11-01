@@ -24,7 +24,7 @@ for i in 1 2 3 4; do
   p=$(page_now)
   [ "$p" = "race" ] && break
   echo "  navigating (on '$p')"
-  curl -s --max-time 8 -X POST "$DEV/btn?b=L&e=R" >/dev/null
+  curl -s --max-time 8 -X POST "$DEV/btn?b=1&e=S" >/dev/null
   sleep 3
 done
 p=$(page_now)
