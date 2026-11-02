@@ -32,6 +32,7 @@ const {
 
 const {
     createRun,
+    deleteRunsForSession: deleteSimRunsForSession,
 } = require("../store/sim");
 
 const {
@@ -208,12 +209,18 @@ router.delete("/sessions/:id", async (req, res) => {
     try {
         const r = await deleteSession(req.params.id);
         if (!r.deleted) return res.status(404).json({ error: "session not found" });
+        // Two run stores, not one: deleteSession cascades the RESULT rows
+        // (runStore), but the mock feed's scripted runs live in RAM (sim.js) and
+        // are what /sim/tape hands to a device. Left behind, they are a journey
+        // nobody can finish: the device loads it, holds it, and the mock fix
+        // freezes at the last sample with MOCK lit (2026-11-02).
+        const simRuns = deleteSimRunsForSession(req.params.id);
         clearGun(req.params.id);
         emit("session.deleted", { id: Number(req.params.id) });
         // The cascade is reported, not silent: a delete takes the session's
         // runs (results), its signal log and its frozen standings with it
         // (todo 33 + todo 3).
-        res.json({ status: "deleted", runs: r.runs, signals: r.signals, routes: r.routes, results: r.results });
+        res.json({ status: "deleted", runs: r.runs, simRuns, signals: r.signals, routes: r.routes, results: r.results });
     } catch (e) {
         sendErr(res, e);
     }
@@ -351,6 +358,13 @@ router.post("/sessions/:id/signals", async (req, res) => {
         emit("signal.raised", { sessionId: s.id, kind: sig.kind, deviceId: sig.deviceId || null });
         if ((req.body || {}).kind === "ABANDON") {
             clearGun(s.id);
+            // The session is dead, so its mock tape is too (see the delete route:
+            // sim runs are a separate, in-RAM store). Without this a device keeps
+            // being fed a journey for a race nobody is in.
+            const simDropped = deleteSimRunsForSession(s.id);
+            if (simDropped) {
+                console.log(`[SESSIONS] #${s.id} abandoned: dropped ${simDropped} sim run(s)`);
+            }
             emit("session.status", { id: s.id, status: "abandoned" });
         }
         res.status(201).json(sig);

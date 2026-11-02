@@ -374,8 +374,21 @@ function activeRunForDevice(deviceId, nowMs = Date.now()) {
     return best;
 }
 
+function deleteRunsForSession(sessionId) {
+    const sid = Number(sessionId);
+    let n = 0;
+    for (const [id, r] of runs) {
+        if (Number(r.sessionId) === sid) {
+            runs.delete(id);
+            n++;
+        }
+    }
+    return n;
+}
+
 module.exports = {
-    createRun, getRun, listRuns, deleteRun, echoSample, nextSample, activeRunForDevice, runMeta,
+    createRun, getRun, listRuns, deleteRun, deleteRunsForSession,
+    echoSample, nextSample, activeRunForDevice, runMeta,
     compileScript, // exported for unit checks
     routeForSession, routeForCourse, // todo 32: shape-compiled route (cache-aware)
     wanderSample, wanderAnchorFor, wanderNext, wanderBatch, setPushedAnchor,
