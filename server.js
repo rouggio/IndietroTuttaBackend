@@ -28,6 +28,23 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 // --------------------------------------------------
+// Crash guards
+//
+// A dev server that dies silently costs more than any bug it was hiding: a
+// malformed JSON body used to throw inside body-parser and take the process
+// with it (no error middleware), and a transient libsql "fetch failed" rejected
+// somewhere unhandled and did the same. Both are ordinary conditions on a
+// bench, so log them and keep serving.
+// --------------------------------------------------
+
+process.on("unhandledRejection", (reason) => {
+    console.error("[server] unhandled rejection (kept running):", reason);
+});
+process.on("uncaughtException", (err) => {
+    console.error("[server] uncaught exception (kept running):", err);
+});
+
+// --------------------------------------------------
 // Routes
 // --------------------------------------------------
 
@@ -39,6 +56,21 @@ app.use("/", sessionsRoutes);
 app.use("/", simRoutes);
 app.use("/", windRoutes);
 app.use("/", eventsRoutes);
+
+// --------------------------------------------------
+// Error handler — must be LAST, and must have four arguments or Express does
+// not recognise it. Without this a body-parser SyntaxError becomes an
+// unhandled throw instead of a 400.
+// --------------------------------------------------
+
+app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    const status = err.status || err.statusCode || 500;
+    if (status >= 500) console.error("[server]", req.method, req.originalUrl, "-", err.message);
+    res.status(status).json({
+        error: status === 400 ? "bad request body" : (err.message || "server error"),
+    });
+});
 
 // --------------------------------------------------
 // Start server
