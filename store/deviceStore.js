@@ -55,6 +55,62 @@ function mergeIp(incoming, stored) {
     return incoming;
 }
 
+// lastSeen, kept hot in RAM (todo 67, 2026-11-02).
+//
+// The session staleness rule asks "has each boat's device been heard from?" on
+// every session read - and the hottest of those is the health poll, every 5 s
+// while a race is live, which is ALSO what writes lastSeen. Going back to Turso
+// for the answer to a question this process just wrote would double the round
+// trips on the busiest path in the system, so each heartbeat remembers its own
+// timestamp here and only a device this process has not seen recently costs a
+// (single, batched) query.
+const lastSeenMem = new Map(); // deviceId -> { at, iso }
+const LAST_SEEN_TTL_MS = 15000;
+
+function rememberLastSeen(deviceId, iso) {
+    if (!deviceId || iso === undefined || iso === null) return;
+    lastSeenMem.set(deviceId, { at: Date.now(), iso });
+}
+
+// deviceId -> lastSeen (ISO, or "" for a device never heard from: `ensureDevice`
+// creates fictive boats that way on purpose, and a phantom must not read as
+// present).
+async function lastSeenMap(deviceIds) {
+    const want = [...new Set((deviceIds || []).filter(Boolean))];
+    const out = new Map();
+    if (!want.length) return out;
+    const now = Date.now();
+    const missing = [];
+    for (const id of want) {
+        const hit = lastSeenMem.get(id);
+        if (hit && now - hit.at <= LAST_SEEN_TTL_MS) out.set(id, hit.iso);
+        else missing.push(id);
+    }
+    const client = getClient();
+    if (!missing.length || !client) {
+        for (const id of missing) if (!out.has(id)) out.set(id, "");
+        return out;
+    }
+    await initDb();
+    try {
+        const res = await client.execute({
+            sql: `SELECT deviceId, lastSeen FROM devices
+                  WHERE deviceId IN (${missing.map(() => "?").join(",")})`,
+            args: missing,
+        });
+        for (const r of res.rows) {
+            const iso = r.lastSeen || "";
+            out.set(r.deviceId, iso);
+            rememberLastSeen(r.deviceId, iso);
+        }
+    } catch (e) {
+        // A staleness question must never break a read: unknown reads as unknown.
+        console.warn("[DEVICES] lastSeen lookup failed:", e.message || e);
+    }
+    for (const id of missing) if (!out.has(id)) out.set(id, "");
+    return out;
+}
+
 async function upsertDevice(deviceId, { username = null, firmware = null, ip = null } = {}) {
     if (!deviceId) return null;
 
@@ -72,6 +128,7 @@ async function upsertDevice(deviceId, { username = null, firmware = null, ip = n
         if (memIp) device.ip = memIp;
         device.lastSeen = now;
         memDevices.set(deviceId, device);
+        rememberLastSeen(deviceId, now);
         return device;
     }
 
@@ -91,9 +148,9 @@ async function upsertDevice(deviceId, { username = null, firmware = null, ip = n
             sql: "INSERT INTO devices (deviceId, username, firmware, boat, ip, mock, firstSeen, lastSeen) VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
             args: [deviceId, finalUsername, cleanFw, null, ipAddr, firstSeen, lastSeen],
         });
+        rememberLastSeen(deviceId, lastSeen);
         return { deviceId, username: finalUsername, firmware: cleanFw, boat: null, ip: ipAddr, mock: 0, firstSeen, lastSeen };
-    } else {
-        const row = existing.rows[0];
+    } else {        const row = existing.rows[0];
         const firstSeen = row.firstSeen;
         const newUsername = clean || row.username;
         const newFirmware = cleanFw || row.firmware || null;
@@ -102,6 +159,7 @@ async function upsertDevice(deviceId, { username = null, firmware = null, ip = n
             sql: "UPDATE devices SET username = ?, firmware = ?, ip = ?, lastSeen = ? WHERE deviceId = ?",
             args: [newUsername, newFirmware, newIp, now, deviceId],
         });
+        rememberLastSeen(deviceId, now);
         return { deviceId, username: newUsername, firmware: newFirmware, boat: row.boat || null, ip: newIp, mock: mockFlag(row.mock), firstSeen, lastSeen: now };
     }
 }
@@ -241,4 +299,4 @@ async function deleteDevice(deviceId) {
     return res.rowsAffected > 0;
 }
 
-module.exports = { sanitizeUsername, sanitizeFirmware, sanitizeBoat, upsertDevice, setDeviceMock, renameDevice, getDevice, getDevices, deleteDevice, ensureDevice, fictiveName };
+module.exports = { sanitizeUsername, sanitizeFirmware, sanitizeBoat, upsertDevice, setDeviceMock, renameDevice, getDevice, getDevices, deleteDevice, ensureDevice, fictiveName, lastSeenMap };

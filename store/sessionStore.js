@@ -2,7 +2,61 @@ const { getClient, initDb } = require("./db");
 const { getCourse, validateMarks, validateLines } = require("./courseStore");
 const { uploaders, uploadersBySession, deleteRunsForSession } = require("./runStore");
 const { terminalBoats, terminalBoatsBySession, deleteSignalsForSession } = require("./signalStore");
-const { ensureDevice, fictiveName } = require("./deviceStore");
+const { ensureDevice, fictiveName, lastSeenMap } = require("./deviceStore");
+
+// ------------------------------------------------------------------
+// A live session does not stay live forever (todo 67, 2026-11-02).
+//
+// Status is inferred on read and "the gun passed and not everyone uploaded"
+// meant `live` FOREVER: a practice whose boat never uploaded (or a fleet that
+// never turned up) sat in the pane for a week - #250 was live for 10 days - and
+// since `live` counts as active it also locked that boat out of any new session
+// with a 409, and the device kept being served the dead race's geometry.
+//
+// Two ways a live session is over without a result. Both derive `abandoned`,
+// never `finished`: nothing uploaded, so there is nothing to freeze, and a late
+// run upload still lands (the runs route never checked status).
+//   - age: the gun is more than STALE_LIVE_MS in the past;
+//   - the field has left: at least one boat heartbeated SINCE the gun and now
+//     none of them has been heard for DEVICE_GONE_MS. A fleet that never
+//     connects is deliberately NOT expired by absence - a committee creates the
+//     race before anyone is on the water - so age is its only backstop.
+const STALE_LIVE_MS = 6 * 60 * 60 * 1000;
+const DEVICE_GONE_MS = 15 * 60 * 1000;
+
+function msOf(value) {
+    const t = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+}
+
+// `seenByDevice` maps deviceId -> that device's last heartbeat (ISO, or "" for
+// a device nobody has ever heard from). Pure: no I/O, so tools/check-stale.js
+// can drive it with a fabricated fleet.
+function staleLive(s, seenByDevice, now = Date.now()) {
+    if (!s || !s.startTime) return false;
+    const gun = msOf(s.startTime);
+    if (!gun || now < gun) return false;            // not live yet
+    if (now - gun > STALE_LIVE_MS) return true;     // open for six hours
+    const boats = s.boats || [];
+    if (!boats.length) return false;                // nobody who could have left
+    let heardSinceGun = false;
+    let heardNow = false;
+    for (const b of boats) {
+        const seen = msOf(seenByDevice ? seenByDevice.get(b.deviceId) : 0);
+        if (!seen) continue;
+        if (seen >= gun) heardSinceGun = true;
+        if (now - seen <= DEVICE_GONE_MS) heardNow = true;
+    }
+    return heardSinceGun && !heardNow;
+}
+
+async function lastSeenFor(s) {
+    try {
+        return await lastSeenMap((s.boats || []).map(b => b.deviceId));
+    } catch {
+        return new Map();
+    }
+}
 
 // ------------------------------------------------------------------
 // Sessions freeze a course onto a day: frozen course copy +
@@ -310,7 +364,11 @@ async function deriveStatus(s) {
             if (s.boats.every(b => done.has(b.deviceId))) return "finished";
         } catch {}
     }
-    if (s.startTime && Date.now() >= new Date(s.startTime).getTime()) return "live";
+    if (s.startTime && Date.now() >= new Date(s.startTime).getTime()) {
+        // Live still needs an end: age, or the whole field has gone quiet.
+        if (staleLive(s, await lastSeenFor(s))) return "abandoned";
+        return "live";
+    }
     return "scheduled";
 }
 
@@ -343,7 +401,7 @@ function sessionListRow(s) {
 
 // Batched status: the SAME rule as deriveStatus(), but from pre-loaded maps
 // so the list costs three queries total instead of three per row.
-function deriveStatusFromMaps(s, uploadersBySess, terminalBySess) {
+function deriveStatusFromMaps(s, uploadersBySess, terminalBySess, seenByDevice) {
     if (!s) return s;
     if (s.status === "abandoned") return "abandoned";
     const hasBoats = !!(s.boats && s.boats.length);
@@ -352,7 +410,10 @@ function deriveStatusFromMaps(s, uploadersBySess, terminalBySess) {
         const term = terminalBySess.get(Number(s.id)) || new Set();
         if (s.boats.every(b => done.has(b.deviceId) || term.has(b.deviceId))) return "finished";
     }
-    if (s.startTime && Date.now() >= new Date(s.startTime).getTime()) return "live";
+    if (s.startTime && Date.now() >= new Date(s.startTime).getTime()) {
+        if (staleLive(s, seenByDevice)) return "abandoned";
+        return "live";
+    }
     return "scheduled";
 }
 
@@ -377,10 +438,13 @@ async function listSessions({ date, from, to, status, mode } = {}) {
         const ids = all.map(s => Number(s.id));
         const ups = await uploadersBySession(ids);
         const term = await terminalBoatsBySession(ids);
+        const seen = await lastSeenMap(
+            all.flatMap(s => (memBoats.get(s.id) || []).map(b => b.deviceId))
+        );
         const out = [];
         for (const s of all) {
             const full = { ...s, boats: memBoats.get(s.id) || [] };
-            full.status = deriveStatusFromMaps(full, ups, term);
+            full.status = deriveStatusFromMaps(full, ups, term, seen);
             if (wanted && !wanted.has(full.status)) continue;
             out.push(sessionListRow(full));
         }
@@ -422,9 +486,14 @@ async function listSessions({ date, from, to, status, mode } = {}) {
     }
 
     const out = [];
+    // One batched lastSeen read for every boat in the page: the staleness rule
+    // needs it per session, and asking per row would be N round trips.
+    const seen = await lastSeenMap(
+        [...boatsBySess.values()].flat().map(b => b.deviceId)
+    );
     for (const r of res.rows) {
         const full = rowToSession(r, boatsBySess.get(Number(r.id)) || []);
-        full.status = deriveStatusFromMaps(full, ups, term);
+        full.status = deriveStatusFromMaps(full, ups, term, seen);
         if (wanted && !wanted.has(full.status)) continue;
         out.push(sessionListRow(full));
     }
@@ -456,7 +525,8 @@ async function getSession(id) {
         terminalBoatsBySession([sid]),
     ]);
     const full = rowToSession(res.rows[0], boats);
-    full.status = deriveStatusFromMaps(full, ups, term);
+    full.status = deriveStatusFromMaps(full, ups, term,
+        await lastSeenMap(boats.map(b => b.deviceId)));
     return full;
 }
 
@@ -727,6 +797,11 @@ module.exports = {
     getActiveSessionForDevice,
     abandonMemorySession,
     deriveStatus,
+    // Exported for tools/check-stale.js: the staleness predicate is pure, so
+    // the rule can be tested with a fabricated fleet and no database.
+    staleLive,
+    STALE_LIVE_MS,
+    DEVICE_GONE_MS,
 };
 
 // In-memory twin of the ABANDON signal's UPDATE (no-DB fallback mode).
@@ -759,7 +834,11 @@ async function getActiveSessionForDevice(deviceId) {
     // (live once the gun passes) drives the device's fast health poll.
     // deriveStatus costs 2 queries — call once, reuse below.
     const status = await deriveStatus(full);
-    if (status === "finished") return null;
+    // Nothing that is over may keep being pushed: a FINISHED race is done, and
+    // an ABANDONED one must stop too - since todo 67 a session can expire on
+    // read (age, or the whole field gone), and without this the device would
+    // still be served the geometry of the race the rule just killed.
+    if (status === "finished" || status === "abandoned") return null;
     let signals = [];
     try {
         signals = await signalsForDevice(full.id, deviceId);
