@@ -2,62 +2,61 @@
   "scale": "Cost: 1 trivial - 5 large / cross-system",
   "source": "Mirrors the numbered actionable todos in ROADMAP.md (root) - keep both in step.",
   "order": "Pane order is computed, not numeric: topological by deps, then priority, then cost, then n.",
-  "state": "Milestone 2 (2026-10-22): fleet correctness + a simulation bench. 11 open, 31 cost points. Entries are scope sketches; each item gets its own spec session when called. Release 1 closed 2026-10-21; todo 55 closed 2026-10-22.",
+  "state": "Milestone 2 (2026-10-22): fleet correctness + a simulation bench. 9 open, 24 cost points. Entries are scope sketches; each item gets its own spec session when called. Release 1 closed 2026-10-21; todo 55 closed 2026-10-22, 56+63 on 2026-10-24.",
   "features": [
-    {
-      "n": 56,
-      "cost": 3,
-      "priority": 2,
-      "deps": [],
-      "title": "Bench engine: play a scripted tape as a boat (shared by every sim item)"
-    },
-    {
-      "n": 63,
-      "cost": 4,
-      "priority": 3,
-      "deps": [56],
-      "title": "Sail a sim session entirely in the web app, device off"
-    },
     {
       "n": 66,
       "cost": 2,
       "priority": 4,
-      "deps": [63],
+      "deps": [
+        63
+      ],
       "title": "Super-fast sim session (10-50x) so a test round is not a coffee break"
     },
     {
       "n": 64,
       "cost": 3,
       "priority": 5,
-      "deps": [63],
+      "deps": [
+        63
+      ],
       "title": "Sim boats with variance and faults: missed gate, OCS, RET, DNF, DSQ"
     },
     {
       "n": 57,
       "cost": 2,
       "priority": 6,
-      "deps": [56],
+      "deps": [
+        56
+      ],
       "title": "Competitor names on entries (a table of MAC addresses is unreadable)"
     },
     {
       "n": 58,
       "cost": 3,
       "priority": 7,
-      "deps": [55, 57],
+      "deps": [
+        55,
+        57
+      ],
       "title": "Provisional standings while the race is running (rank by progress)"
     },
     {
       "n": 59,
       "cost": 3,
       "priority": 7,
-      "deps": [58],
+      "deps": [
+        58
+      ],
       "title": "Device POS readout on the race screen (former todo 54)"
     },
     {
       "n": 60,
       "cost": 2,
       "priority": 8,
-      "deps": [56],
+      "deps": [
+        56
+      ],
       "title": "Multi-boat replay: interleaved cursors and per-boat splits"
     },
     {
@@ -71,14 +70,18 @@
       "n": 62,
       "cost": 3,
       "priority": 8,
-      "deps": [58],
+      "deps": [
+        58
+      ],
       "title": "Repeat a practice session and compare it live with the previous one (device-driven)"
     },
     {
       "n": 65,
       "cost": 3,
       "priority": 8,
-      "deps": [57],
+      "deps": [
+        57
+      ],
       "title": "A protest raised from the device (filing only, no standings change)"
     }
   ]
