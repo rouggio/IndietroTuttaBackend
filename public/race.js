@@ -1587,7 +1587,7 @@ async function renderSessionCreate() {
                 </label>
             </div>
             <div class="builder-row" id="sess-sim-opts" style="display:none">
-                <label class="device-meta" style="flex:1">Sim boats <input id="sess-sim-boats" type="number" min="1" max="6" step="1" value="2" style="max-width:56px"></label>
+                <label class="device-meta" style="flex:1">Sim boats <input id="sess-sim-boats" type="number" min="1" max="10" step="1" value="2" style="max-width:56px" title="1-10: a sandbox fleet is capped at ten boats"></label>
                 <label class="device-meta" style="flex:1">Clock <select id="sess-sim-scale" title="How fast the sandbox sails it. The tape's own timestamps are what gets recorded, so a 50x race stores the same splits and elapsed time as a 1x one - only the wall-clock wait changes.">
                     <option value="1">1x wall clock</option>
                     <option value="10">10x</option>
@@ -1679,7 +1679,7 @@ async function renderSessionCreate() {
             let ids = [];
             let simBoats = [];
             if (simOn) {
-                const n = Math.min(6, Math.max(1, Number(document.getElementById("sess-sim-boats").value) || 2));
+                const n = Math.min(10, Math.max(1, Number(document.getElementById("sess-sim-boats").value) || 2));
                 const speeds = String(document.getElementById("sess-sim-speeds").value || "")
                     .split(",").map(x => Number(x.trim())).filter(x => x >= 1 && x <= 40);
                 const tag = Math.floor(Math.random() * 255).toString(16).toUpperCase().padStart(2, "0");

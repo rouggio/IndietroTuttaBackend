@@ -39,7 +39,7 @@ const players = new Map();   // sessionId -> player
 // last frame instead of blinking back to "not running".
 const KEEP_MS = 10 * 60 * 1000;
 const CROSS_RANGE_M = 150;   // the device's OCS/finish band
-const MAX_BOATS = 6;         // same ceiling as the bench
+const MAX_BOATS = 10;        // a sandbox fleet: keep the first ten, drop the rest
 const DEG_M = 111320;
 // Todo 66: how much wall clock one `POST /gps` window may carry. A round trip is
 // ~415 ms, so 800 ms is about two of them per call: at 1x a window is one fix (the
@@ -140,8 +140,13 @@ function normaliseBoats(input, session) {
         deviceId: String((typeof b === "string" ? b : b && b.deviceId) || "").trim(),
         speedKn: Number((b && b.speedKn) !== undefined ? b.speedKn : DEFAULT_SPEEDS_KN[Math.min(i, DEFAULT_SPEEDS_KN.length - 1)]),
     }));
-    if (list.length > MAX_BOATS) throw bad(`at most ${MAX_BOATS} boats in a sandbox race`);
-    for (const b of list) {
+    // Keep the first MAX_BOATS and DROP the rest (user, 2026-11-05): a sandbox
+    // fleet is capped at ten boats, and a longer list is trimmed rather than
+    // refused - the operator gets the race they asked for, with a warning that
+    // names how many were left ashore.
+    const dropped = list.length > MAX_BOATS ? list.length - MAX_BOATS : 0;
+    const kept = dropped ? list.slice(0, MAX_BOATS) : list;
+    for (const b of kept) {
         if (!b.deviceId) throw bad("each boat needs a deviceId");
         if (!declared.includes(b.deviceId)) {
             throw bad(`boat ${b.deviceId} is not a participant of session ${session.id} (${declared.join(", ")})`);
@@ -149,10 +154,10 @@ function normaliseBoats(input, session) {
         if (!(b.speedKn >= 1 && b.speedKn <= 40)) throw bad(`speedKn for ${b.deviceId} must be 1..40`);
     }
     // Unique: two runs for one boat is two tapes fighting over one DeviceId.
-    if (new Set(list.map((b) => b.deviceId)).size !== list.length) {
+    if (new Set(kept.map((b) => b.deviceId)).size !== kept.length) {
         throw bad("the same boat is listed twice");
     }
-    return list;
+    return { fleet: kept, dropped };
 }
 
 async function start({ sessionId, boats, timeScale } = {}) {
@@ -175,7 +180,7 @@ async function start({ sessionId, boats, timeScale } = {}) {
         throw bad(`session is ${session.status}`);
     }
 
-    const fleet = normaliseBoats(boats, session);
+    const { fleet, dropped } = normaliseBoats(boats, session);
 
     // Whatever is scripted already goes: POST /sessions auto-scripts a boat
     // already flagged `mock`, and a re-run would otherwise sail two tapes.
@@ -238,7 +243,9 @@ async function start({ sessionId, boats, timeScale } = {}) {
         first,
         aborted: false,
         endedAt: null,
-        warnings: [],
+        warnings: dropped
+            ? [`${dropped} boat(s) not sailed: a sandbox fleet is capped at ${MAX_BOATS}`]
+            : [],
         boats: boatsOut,
     };
     players.set(sid, p);
