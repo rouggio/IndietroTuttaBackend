@@ -32,13 +32,35 @@
 const BASE = process.env.BACKEND || "http://localhost:3000";
 const DEVICE = process.env.DEVICE_ID || "08:D1:F9:C8:4D:24";
 
-const distM = Number(process.argv[2]) || 30;
-const gunSec = Number(process.argv[3]) || 70;
-const courseId = Number(process.argv[4]) || 34;
-const windDirArg = Number(process.argv[5]);
+// Flags are stripped before the positionals are read, so the existing
+// positional calls (race.sh, race-matrix.sh) keep working unchanged.
+const argv = process.argv.slice(2);
+const flag = (name) => {
+    const i = argv.indexOf(name);
+    if (i < 0) return undefined;
+    const v = argv[i + 1];
+    argv.splice(i, 2);
+    return v;
+};
+const boatsArg = flag("--boats");
+const atArg = flag("--at");
+
+const distM = Number(argv[0]) || 30;
+const gunSec = Number(argv[1]) || 70;
+const courseId = Number(argv[2]) || 34;
+const windDirArg = Number(argv[3]);
 // 0.3 by default: a full-size mock race is ~7 minutes and most of it is
 // legs nobody is testing. Pass 1 to sail the course at real size.
-const scale = Number(process.argv[6]) || 0.3;
+const scale = Number(argv[4]) || 0.3;
+
+// The fleet, in order (todo 55: participants are a CREATION-time decision, so
+// a bench that needs two boats must declare both right here — there is no
+// add-boat route to fix it later). Trimmed and de-duplicated; with no
+// --boats it is the single device, i.e. the old behaviour.
+const BOATS = (boatsArg ? boatsArg.split(",") : [DEVICE])
+    .map((s) => s.trim())
+    .filter((s, i, all) => s && all.indexOf(s) === i);
+if (!BOATS.length) throw new Error("--boats needs at least one device id");
 
 const R = 111320;
 const rad = (d) => (d * Math.PI) / 180;
@@ -56,19 +78,30 @@ async function json(path) {
     // device days ago — anchoring the line to that would put the start
     // kilometres away from where the boat actually is.
     let lat, lon;
-    try {
-        // /gps/sim-live answers with an ARRAY of fixes (oldest first).
-        const sim = await json(`/gps/sim-live?deviceId=${encodeURIComponent(DEVICE)}`);
-        const p = Array.isArray(sim) ? sim[sim.length - 1] : sim;
-        if (p && typeof p.lat === "number") { lat = p.lat; lon = p.lon; }
-    } catch {}
+    // --at wins: a device-free bench has no boat whose position it could ask
+    // about, and the real boat's last fix can be days old.
+    if (atArg) {
+        const m = atArg.split(",").map((n) => Number(n.trim()));
+        if (m.length !== 2 || !m.every(Number.isFinite)) {
+            throw new Error("--at needs lat,lon (two numbers)");
+        }
+        [lat, lon] = m;
+    }
+    if (typeof lat !== "number") {
+        try {
+            // /gps/sim-live answers with an ARRAY of fixes (oldest first).
+            const sim = await json(`/gps/sim-live?deviceId=${encodeURIComponent(DEVICE)}`);
+            const p = Array.isArray(sim) ? sim[sim.length - 1] : sim;
+            if (p && typeof p.lat === "number") { lat = p.lat; lon = p.lon; }
+        } catch {}
+    }
     if (typeof lat !== "number") {
         try {
             const p = await json(`/gps/latest?deviceId=${encodeURIComponent(DEVICE)}`);
             if (p && typeof p.lat === "number") { lat = p.lat; lon = p.lon; }
         } catch {}
     }
-    if (typeof lat !== "number") throw new Error("no position known for " + DEVICE);
+    if (typeof lat !== "number") throw new Error("no position known for " + DEVICE + " (pass --at lat,lon)");
 
     // Wind direction sets the course frame (+y is upwind), so the leg off
     // the line runs toward windDir; "behind the line" is the opposite.
@@ -92,7 +125,7 @@ async function json(path) {
         windDir: wd,
         scale,
         startTime,
-        boats: [{ deviceId: DEVICE }],
+        boats: BOATS.map((deviceId) => ({ deviceId })),
     };
 
     const res = await fetch(`${BASE}/sessions`, {
@@ -103,8 +136,10 @@ async function json(path) {
     const s = await res.json();
     if (!res.ok) throw new Error(`POST /sessions -> ${res.status} ${JSON.stringify(s)}`);
 
-    console.log(`session ${s.id}  gun ${startTime}  line ${distM}m upwind of boat  scale ${scale}`);
-    console.log(`  boat   ${lat.toFixed(6)},${lon.toFixed(6)}`);
+    console.log(`session ${s.id}  gun ${startTime}  line ${distM}m upwind  scale ${scale}` +
+                `  boats ${BOATS.length}`);
+    BOATS.forEach((id, i) => console.log(`  boat ${i + 1}  ${id}`));
+    console.log(`  anchor ${lat.toFixed(6)},${lon.toFixed(6)}`);
     console.log(`  origin ${originLat.toFixed(6)},${originLon.toFixed(6)} (line here)`);
     const runs = await json(`/sim/runs?sessionId=${s.id}`);
     if (runs.length) {

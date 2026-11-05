@@ -1576,6 +1576,16 @@ async function renderSessionCreate() {
                 <button data-gun="300" title="Gun 5 minutes after Create">5:00</button>
             </div>
             <div style="margin:4px 0">${boatChecks || '<span class="device-meta">No boats known yet.</span>'}</div>
+            <div class="builder-row" id="sess-sim-row">
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:6px"
+                       title="Sail this session from the backend: the fixes land in gps_points exactly as a device's would, with no ESP32 on the other end">
+                    <input type="checkbox" id="sess-sim"> Simulate &mdash; sail it with no device
+                </label>
+            </div>
+            <div class="builder-row" id="sess-sim-opts" style="display:none">
+                <label class="device-meta" style="flex:1">Sim boats <input id="sess-sim-boats" type="number" min="1" max="6" step="1" value="2" style="max-width:56px"></label>
+                <label class="device-meta" style="flex:2">Speeds kn <input id="sess-sim-speeds" type="text" value="13.5,14.5" style="max-width:120px" title="One per boat, comma separated; the last repeats"></label>
+            </div>
             <div class="builder-row"><button id="sess-create" class="primary">Create session</button></div>
             <div id="sess-create-err" class="boat-info-err"></div>`;
         document.getElementById("sess-course").addEventListener("change", e => pickSessCourse(e.target.value));
@@ -1599,6 +1609,18 @@ async function renderSessionCreate() {
                 SESSDRAFT.gunSec = Number(b.getAttribute("data-gun")) || 60;
                 document.querySelectorAll("#sess-gun-row button[data-gun]").forEach(x =>
                     x.classList.toggle("active", x === b));
+            });
+        });
+        // Todo 63: the Simulate switch replaces the fleet — a sandbox race
+        // declares its own synthetic boats, so the real ones are not offered
+        // (and would be blocked from sailing while the sim holds the slot).
+        document.getElementById("sess-sim").addEventListener("change", e => {
+            const on = e.target.checked;
+            document.getElementById("sess-sim-opts").style.display = on ? "" : "none";
+            document.querySelectorAll("#tab-session-create input[data-sb]").forEach(x => {
+                x.disabled = on;
+                const row = x.closest("label");
+                if (row) row.style.opacity = on ? "0.4" : "";
             });
         });
         document.getElementById("sess-wind-suggest").addEventListener("click", async () => {
@@ -1633,14 +1655,35 @@ async function renderSessionCreate() {
             const shapeBody = { courseId: t0.id };
             // One round trip: the checked boats ride along with the create
             // call (server applies the same 409 guard and mock auto-sim).
-            const ids = [...document.querySelectorAll("#tab-session-create input[data-sb]:checked")].map(x => x.getAttribute("data-sb"));
+            // A simulated fleet declares its own boats (todo 63): synthetic
+            // MACs, one per boat, so a sandbox race can never hold a real
+            // boat's session slot (one active session per boat) or be adopted
+            // by a powered device through the health piggyback.
+            const simOn = !!document.getElementById("sess-sim").checked;
+            let ids = [];
+            let simBoats = [];
+            if (simOn) {
+                const n = Math.min(6, Math.max(1, Number(document.getElementById("sess-sim-boats").value) || 2));
+                const speeds = String(document.getElementById("sess-sim-speeds").value || "")
+                    .split(",").map(x => Number(x.trim())).filter(x => x >= 1 && x <= 40);
+                const tag = Math.floor(Math.random() * 255).toString(16).toUpperCase().padStart(2, "0");
+                ids = Array.from({ length: n }, (_, i) =>
+                    `AA:BB:CC:DD:${tag}:${String(i + 1).padStart(2, "0")}`);
+                simBoats = ids.map((deviceId, i) => ({
+                    deviceId,
+                    speedKn: speeds[Math.min(i, Math.max(0, speeds.length - 1))] || 13.5,
+                }));
+            } else {
+                ids = [...document.querySelectorAll("#tab-session-create input[data-sb]:checked")].map(x => x.getAttribute("data-sb"));
+            }
             try {
                 const res = await fetch("/sessions", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         ...shapeBody,
                         boats: ids.map((deviceId) => ({ deviceId })),
-                        name: `${t0.name} — ${date}`, date, mode,
+                        simulated: simOn,
+                        name: `${t0.name} — ${date}${simOn ? " (sim)" : ""}`, date, mode,
                         originLat: SESSDRAFT.origin.lat, originLon: SESSDRAFT.origin.lon,
                         windDir: SESSDRAFT.windDir, windSpeed: SESSDRAFT.windSpeed, scale: SESSDRAFT.scale,
                         startTime: startISO,
@@ -1648,6 +1691,17 @@ async function renderSessionCreate() {
                 });
                 const j = await res.json();
                 if (!res.ok) { errEl.textContent = j.error || "Create failed."; return; }
+                if (simOn) {
+                    // Start the sandbox on the session we just made. A failure
+                    // here leaves the session created but not sailing, so the
+                    // panel stays open with the reason instead of pretending.
+                    const pr = await fetch("/sim/players", {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ sessionId: j.id, boats: simBoats }),
+                    });
+                    const pj = await pr.json();
+                    if (!pr.ok) { errEl.textContent = "Session created, but the sandbox did not start: " + (pj.error || pr.status); return; }
+                }
                 if (sessionCreatePanel) sessionCreatePanel.style.display = "none";
                 endSessMove();
                 clearSessPreview();
@@ -1754,6 +1808,7 @@ function renderSessionsList() {
                 </div>
                 <div style="text-align:right">
                     <div><span class="mode-badge ${s.mode}">${s.mode}</span>
+                    ${s.simulated ? `<span class="mode-badge" title="Sailed by the backend sandbox — no device">SIM</span>` : ""}
                     </div>
                     <div style="margin-top:2px"><span class="status-badge ${s.status}">${s.status}</span></div>
                 </div>
@@ -2045,6 +2100,7 @@ async function renderSessionDetail() {
                     <tr><td>Date</td><td>${escHtml(s.date)}</td></tr>
                     <tr><td>Mode</td><td><span class="mode-badge ${s.mode}">${s.mode}</span></td></tr>
                     <tr><td>Status</td><td><span class="status-badge ${s.status}">${s.status}</span></td></tr>
+                    ${s.simulated ? `<tr><td>Sandbox</td><td><span class="mode-badge">SIM</span> ${s.timeScale && s.timeScale !== 1 ? `${s.timeScale}x` : "wall clock"} &mdash; sailed by the backend, no device</td></tr>` : ""}
                     <tr><td>Course</td><td>v${s.courseVersion} · ${s.marks.length} marks · wind ${Math.round(s.windDir)}&deg; · scale ${s.scale}</td></tr>
                     <tr><td>Lines</td><td>${sessLinesText(s)}</td></tr>
                     <tr><td>Start</td><td>${s.startTime ? escHtml(new Date(s.startTime).toLocaleString()) : "—"}</td></tr>
@@ -2080,6 +2136,9 @@ async function renderSessionDetail() {
                 <div class="builder-row"><b>Results</b></div>
                 <div id="sess-results" class="device-meta">${sessBoxSeed(s, "results", "no runs yet")}</div>
                 <div class="builder-row">
+                    ${s.simulated && !["finished", "abandoned"].includes(s.status)
+                        ? `<button id="sess-sim-stop" title="Stop the sandbox and abandon the session (a half-sailed race that stays live never closes)">Stop sim</button>`
+                        : ""}
                     ${s.status === "abandoned" || s.status === "finished"
                         ? ""
                         : `<button id="sess-abandon" title="Void the race AND tell the fleet now" style="color:#dc2626">Abandon race</button>`}
@@ -2095,6 +2154,12 @@ async function renderSessionDetail() {
             if (!r.ok) document.getElementById("sess-detail-err").textContent = j.error || "Update failed.";
             else loadSessions(s.id);
         };
+        // Todo 63: stopping the sandbox closes the record too — the player is
+        // RAM-only, and a half-sailed race left `live` would never finish.
+        document.getElementById("sess-sim-stop")?.addEventListener("click", async () => {
+            await fetch(`/sim/players/${s.id}`, { method: "DELETE" });
+            loadSessions(s.id);
+        });
         document.getElementById("sess-abandon")?.addEventListener("click", async () => {
             // One action: void the record + broadcast to the fleet now.
             await fetch(`/sessions/${s.id}`, {

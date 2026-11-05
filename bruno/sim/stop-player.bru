@@ -1,0 +1,35 @@
+meta {
+  name: Stop sandbox
+  type: http
+  seq: 52
+}
+
+delete {
+  url: {{baseUrl}}/sim/players/:sessionId
+  body: none
+  auth: none
+}
+
+params:path {
+  sessionId: 250
+}
+
+docs {
+  200 { stopped: true, sessionId, abandoned: true }
+  404 { error }   // nothing is sailing this session
+
+  Todo 63 — stop the loops, drop the scripts and ABANDON the session.
+
+  Abandoning is the default on purpose: a half-sailed simulated race has no run
+  for at least one boat, so it derives `live` for ever, never freezes a table and
+  keeps blocking its boats. Stopping without closing the record would just
+  recreate the session-250 pattern this feature was written around.
+
+  The tracks and any runs already uploaded stay — that is what makes the stop
+  inspectable rather than destructive. Sweep the session later with
+  `node tools/prune-db.js --sim-sessions --yes`.
+
+  Default id 250 is the leftover scratch session from the 56 bench round. Ids are
+  autoincrement and do not restart at 1; a stale id answers 404, which is the
+  route being right.
+}

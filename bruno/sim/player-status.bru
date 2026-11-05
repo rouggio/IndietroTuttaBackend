@@ -1,0 +1,28 @@
+meta {
+  name: Sandbox status
+  type: http
+  seq: 51
+}
+
+get {
+  url: {{baseUrl}}/sim/players/:sessionId
+  body: none
+  auth: none
+}
+
+params:path {
+  sessionId: 250
+}
+
+docs {
+  200 { sessionId, running, timeScale, startedAt, endedAt, warnings, boats:[{deviceId, played, total, uploaded, done}] }
+  200 { sessionId, running:false, boats:[] }   // nothing is sailing this session
+
+  Todo 63 — the sandbox's progress: how many fixes each boat has posted and
+  whether its run has landed. Never 404: "no player" is an answer, because a
+  finished player is pruned after 10 minutes (like its runs) and the pane has to
+  survive that.
+
+  `running` is false once every boat uploaded or failed, and immediately after a
+  stop. A boat that failed keeps `failed: true` and the reason is in `warnings`.
+}

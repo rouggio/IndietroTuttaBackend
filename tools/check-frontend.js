@@ -351,6 +351,31 @@ function hasAll(src, subs) {
             && fs.existsSync(path.join(__dirname, "..", "bruno", "sessions", "standings.bru"))
             && appJs.includes("/standings"));
     }
+    // Sandbox (todo 63): the UI has to be able to START a race with no device
+    // and to STOP one, and both go through routes that are documented. A sim
+    // race whose switch exists but whose payload has no `simulated` flag would
+    // create an ordinary session and silently sail nothing.
+    {
+        const simRoutesSrc = fs.readFileSync(path.join(__dirname, "..", "routes", "sim.js"), "utf8");
+        const hasRouted = simRoutesSrc.includes('router.post("/sim/players"')
+            && simRoutesSrc.includes('router.get("/sim/players/:sessionId"')
+            && simRoutesSrc.includes('router.delete("/sim/players/:sessionId"');
+        check("sandbox: three verbs routed and documented",
+            hasRouted
+            && fs.existsSync(path.join(__dirname, "..", "bruno", "sim", "start-player.bru"))
+            && fs.existsSync(path.join(__dirname, "..", "bruno", "sim", "player-status.bru"))
+            && fs.existsSync(path.join(__dirname, "..", "bruno", "sim", "stop-player.bru")));
+        check("sandbox: the create pane can flag the session simulated",
+            appJs.includes('id="sess-sim"')
+            && appJs.includes("simulated: simOn")
+            && appJs.includes('fetch("/sim/players"'));
+        check("sandbox: stopping is wired and closes the record",
+            appJs.includes('`/sim/players/${s.id}`')
+            && appJs.includes('method: "DELETE"')
+            && appJs.includes('id="sess-sim-stop"'));
+        check("sandbox: a simulated session is visible as such",
+            appJs.includes("SIM") && appJs.includes("s.simulated"));
+    }
 }
 
 // --- live HTTP: what the page fetches on load ------------------------------------------

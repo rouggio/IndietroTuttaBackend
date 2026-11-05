@@ -1,0 +1,50 @@
+meta {
+  name: Start sandbox
+  type: http
+  seq: 50
+}
+
+post {
+  url: {{baseUrl}}/sim/players
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "sessionId": 250,
+    "boats": [
+      { "deviceId": "AA:BB:CC:DD:EE:01", "speedKn": 14.5 },
+      { "deviceId": "AA:BB:CC:DD:EE:02", "speedKn": 13.5 }
+    ],
+    "timeScale": 1
+  }
+}
+
+docs {
+  201 { sessionId, running, timeScale, startedAt, endedAt, warnings, boats:[{deviceId, runId, speedKn, played, total, startEpoch, finishEpoch, elapsedSec, uploaded, failed, done}] }
+  400 { error }   // not simulated, no boats, bad speedKn, timeScale > 1
+  404 { error }   // session not found
+  409 { error }   // a player is already sailing it, or the boats got different guns
+
+  Todo 63 — the sandbox: the BACKEND sails this session with no device on the
+  other end. One engine run per boat, every fix replayed into POST /gps as that
+  boat's DeviceId (so it lands in gps_points like a real one), and the run
+  uploads at its own finish.
+
+  The session must already exist and be marked with `simulated: true` — the
+  web UI's "Simulate" switch on the New-session pane does both. Participants are
+  still declared once at creation (todo 55), so `boats` may only name boats
+  already in the session; omit it to sail every declared boat at the default
+  speeds (13.5, then 14.5 kn).
+
+  Sessions left in the DB on purpose, like the bench: inspect them on the map,
+  then sweep with `node tools/prune-db.js --sim-sessions --yes`.
+
+  RAM only, like the scripts: a restart loses the player, and the boot sweep
+  abandons whatever it left behind reading scheduled/live.
+}

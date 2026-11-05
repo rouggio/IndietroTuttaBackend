@@ -136,6 +136,9 @@ function effectiveFinishLine(session) {
 }
 const MODES = ["practice", "race"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+// Todo 63: the sandbox sails at wall clock. 66 (10-50x) lifts this one number
+// in both places it is enforced — here (create) and store/simPlayer.js.
+const MAX_TIME_SCALE = 1;
 function validateSessionInput(b) {
     if (b.date !== undefined && (typeof b.date !== "string" || !DATE_RE.test(b.date))) {
         return "date must be YYYY-MM-DD";
@@ -163,6 +166,17 @@ function validateSessionInput(b) {
     if (b.name !== undefined && (typeof b.name !== "string" || b.name.length > 64)) {
         return "name must be ≤64 chars";
     }
+    // Todo 63: a simulated session is one the backend sails itself (no device).
+    // The clock factor ships as a column now so 66 only lifts the clamp.
+    if (b.simulated !== undefined && typeof b.simulated !== "boolean") {
+        return "simulated must be a boolean";
+    }
+    if (b.timeScale !== undefined) {
+        if (typeof b.timeScale !== "number" || !(b.timeScale >= 1)) return "timeScale must be >= 1";
+        if (b.timeScale > MAX_TIME_SCALE) {
+            return `timeScale ${b.timeScale} is not available yet — simulated sessions sail at wall clock (1x); compressed races land with todo 66`;
+        }
+    }
     return null;
 }
 
@@ -188,6 +202,10 @@ function rowToSession(r, boats = []) {
         finishLine: r.finishLine ? JSON.parse(r.finishLine) : null,
         boats,
         createdAt: r.createdAt,
+        // Todo 63: sailed by the backend itself (no device) and its clock
+        // factor. Both are read by the UI's SIM tag and by prune-db.js.
+        simulated: Number(r.simulated) ? 1 : 0,
+        timeScale: r.timeScale === undefined || r.timeScale === null ? 1 : Number(r.timeScale),
     };
 }
 
@@ -301,6 +319,8 @@ async function createSession(b) {
         startLine: lines.startLine,
         finishLine: lines.finishLine,
         createdAt: now,
+        simulated: b.simulated === true ? 1 : 0,
+        timeScale: b.timeScale === undefined ? 1 : Number(b.timeScale),
     };
 
     const client = getClient();
@@ -324,13 +344,14 @@ async function createSession(b) {
     }
     const res = await client.execute({
         sql: `INSERT INTO sessions (courseId, courseShapeVersion, name, date, mode, originLat, originLon, windDir, windSpeed, scale,
-              startTime, status, courseVersion, courseSnapshot, marks, startLine, finishLine, createdAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+              startTime, status, courseVersion, courseSnapshot, marks, startLine, finishLine, createdAt, simulated, timeScale)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
         args: [base.courseId, base.courseShapeVersion, base.name, base.date, base.mode, base.originLat, base.originLon,
             base.windDir, base.windSpeed, base.scale, base.startTime, base.status,
             JSON.stringify(base.courseSnapshot), JSON.stringify(base.marks),
             base.startLine ? JSON.stringify(base.startLine) : null,
-            base.finishLine ? JSON.stringify(base.finishLine) : null, now],
+            base.finishLine ? JSON.stringify(base.finishLine) : null, now,
+            base.simulated, base.timeScale],
     });
     const id = Number(res.lastInsertRowid);
     for (const boat of boats) {
@@ -396,6 +417,10 @@ function sessionListRow(s) {
         startTime: s.startTime || null,
         boats: s.boats,
         createdAt: s.createdAt,
+        // Todo 63: the list must carry these two — the pane tags a simulated
+        // session and prune-db.js sweeps by the same field.
+        simulated: s.simulated ? 1 : 0,
+        timeScale: s.timeScale === undefined || s.timeScale === null ? 1 : Number(s.timeScale),
     };
 }
 
@@ -746,6 +771,12 @@ async function repeatSession(id, { date, mode, name } = {}) {
         startLine: cur.startLine,
         finishLine: cur.finishLine,
         createdAt: now,
+        // A repeat of a sandbox race is still a sandbox race (todo 63): the
+        // boats are synthetic, so carrying the flag is what keeps the new
+        // session honest in the UI and sweepable. The clock restarts at 1x —
+        // a compressed repeat would be 66's question, not this one's.
+        simulated: cur.simulated ? 1 : 0,
+        timeScale: 1,
     };
     // default repeat name carries the new date unless overridden
     if (!name) base.name = `${(cur.name || "Session").split(" — ")[0]} — ${date}`.slice(0, 64);
@@ -759,15 +790,17 @@ async function repeatSession(id, { date, mode, name } = {}) {
         return { ...s, boats: memBoats.get(newId) };
     }
     await initDb();
+    await initDb();
     const res = await client.execute({
         sql: `INSERT INTO sessions (courseId, courseShapeVersion, name, date, mode, originLat, originLon, windDir, windSpeed, scale,
-              startTime, status, courseVersion, courseSnapshot, marks, startLine, finishLine, createdAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+              startTime, status, courseVersion, courseSnapshot, marks, startLine, finishLine, createdAt, simulated, timeScale)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
         args: [base.courseId, base.courseShapeVersion, base.name, base.date, base.mode, base.originLat, base.originLon,
             base.windDir, base.windSpeed, base.scale, base.startTime, base.status,
             JSON.stringify(base.courseSnapshot), JSON.stringify(base.marks),
             base.startLine ? JSON.stringify(base.startLine) : null,
-            base.finishLine ? JSON.stringify(base.finishLine) : null, now],
+            base.finishLine ? JSON.stringify(base.finishLine) : null, now,
+            base.simulated, base.timeScale],
     });
     const newId = Number(res.lastInsertRowid);
     for (const b of cur.boats) {
@@ -802,6 +835,7 @@ module.exports = {
     staleLive,
     STALE_LIVE_MS,
     DEVICE_GONE_MS,
+    MAX_TIME_SCALE,
 };
 
 // In-memory twin of the ABANDON signal's UPDATE (no-DB fallback mode).
