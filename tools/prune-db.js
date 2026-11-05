@@ -34,6 +34,7 @@
 //   node tools/prune-db.js --sim-gps       # only the simulated points
 //   node tools/prune-db.js --standings     # only the stale standings
 //   node tools/prune-db.js --sim-sessions  # only the sandbox sessions (63)
+//   node tools/prune-db.js --sim-devices   # only the sandbox boat rows (66)
 //   node tools/prune-db.js --sim-gps --yes # execute just that
 //
 // Dry run is the default on purpose: this talks to the LIVE Turso DB that
@@ -47,11 +48,13 @@ const onlyOrphans = argv.includes("--orphans");
 const onlySimGps = argv.includes("--sim-gps");
 const onlyStandings = argv.includes("--standings");
 const onlySimSessions = argv.includes("--sim-sessions");
-const onlySome = onlyOrphans || onlySimGps || onlyStandings || onlySimSessions;
+const onlySimDevices = argv.includes("--sim-devices");
+const onlySome = onlyOrphans || onlySimGps || onlyStandings || onlySimSessions || onlySimDevices;
 const doOrphans = onlyOrphans || !onlySome;
 const doSimGps = onlySimGps || !onlySome;
 const doStandings = onlyStandings || !onlySome;
 const doSimSessions = onlySimSessions || !onlySome;
+const doSimDevices = onlySimDevices || !onlySome;
 
 const ORPHAN_TABLES = ["runs", "signals", "sim_routes", "session_boats"];
 
@@ -173,6 +176,34 @@ async function main() {
         } else {
             console.log(`    sessions       ${String(rows.length).padStart(6)}  ${rows.map(x => x.id).join(", ")}`);
             console.log("    (each one also takes its runs, signals, routes and frozen table)");
+        }
+    }
+
+    if (doSimDevices) {
+        // Todo 66/67: a sandbox fleet declares synthetic ids (`AA:BB:CC:DD:tt:NN`)
+        // and every test round leaves those device rows behind - they show up in
+        // the boats pane as tickable phantoms that never sail again. A row is kept
+        // while ANY session still names it (a live/provisional sandbox, or one left
+        // on purpose for a replay) and swept once nothing does.
+        const where = "deviceId LIKE 'AA:BB:CC:DD:%' " +
+            "AND deviceId NOT IN (SELECT deviceId FROM session_boats)";
+        const r = await client.execute(`SELECT deviceId, username FROM devices WHERE ${where} ORDER BY deviceId ASC`);
+        const rows = r.rows || [];
+        console.log("\n  sandbox boat rows (no session references them)");
+        if (!rows.length) {
+            console.log("    devices              0  (clean)");
+        } else if (EXECUTE) {
+            const { deleteDevice } = require("../store/deviceStore");
+            let n = 0;
+            for (const row of rows) {
+                const ok = await deleteDevice(row.deviceId);
+                if (ok) n++;
+            }
+            console.log(`    deleted        ${String(n).padStart(6)}  boat row(s) (+ their gps points)`);
+            console.log(`    ${rows.slice(0, 12).map(x => x.username || x.deviceId).join(", ")}${rows.length > 12 ? " …" : ""}`);
+        } else {
+            console.log(`    devices       ${String(rows.length).padStart(6)}  ${rows.slice(0, 12).map(x => x.username || x.deviceId).join(", ")}${rows.length > 12 ? " …" : ""}`);
+            console.log("    (a row is kept while a session still names it - real boats are never touched)");
         }
     }
 

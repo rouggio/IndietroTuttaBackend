@@ -261,10 +261,46 @@ async function ensureDevice(deviceId, fictiveName) {
     return getDevice(deviceId);
 }
 
+// Sandbox fleets (todos 63/66) declare synthetic ids `AA:BB:CC:DD:tt:NN`, where
+// `tt` is a per-session tag and `NN` the boat number. Those get a DISNEY name
+// instead of "Boat XXXX" (user, 2026-11-05): ten boats reading `Boat AB01…AB10`
+// is a table nobody can scan, while a fleet of named characters is a race you can
+// follow. The pick is deterministic and collision-free within one fleet: the index
+// is `NN + tag mod len`, and `len > 10` means distinct boat numbers always land on
+// distinct names.
+const SIM_NAMES = [
+    "Mickey Mouse", "Minnie Mouse", "Donald Duck", "Daisy Duck", "Goofy",
+    "Pluto", "Ariel", "Sebastian", "Flounder", "Ursula",
+    "Simba", "Nala", "Mufasa", "Timon", "Pumbaa",
+    "Aladdin", "Jasmine", "Genie", "Abu", "Moana",
+    "Maui", "Elsa", "Anna", "Olaf", "Kristoff",
+    "Mulan", "Mushu", "Tarzan", "Jane", "Baloo",
+    "Bagheera", "Mowgli", "Winnie the Pooh", "Tigger", "Eeyore",
+    "Peter Pan", "Tinker Bell", "Alice", "Cheshire Cat", "Dumbo",
+    "Bambi", "Thumper", "Pinocchio", "Cinderella", "Sleeping Beauty",
+    "Snow White", "Belle", "Gaston", "Rapunzel", "Merida",
+    "Stitch", "Lilo", "Woody", "Buzz Lightyear", "Nemo",
+    "Dory", "Remi", "Mike Wazowski", "Sulley", "Mr Incredible",
+];
+
+function isSandboxId(deviceId) {
+    return /^AA:BB:CC:DD:/i.test(String(deviceId || ""));
+}
+
+// `AA:BB:CC:DD:tt:NN` -> a name. Distinct `NN` in one fleet = distinct names.
+function sandboxName(deviceId) {
+    const parts = String(deviceId || "").split(":");
+    const tag = parseInt(parts[4] || "0", 16) || 0;
+    const num = parseInt(parts[5] || "0", 10) || 0;
+    const idx = (tag + num) % SIM_NAMES.length;
+    return SIM_NAMES[idx];
+}
+
 // The fictive label for an unknown boat: "Boat EE02". Last four hex chars of the
 // id, which is enough to tell two phantoms apart on screen and fits the
-// username whitelist (a MAC's colons do not).
+// username whitelist (a MAC's colons do not). A sandbox id gets its character.
 function fictiveName(deviceId) {
+    if (isSandboxId(deviceId)) return sandboxName(deviceId);
     const tail = String(deviceId || "").replace(/[^A-Za-z0-9]/g, "").slice(-4).toUpperCase();
     return tail ? `Boat ${tail}` : "Boat";
 }
