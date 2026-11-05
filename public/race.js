@@ -1549,8 +1549,12 @@ async function renderSessionCreate() {
         const courses = await courseRes.json();
         coursesCache = courses;
         if (!lastDevices.length) await refreshDevices();
+        // Nothing is pre-ticked (user, 2026-11-05): declaring participants is a
+        // creation-time decision (todo 55), so the pane must not put boats in a
+        // race by default - a session created from this pane carries exactly the
+        // boxes the user ticked.
         const boatChecks = lastDevices.map(d => `<label style="display:inline-block;margin-right:8px;font-weight:normal;font-size:12px">
-            <input type="checkbox" data-sb="${escHtml(d.deviceId)}" checked> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
+            <input type="checkbox" data-sb="${escHtml(d.deviceId)}"> ${escHtml(d.username || d.deviceId.slice(-5))}</label>`).join("");
         el.innerHTML = `
             <div class="device-meta" style="margin-bottom:6px">Pick a course, place it on the chart, set the wind</div>
             <div class="builder-row"><select id="sess-course">${courses.map(c => `<option value="c:${c.id}">${escHtml(c.name)} · #${c.id}${c.builtinKey ? " (built-in)" : ""}</option>`).join("")}</select></div>
@@ -1687,6 +1691,12 @@ async function renderSessionCreate() {
                 }));
             } else {
                 ids = [...document.querySelectorAll("#tab-session-create input[data-sb]:checked")].map(x => x.getAttribute("data-sb"));
+                // No boat pre-ticked any more: a real session with an empty fleet
+                // is a race nobody can finish, so say so instead of creating it.
+                if (!ids.length) {
+                    errEl.textContent = "Pick at least one boat — or tick Simulate to sail it with no device.";
+                    return;
+                }
             }
             try {
                 const res = await fetch("/sessions", {
