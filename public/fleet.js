@@ -115,7 +115,15 @@ function renderDevices() {
             el.addEventListener("click", e => {
                 if (e.target.closest("input[type=checkbox]")) return;
                 if (e.target.closest("[data-cal]")) return;
-                toggleBoatPanel(el.getAttribute("data-id"));
+                const id = el.getAttribute("data-id");
+                toggleBoatPanel(id);
+                // Centre the map on it WHEN ITS FEED IS LIVE (user, 2026-11-05):
+                // opening a panel for a boat you cannot find on the chart is half
+                // an answer. Offline/idle boats keep the view where it is - their
+                // last fix can be days old and kilometres away. Zoom is kept.
+                const dev = lastDevices.find(x => x.deviceId === id);
+                const live = (dev && dev.status === "live") || !!liveSimLatest(id);
+                if (live) centerBoatOnMap(id);
             });
         });
         list.querySelectorAll("[data-cal]").forEach(btn => {
