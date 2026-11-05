@@ -21,15 +21,21 @@ body:json {
       { "deviceId": "AA:BB:CC:DD:EE:01", "speedKn": 14.5 },
       { "deviceId": "AA:BB:CC:DD:EE:02", "speedKn": 13.5 }
     ],
-    "timeScale": 1
+    "timeScale": 50
   }
 }
 
 docs {
   201 { sessionId, running, timeScale, startedAt, endedAt, warnings, boats:[{deviceId, runId, speedKn, played, total, startEpoch, finishEpoch, elapsedSec, uploaded, failed, done}] }
-  400 { error }   // not simulated, no boats, bad speedKn, timeScale > 1
+  400 { error }   // not simulated, no boats, bad speedKn, or timeScale above MAX_TIME_SCALE (50)
   404 { error }   // session not found
   409 { error }   // a player is already sailing it, or the boats got different guns
+
+  timeScale: 1 = wall clock, 10/25/50 = compressed (todo 66). The player writes the
+  tape's own epochs, so the recorded race is the same at any scale - only the wall
+  wait changes. A 150-fix tape: 1x ~155 s, 10x ~19 s, 50x ~6.5 s on local+Turso.
+  Omitting `boats` sails every boat already in the session (13.5/14.5 kn rotation).
+}
 
   Todo 63 — the sandbox: the BACKEND sails this session with no device on the
   other end. One engine run per boat, every fix replayed into POST /gps as that
