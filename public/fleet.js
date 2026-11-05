@@ -46,7 +46,21 @@ function renderDevices() {
             return;
         }
 
-        list.innerHTML = filtered.map(d => {
+        // The tick is a FILTER, and the pane has to say so (user, 2026-11-05).
+        // Ticking a boat shows only the ticked ones - on the map, the timeline and
+        // in replay - so when the set is non-empty the list carries a banner that
+        // names how many are shown and offers one click back to the whole fleet.
+        // The rows themselves carry no highlight any more: the checkbox is the
+        // only state, so a row cannot look "selected" and mean something else.
+        const selN = selectedDeviceIds.size;
+        const selBanner = selN
+            ? `<div class="device-meta" id="boat-sel-banner" style="margin-bottom:6px;padding:4px 6px;background:#eff6ff;border-radius:6px">
+                   Showing <b>${selN}</b> of ${devices.length} boat${devices.length === 1 ? "" : "s"} —
+                   <span id="boat-sel-all" style="color:#1d4ed8;cursor:pointer;font-weight:600">show all</span>
+               </div>`
+            : "";
+
+        list.innerHTML = selBanner + filtered.map(d => {
             const status = d.status || "offline";
             const isActive = selectedDeviceIds.has(d.deviceId);
             const name = d.username || d.deviceId || "-";
@@ -55,7 +69,7 @@ function renderDevices() {
             const lightBg = lightenColor(routeColor, 0.85);
             const statusColor = status === "live" ? "#16a34a" : status === "idle" ? "#f59e0b" : "#9ca3af";
             return `
-                <div class="device-item ${isActive ? "active" : ""}" data-id="${d.deviceId}" style="cursor:pointer">
+                <div class="device-item" data-id="${d.deviceId}" style="cursor:pointer">
                     <div style="display:flex;align-items:center;gap:8px;overflow:hidden;flex:1">
                         <input type="checkbox" ${isActive ? "checked" : ""} data-check="${d.deviceId}" style="accent-color:${routeColor};width:14px;height:14px;flex-shrink:0">
                         <span class="device-name" style="border:1.5px solid ${routeColor};background:${lightBg};padding:2px 7px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px">${name}</span>
@@ -80,9 +94,23 @@ function renderDevices() {
                 }
                 saveUI();
                 updateTimelineTracks();
+                renderDevices();   // the "showing N of M" banner lives in the list
                 refresh(true);
             });
         });
+        // "show all": clear the filter and repaint the fleet.
+        const showAll = document.getElementById("boat-sel-all");
+        if (showAll) {
+            showAll.addEventListener("click", e => {
+                e.stopPropagation();
+                if (!selectedDeviceIds.size) return;
+                selectedDeviceIds.clear();
+                saveUI();
+                updateTimelineTracks();
+                renderDevices();
+                refresh(true);
+            });
+        }
         list.querySelectorAll(".device-item").forEach(el => {
             el.addEventListener("click", e => {
                 if (e.target.closest("input[type=checkbox]")) return;
