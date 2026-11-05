@@ -1584,6 +1584,12 @@ async function renderSessionCreate() {
             </div>
             <div class="builder-row" id="sess-sim-opts" style="display:none">
                 <label class="device-meta" style="flex:1">Sim boats <input id="sess-sim-boats" type="number" min="1" max="6" step="1" value="2" style="max-width:56px"></label>
+                <label class="device-meta" style="flex:1">Clock <select id="sess-sim-scale" title="How fast the sandbox sails it. The tape's own timestamps are what gets recorded, so a 50x race stores the same splits and elapsed time as a 1x one - only the wall-clock wait changes.">
+                    <option value="1">1x wall clock</option>
+                    <option value="10">10x</option>
+                    <option value="25">25x</option>
+                    <option value="50" selected>50x</option>
+                </select></label>
                 <label class="device-meta" style="flex:2">Speeds kn <input id="sess-sim-speeds" type="text" value="13.5,14.5" style="max-width:120px" title="One per boat, comma separated; the last repeats"></label>
             </div>
             <div class="builder-row"><button id="sess-create" class="primary">Create session</button></div>
@@ -1660,6 +1666,12 @@ async function renderSessionCreate() {
             // boat's session slot (one active session per boat) or be adopted
             // by a powered device through the health piggyback.
             const simOn = !!document.getElementById("sess-sim").checked;
+            // Todo 66: the sandbox clock. 1x is a real-time sail; 10/25/50 compress
+            // the WAITING only - the player writes the tape's own epochs, so the
+            // stored splits and elapsed time are the same at any scale.
+            const simScale = simOn
+                ? Math.max(1, Math.min(50, Number(document.getElementById("sess-sim-scale").value) || 1))
+                : 1;
             let ids = [];
             let simBoats = [];
             if (simOn) {
@@ -1683,6 +1695,7 @@ async function renderSessionCreate() {
                         ...shapeBody,
                         boats: ids.map((deviceId) => ({ deviceId })),
                         simulated: simOn,
+                        timeScale: simScale,
                         name: `${t0.name} — ${date}${simOn ? " (sim)" : ""}`, date, mode,
                         originLat: SESSDRAFT.origin.lat, originLon: SESSDRAFT.origin.lon,
                         windDir: SESSDRAFT.windDir, windSpeed: SESSDRAFT.windSpeed, scale: SESSDRAFT.scale,
@@ -1697,7 +1710,7 @@ async function renderSessionCreate() {
                     // panel stays open with the reason instead of pretending.
                     const pr = await fetch("/sim/players", {
                         method: "POST", headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ sessionId: j.id, boats: simBoats }),
+                        body: JSON.stringify({ sessionId: j.id, boats: simBoats, timeScale: simScale }),
                     });
                     const pj = await pr.json();
                     if (!pr.ok) { errEl.textContent = "Session created, but the sandbox did not start: " + (pj.error || pr.status); return; }

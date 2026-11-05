@@ -2,6 +2,7 @@ const express = require("express");
 
 const {
     addPoint,
+    addPoints,
     getPoints,
     getLatestPoint,
     getActiveDays,
@@ -72,6 +73,60 @@ router.post("/gps", async (req, res) => {
 
     const deviceId = req.header("DeviceId");
     const firmware = req.header("Firmware-Version");
+
+    // --------------------------------------------------
+    // Todo 66: BATCHED SIM UPLOAD
+    // A sandbox boat at 10-50x cannot afford one round trip per fix (~415 ms
+    // measured), so the player posts its fixes in windows: `points: [{lat, lon,
+    // speed, course, timestamp}, ...]`, one DeviceId, same rules as the single
+    // point below. One upsert for the device, one racing decision, ONE batched
+    // INSERT (still N rows, and each carries the tape's own timestamp, so the
+    // track and the replay keep race time at any scale).
+    // Only simulated batches are accepted: a real device never has a backlog.
+    // --------------------------------------------------
+    if (Array.isArray(req.body && req.body.points)) {
+        const pts = req.body.points;
+        if (!pts.length || pts.length > 500) {
+            return res.status(400).json({ error: "points must hold 1..500 fixes" });
+        }
+        for (const p of pts) {
+            if (!p || typeof p.lat !== "number" || typeof p.lon !== "number") {
+                return res.status(400).json({ error: "every point needs numeric lat/lon" });
+            }
+        }
+        if (!deviceId) return res.status(400).json({ error: "DeviceId header required" });
+
+        const device = await upsertDevice(deviceId, { username: null, firmware, ip: req.ip });
+        if (device && device.mock !== 1) {
+            try { await setDeviceMock(deviceId, 1); } catch {}
+        }
+        // The overlay shows the newest fix of the batch.
+        const last = pts[pts.length - 1];
+        pushSimPoint({
+            lat: last.lat, lon: last.lon, speed: last.speed ?? null, course: last.course ?? null,
+            altitude: last.altitude ?? null, sats: last.sats ?? null,
+            timestamp: last.timestamp || new Date().toISOString(),
+            receivedAt: new Date().toISOString(),
+            deviceId, username: (device && device.username) || null,
+        });
+        let persisted = false;
+        const racing = await racingPersist(deviceId).catch(() => false);
+        if (racing) {
+            const rows = pts.map((p) => ({
+                lat: p.lat, lon: p.lon,
+                speed: p.speed ?? null, course: p.course ?? null,
+                altitude: p.altitude ?? null, sats: p.sats ?? null,
+                simulated: 1,
+                timestamp: p.timestamp || new Date().toISOString(),
+                receivedAt: new Date().toISOString(),
+                deviceId,
+                username: (device && device.username) || null,
+            }));
+            await addPoints(rows);
+            persisted = true;
+        }
+        return res.json({ status: "ok", stored: persisted, simulated: true, persisted, batch: pts.length });
+    }
 
     const {
         lat,

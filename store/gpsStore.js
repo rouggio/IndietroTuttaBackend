@@ -37,6 +37,46 @@ async function addPoint(point) {
     return stored;
 }
 
+// Todo 66: a SIM boat posts its tape in windows (one HTTP round trip per window)
+// instead of one per fix. The cost here is the round trip - `POST /gps` measured
+// ~415 ms, i.e. the sandbox could only ever reach ~1.8x - so N inserts go in ONE
+// `client.batch()` (one round trip on the wire, still N rows, same columns).
+// Order is preserved, which is what a track needs.
+async function addPoints(points) {
+    const list = Array.isArray(points) ? points : [];
+    if (!list.length) return [];
+    const client = getClient();
+    const stored = list.map((point) => ({
+        ...point,
+        simulated: Number(point.simulated) ? 1 : 0,
+    }));
+    if (!client) {
+        for (const p of stored) memPoints.push(p);
+        return stored;
+    }
+    await initDb();
+    const nowIso = new Date().toISOString();
+    const stmts = stored.map((p) => ({
+        sql: `INSERT INTO gps_points (deviceId, username, lat, lon, speed, course, altitude, sats, simulated, timestamp, receivedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+            p.deviceId || null,
+            p.username || null,
+            p.lat,
+            p.lon,
+            p.speed,
+            p.course,
+            p.altitude,
+            p.sats,
+            p.simulated,
+            p.timestamp || nowIso,
+            p.receivedAt || nowIso,
+        ],
+    }));
+    await client.batch(stmts, "write");
+    return stored;
+}
+
 async function getPoints(filter = {}) {
     const client = getClient();
     const { date, deviceId, start, end, since } = filter;
@@ -272,5 +312,5 @@ function getSimSince(deviceId) {
     return p ? [p] : [];
 }
 
-module.exports = { addPoint, getPoints, getLatestPoint, getPointCount, getActiveDays, deletePoints, countPoints, pushSimPoint, getSimSince };
+module.exports = { addPoint, addPoints, getPoints, getLatestPoint, getPointCount, getActiveDays, deletePoints, countPoints, pushSimPoint, getSimSince };
 

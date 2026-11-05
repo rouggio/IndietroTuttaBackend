@@ -136,9 +136,14 @@ function effectiveFinishLine(session) {
 }
 const MODES = ["practice", "race"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-// Todo 63: the sandbox sails at wall clock. 66 (10-50x) lifts this one number
-// in both places it is enforced — here (create) and store/simPlayer.js.
-const MAX_TIME_SCALE = 1;
+// Todo 63: the sandbox sails at wall clock. Todo 66 lifted this from 1 to 50:
+// the player schedules every fix at `wall0 + (epoch - first) * 1000 / timeScale`
+// and writes the TAPE's own epochs, so the recorded race is identical at any
+// scale - only the wall time it takes changes. Enforced in BOTH places that can
+// set the scale: here (create) and store/simPlayer.js (the player start).
+// The UI offers 1 / 10 / 25 / 50; the number is stored on the session and shown
+// in its panel, so a compressed race can never be mistaken for a real one.
+const MAX_TIME_SCALE = 50;
 function validateSessionInput(b) {
     if (b.date !== undefined && (typeof b.date !== "string" || !DATE_RE.test(b.date))) {
         return "date must be YYYY-MM-DD";
@@ -174,7 +179,7 @@ function validateSessionInput(b) {
     if (b.timeScale !== undefined) {
         if (typeof b.timeScale !== "number" || !(b.timeScale >= 1)) return "timeScale must be >= 1";
         if (b.timeScale > MAX_TIME_SCALE) {
-            return `timeScale ${b.timeScale} is not available yet — simulated sessions sail at wall clock (1x); compressed races land with todo 66`;
+            return `timeScale ${b.timeScale} is above the sandbox ceiling (${MAX_TIME_SCALE}x)`;
         }
     }
     return null;

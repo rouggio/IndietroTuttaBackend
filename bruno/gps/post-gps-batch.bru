@@ -1,0 +1,34 @@
+meta {
+  name: Post GPS batch (sim boat)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/gps
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  DeviceId: AA:BB:CC:DD:99:01
+}
+
+body:json {
+  {
+    "points": [
+      { "lat": 39.92, "lon": 9.65, "speed": 13.5, "course": 180.0, "altitude": 5, "sats": 9, "timestamp": "2026-11-05T09:00:00.000Z" },
+      { "lat": 39.92005, "lon": 9.65, "speed": 13.5, "course": 180.0, "altitude": 5, "sats": 9, "timestamp": "2026-11-05T09:00:01.000Z" }
+    ]
+  }
+}
+
+docs {
+  Todo 66: the sandbox player posts its tape in windows (one round trip per window
+  instead of one per fix, ~415 ms each). Same rules as POST /gps: DeviceId header,
+  numeric lat/lon, `simulated` is forced on, the device row is upserted once and the
+  whole window is one batched INSERT. 1..500 fixes; each keeps its own timestamp,
+  which is the TAPE's epoch - that is what keeps a compressed race recording race
+  time instead of wall time. Answers {status, stored, simulated, persisted, batch}.
+}

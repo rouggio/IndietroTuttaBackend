@@ -41,6 +41,13 @@ const KEEP_MS = 10 * 60 * 1000;
 const CROSS_RANGE_M = 150;   // the device's OCS/finish band
 const MAX_BOATS = 6;         // same ceiling as the bench
 const DEG_M = 111320;
+// Todo 66: how much wall clock one `POST /gps` window may carry. A round trip is
+// ~415 ms, so 800 ms is about two of them per call: at 1x a window is one fix (the
+// tape is 1 Hz) and nothing changes for a wall-clock race, while at 50x it is ~40
+// fixes and the tape is done in a few seconds. The cost is granularity: the live
+// map steps once per window, which at 50x is 40 s of race time per refresh - fine
+// for a sandbox, and the trade that buys the speed.
+const BATCH_MS = 800;
 
 // Todo 63 sails at wall clock. `sessions.timeScale` exists anyway so that 66
 // (10-50x) only lifts this clamp instead of migrating the table again — the
@@ -155,7 +162,7 @@ async function start({ sessionId, boats, timeScale } = {}) {
     const ts = timeScale === undefined || timeScale === null ? 1 : Number(timeScale);
     if (!(ts >= 1)) throw bad("timeScale must be >= 1");
     if (ts > MAX_TIME_SCALE) {
-        throw bad(`timeScale ${ts} is not available yet — the sandbox sails at wall clock (1x); compressed races land with todo 66`);
+        throw bad(`timeScale ${ts} is above the sandbox ceiling (${MAX_TIME_SCALE}x)`);
     }
 
     if (players.has(sid)) throw bad("a sandbox is already sailing this session", 409);
@@ -250,26 +257,49 @@ async function start({ sessionId, boats, timeScale } = {}) {
     return playerStatus(p);
 }
 
+// Todo 66: the tape is played in WINDOWS, not one HTTP call per fix.
+// A single `POST /gps` costs ~415 ms (the Turso round trip + device upsert), so
+// one-request-per-fix caps the sandbox at ~2x no matter what timeScale asks for.
+// A window is every fix whose due time falls inside the next `batchMs` of wall
+// clock (or the rest of the tape), posted as ONE batched insert, each fix keeping
+// its own tape timestamp. The schedule is unchanged: windows are still placed by
+// `due`, so a slow server makes the race LATE, never different.
 async function playBoat(p, b) {
     try {
-        for (const row of b.rows) {
+        let i = 0;
+        while (i < b.rows.length) {
             if (p.aborted) return;
-            const due = p.wall0 + ((row.epoch - p.first) * 1000) / p.timeScale;
-            await waitUntil(due, p);
+            const head = b.rows[i];
+            const headDue = p.wall0 + ((head.epoch - p.first) * 1000) / p.timeScale;
+            await waitUntil(headDue, p);
             if (p.aborted) return;
+            // Everything due before headDue + batchMs rides along. At 1x that is
+            // exactly one fix (a tape spans 1000 ms per sample); at 50x it is ~25.
+            const windowEnd = headDue + BATCH_MS;
+            const batch = [];
+            while (i < b.rows.length) {
+                const row = b.rows[i];
+                const due = p.wall0 + ((row.epoch - p.first) * 1000) / p.timeScale;
+                if (due > windowEnd) break;
+                batch.push(row);
+                i++;
+            }
             try {
                 await postJson("/gps", {
-                    lat: row.lat, lon: row.lon,
-                    speed: row.speed, course: row.course,
-                    altitude: 5, sats: 9,
-                    simulated: true,
-                    timestamp: new Date(row.epoch * 1000).toISOString(),
+                    points: batch.map((row) => ({
+                        lat: row.lat, lon: row.lon,
+                        speed: row.speed, course: row.course,
+                        altitude: 5, sats: 9,
+                        timestamp: new Date(row.epoch * 1000).toISOString(),
+                    })),
                 }, b.deviceId);
+                b.played += batch.length;
             } catch (e) {
-                // One lost fix is a gap in a track; a lost RUN is a lost race.
-                if (p.warnings.length < 20) p.warnings.push(`${b.deviceId} fix ${row.epoch}: ${e.message}`);
+                // One lost WINDOW is a gap in a track; a lost RUN is a lost race.
+                if (p.warnings.length < 20) {
+                    p.warnings.push(`${b.deviceId} ${batch.length} fix(es) from ${batch[0].epoch}: ${e.message}`);
+                }
             }
-            b.played++;
         }
         if (p.aborted) return;
         await postJson(`/sessions/${p.sessionId}/runs`, {
