@@ -320,8 +320,11 @@ function showHoverPoint(p) {
             timelineHoverEl.style.display = "block";
             timelineHoverEl.style.left = ((t - bounds.start) / dayMs * 100) + "%";
             timelineHoverEl.style.background = colorForDevice(p.deviceId);
-            // center on this boat's stripe (same order/geometry as updateTimelineTracks)
-            const order = selectedDeviceIds.size ? [...selectedDeviceIds] : [...new Set(allPoints.map(q => q.deviceId))];
+            // center on this boat's stripe (same order/geometry as updateTimelineTracks:
+            // only boats that HAVE data in the range get a row, so the index must be
+            // taken from that filtered list or the marker lands on the wrong stripe)
+            const wanted = selectedDeviceIds.size ? [...selectedDeviceIds] : [...new Set(allPoints.map(q => q.deviceId))];
+            const order = wanted.filter(x => getTripsForDevice(x).length > 0);
             const stripeTop = 4 + Math.max(0, order.indexOf(p.deviceId)) * (32 + 6);
             timelineHoverEl.style.top = (stripeTop + 16) + "px";
             // exact fix tooltip above the stripe: time · knots · bearing

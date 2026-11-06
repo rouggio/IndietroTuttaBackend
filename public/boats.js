@@ -39,6 +39,37 @@ function getBoatPanel(id) {
     }
     return panel;
 }
+// Course as a whole degree (user, 2026-11-06): the device reports a float and the
+// pane printed 213.437° - a tenth of a degree is noise on a chart, so it is trimmed
+// to the integer part (rounded, not truncated: 359.7 is 360, not 359).
+function crsTxt(c) {
+    if (typeof c !== "number" || isNaN(c)) return "-";
+    // Normalise first so 359.7 reads 0 (north) rather than 360, and a negative
+    // bearing from a confused receiver cannot print a minus sign.
+    return String(Math.round(((c % 360) + 360) % 360) % 360);
+}
+
+// Pane header icons as inline SVG (user, 2026-11-05). The boat panel used text
+// glyphs (⌖ ⓘ ×) and each one came out at the system font's own weight, baseline
+// and optical size, which is why the row looked rough. These are 16 px, drawn with
+// currentColor so colour and hover stay a CSS concern, and stroke-only so they sit
+// quietly in the header.
+function paneIcon(kind) {
+    const open = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
+        'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+        'stroke-linejoin="round" aria-hidden="true" style="display:block">';
+    if (kind === "center") {
+        return open + '<circle cx="12" cy="12" r="8.5"/>' +
+            '<path d="M12 1.8v3.6M12 18.6v3.6M1.8 12h3.6M18.6 12h3.6"/>' + "</svg>";
+    }
+    if (kind === "info") {
+        return open + '<circle cx="12" cy="12" r="9"/>' +
+            '<path d="M12 11v5.2"/>' +
+            '<circle cx="12" cy="7.6" r="1.15" fill="currentColor" stroke="none"/>' + "</svg>";
+    }
+    return open + '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>' + "</svg>";
+}
+
 function renderBoatPanel(panel) {
     const div = panel.control._div;
     const p = panel.point;
@@ -58,7 +89,7 @@ function renderBoatPanel(panel) {
     const rows = p
         ? `
             <tr><td>Speed</td><td>${typeof p.speed === "number" ? p.speed.toFixed(1) : "-"} knots</td></tr>
-            <tr><td>Course</td><td>${p.course ?? "-"}&deg;</td></tr>
+            <tr><td>Course</td><td>${crsTxt(p.course)}&deg;</td></tr>
             <tr><td>Time</td><td>${fmtDateTime(p.timestamp || p.receivedAt)}</td></tr>
             ${rec?.boat ? `<tr><td>Boat</td><td>${escHtml(rec.boat)}</td></tr>` : ""}
             ${panel.expanded ? `
@@ -74,7 +105,7 @@ function renderBoatPanel(panel) {
             <tr><td>Status</td><td>${escHtml(rec?.status || "-")}${rec?.firmware ? " &middot; v" + escHtml(rec.firmware) : ""}</td></tr>
             <tr><td>Last seen</td><td>${rec?.lastSeen ? fmtDateTime(rec.lastSeen) : "never"}</td></tr>`;
     div.innerHTML = `
-        <h4>${name}<span class="pane-actions"><span class="pane-btn" title="Center map on boat" onclick="centerBoatOnMap('${panel.id}')">⌖</span><span class="pane-btn" title="Boat info" onclick="openBoatInfo('${panel.id}')">ⓘ</span><span class="pane-btn pane-close" title="Close" onclick="closeBoatPanel('${panel.id}')">×</span></span></h4>
+        <h4>${name}<span class="pane-actions"><span class="pane-btn" title="Center map on boat" onclick="centerBoatOnMap('${panel.id}')">${paneIcon("center")}</span><span class="pane-btn" title="Boat info" onclick="openBoatInfo('${panel.id}')">${paneIcon("info")}</span><span class="pane-btn pane-close" title="Close" onclick="closeBoatPanel('${panel.id}')">${paneIcon("close")}</span></span></h4>
         <table>${rows}
         </table>
         ${p ? `<a href="#" style="font-size:12px;color:#2563eb" onclick="toggleBoatMore(event,'${panel.id}');return false">${panel.expanded ? "less..." : "more..."}</a>` : ""}
