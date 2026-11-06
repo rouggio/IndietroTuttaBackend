@@ -363,6 +363,28 @@ html, body {
     border-radius: 2px;
     opacity: 0.9;
 }
+/* Each boat's name, pinned to the left end of ITS stripe in the boat's colour
+   (user, 2026-11-05). Inside the row on purpose: a label column would steal width
+   from the time axis, and the cursor, range selection, hover readout and speed
+   overlay all map the tracks area 0..100%. */
+.timeline-name {
+    position: absolute;
+    left: 3px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    max-width: 130px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.85);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
 #timeline-cursor {
     position: absolute;
     top: 0;

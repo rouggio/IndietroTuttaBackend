@@ -47,7 +47,12 @@ function updateTimelineTracks() {
     if (oldSvg) oldSvg.remove();
     const bounds = getDayBounds();
     const dayMs = bounds.end - bounds.start || 1;
-    const ids = selectedDeviceIds.size ? [...selectedDeviceIds] : [...new Set(allPoints.map(p=>p.deviceId))];
+    const wanted = selectedDeviceIds.size ? [...selectedDeviceIds] : [...new Set(allPoints.map(p=>p.deviceId))];
+    // A ticked boat with NO data in the range gets no stripe (user, 2026-11-05):
+    // it used to consume an index anyway, so it left a hole in the stack and grew
+    // the panel by a row that can never draw anything. Only boats that can paint
+    // a segment are laid out.
+    const ids = wanted.filter(id => getTripsForDevice(id).length > 0);
     if (ids.length === 0) { timelineTracksEl.parentElement.style.height = ""; return; }
     // one stacked stripe per boat
     const stripeH = 32, stripeGap = 6, stripePad = 4;
@@ -90,6 +95,17 @@ function updateTimelineTracks() {
             seg.addEventListener("mouseout", hideHover);
             track.appendChild(seg);
         });
+        // Boat name pinned to the LEFT of its stripe, in the boat's own colour
+        // (user, 2026-11-05). It sits inside the row rather than in a gutter so the
+        // time axis keeps its full width: the cursor, the range selection, the
+        // hover readout and the speed overlay all map 0..100% of the tracks area,
+        // and a label column would shift everything but those.
+        const nameEl = document.createElement("div");
+        nameEl.className = "timeline-name";
+        nameEl.style.color = colorForDevice(id);
+        nameEl.textContent = boatDisplayName(id);
+        nameEl.title = boatDisplayName(id);
+        track.appendChild(nameEl);
         timelineTracksEl.appendChild(track);
     });
     // height — one stripe per boat
