@@ -21,6 +21,35 @@ function patchBoat(deviceId, patch) {
     renderDevices();
     return true;
 }
+// --- Track splitting (user, 2026-11-06) ------------------------------------
+// A boat's stored points are several streams end to end, and the map used to draw
+// them as ONE polyline: the chord between the last fix of a session and the first of
+// the next drew a leg nobody sailed. Nothing in gps_points identifies a session
+// (deviceId/username/lat/lon/speed/course/alt/sats/simulated/timestamp/receivedAt),
+// so the cut has to come from the data itself:
+//   * a time gap above the timeline's IDLE_GAP_MS (one shared idea of "trip"),
+//   * an impossible speed between consecutive fixes - MAX_BOAT_MS is ~49 kn, high
+//     enough for any boat and low enough to catch a device that moved or a mock
+//     tape that restarted elsewhere.
+// Exact session boundaries (sessions.startTime + its end) would be better where a
+// session exists; that needs a per-boat lookup and still leaves free sailing, which
+// belongs to no session, so the gap/jump rule stays the base case.
+const MAX_BOAT_MS = 25;
+
+function fixMs(p) {
+    const t = new Date((p && (p.timestamp || p.receivedAt)) || 0).getTime();
+    return isNaN(t) ? 0 : t;
+}
+
+function metresBetween(a, b) {
+    const rad = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * rad;
+    const dLon = (b.lon - a.lon) * rad;
+    const la1 = a.lat * rad, la2 = b.lat * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2;
+    return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 function renderDevices() {
     try {
         const devices = lastDevices;
@@ -245,12 +274,28 @@ async function refreshTracks(recenter = false) {
         // The live overlay already flies this boat: drawing its stored
         // track too doubles the line (same route, twice).
         if (liveSimShown(id)) return;
+        // Two separate streams must NOT be joined by a chord (user, 2026-11-06).
+        // gps_points carries no session id, so the only honest signals are time and
+        // position: an idle break (the timeline's own IDLE_GAP_MS, so map and
+        // timeline agree on what a "trip" is) and an impossible speed (a device
+        // moved, or a mock tape restarted somewhere else). The simulated/real flag
+        // split stays, with its one-point overlap so a transition has no gap.
+        const ordered = [...pts].sort((a, b) => fixMs(a) - fixMs(b));
         const runs = [];
         let cur = [];
-        for (const p of pts) {
-            if (cur.length && Boolean(cur[cur.length - 1].simulated) !== Boolean(p.simulated)) {
-                runs.push(cur);
-                cur = [cur[cur.length - 1]];
+        for (const p of ordered) {
+            const prev = cur.length ? cur[cur.length - 1] : null;
+            if (prev) {
+                const flagFlip = Boolean(prev.simulated) !== Boolean(p.simulated);
+                const dt = (fixMs(p) - fixMs(prev)) / 1000;
+                const impossible = dt > 0 && metresBetween(prev, p) / dt > MAX_BOAT_MS;
+                if (flagFlip) {
+                    runs.push(cur);
+                    cur = [prev];              // overlap: no visual gap at the switch
+                } else if (impossible || fixMs(p) - fixMs(prev) > IDLE_GAP_MS) {
+                    runs.push(cur);
+                    cur = [];                  // a REAL break: start a fresh polyline
+                }
             }
             cur.push(p);
         }
