@@ -16,8 +16,8 @@ async function addPoint(point) {
     await initDb();
 
     await client.execute({
-        sql: `INSERT INTO gps_points (deviceId, username, lat, lon, speed, course, altitude, sats, simulated, timestamp, receivedAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sql: `INSERT INTO gps_points (deviceId, username, lat, lon, speed, course, altitude, sats, simulated, stream, timestamp, receivedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
             stored.deviceId || null,
             stored.username || null,
@@ -28,6 +28,7 @@ async function addPoint(point) {
             stored.altitude,
             stored.sats,
             simInt,
+            stored.stream || null,
             stored.timestamp || new Date().toISOString(),
             stored.receivedAt || new Date().toISOString(),
         ],
@@ -57,8 +58,8 @@ async function addPoints(points) {
     await initDb();
     const nowIso = new Date().toISOString();
     const stmts = stored.map((p) => ({
-        sql: `INSERT INTO gps_points (deviceId, username, lat, lon, speed, course, altitude, sats, simulated, timestamp, receivedAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sql: `INSERT INTO gps_points (deviceId, username, lat, lon, speed, course, altitude, sats, simulated, stream, timestamp, receivedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
             p.deviceId || null,
             p.username || null,
@@ -69,6 +70,7 @@ async function addPoints(points) {
             p.altitude,
             p.sats,
             p.simulated,
+            p.stream || null,
             p.timestamp || nowIso,
             p.receivedAt || nowIso,
         ],
@@ -105,7 +107,7 @@ async function getPoints(filter = {}) {
 
     await initDb();
 
-    let sql = "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, simulated, timestamp, receivedAt FROM gps_points WHERE 1=1";
+    let sql = "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, simulated, stream, timestamp, receivedAt FROM gps_points WHERE 1=1";
     const args = [];
 
     if (since) {
@@ -156,12 +158,12 @@ async function getLatestPoint(deviceId = null) {
 
     await initDb();
     if (deviceId) {
-        const res = await client.execute({ sql: "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, simulated, timestamp, receivedAt FROM gps_points WHERE deviceId = ? ORDER BY id DESC LIMIT 1", args: [deviceId] });
+        const res = await client.execute({ sql: "SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, simulated, stream, timestamp, receivedAt FROM gps_points WHERE deviceId = ? ORDER BY id DESC LIMIT 1", args: [deviceId] });
         if (res.rows.length === 0) return null;
         const r = res.rows[0];
         return { ...r, simulated: Number(r.simulated) ? 1 : 0 };
     } else {
-        const res = await client.execute("SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, simulated, timestamp, receivedAt FROM gps_points ORDER BY id DESC LIMIT 1");
+        const res = await client.execute("SELECT id, deviceId, username, lat, lon, speed, course, altitude, sats, simulated, stream, timestamp, receivedAt FROM gps_points ORDER BY id DESC LIMIT 1");
         if (res.rows.length === 0) return null;
         const r = res.rows[0];
         return { ...r, simulated: Number(r.simulated) ? 1 : 0 };

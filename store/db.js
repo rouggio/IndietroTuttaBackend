@@ -78,6 +78,7 @@ async function initDb() {
                 altitude REAL,
                 sats INTEGER,
                 simulated INTEGER NOT NULL DEFAULT 0,
+                stream TEXT,
                 timestamp TEXT,
                 receivedAt TEXT NOT NULL
             )
@@ -86,6 +87,17 @@ async function initDb() {
         // normal points; filterable via the flag)
         try {
             await c.execute(`ALTER TABLE gps_points ADD COLUMN simulated INTEGER NOT NULL DEFAULT 0`);
+        } catch (e) {
+            if (!/duplicate column/i.test(e.message || "")) throw e;
+        }
+
+        // Todo 67 (2026-11-06): the device stamps every fix with a RANDOM id it
+        // generates at boot, so the backend can tell two data streams apart
+        // exactly instead of inferring it from gaps. Additive, nullable: rows
+        // older than this build have NULL and the frontend falls back to the
+        // heuristic (gap / impossible speed / parked) for them.
+        try {
+            await c.execute(`ALTER TABLE gps_points ADD COLUMN stream TEXT`);
         } catch (e) {
             if (!/duplicate column/i.test(e.message || "")) throw e;
         }

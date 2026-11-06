@@ -292,6 +292,9 @@ async function playBoat(p, b) {
                 i++;
             }
             try {
+                // Stream id = the engine run: one sandbox run is one stream, so a
+                // session sailed twice (or two sessions) can never be joined by a
+                // chord on the map (todo 67).
                 await postJson("/gps", {
                     points: batch.map((row) => ({
                         lat: row.lat, lon: row.lon,
@@ -299,7 +302,7 @@ async function playBoat(p, b) {
                         altitude: 5, sats: 9,
                         timestamp: new Date(row.epoch * 1000).toISOString(),
                     })),
-                }, b.deviceId);
+                }, b.deviceId, { "Stream-Id": `sim:${b.runId}` });
                 b.played += batch.length;
             } catch (e) {
                 // One lost WINDOW is a gap in a track; a lost RUN is a lost race.
@@ -332,9 +335,10 @@ async function playBoat(p, b) {
 
 // playBoat's POSTs carry the boat's DeviceId, as a device would: identity is
 // that header everywhere, and the run upload needs it to attribute the result.
-async function postJson(path, body, deviceId) {
+async function postJson(path, body, deviceId, extraHeaders) {
     const headers = { "Content-Type": "application/json" };
     if (deviceId) headers.DeviceId = deviceId;
+    if (extraHeaders) Object.assign(headers, extraHeaders);
     const r = await fetchImpl(baseUrl() + path, {
         method: "POST", headers, body: JSON.stringify(body),
     });

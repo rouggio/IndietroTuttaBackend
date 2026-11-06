@@ -73,6 +73,9 @@ router.post("/gps", async (req, res) => {
 
     const deviceId = req.header("DeviceId");
     const firmware = req.header("Firmware-Version");
+    // Todo 67: the device's per-boot RANDOM stream id, a header so the JSON body
+    // keeps its budget (and a batch carries one id for the whole window).
+    const streamHeader = req.header("Stream-Id");
 
     // --------------------------------------------------
     // Todo 66: BATCHED SIM UPLOAD
@@ -117,6 +120,9 @@ router.post("/gps", async (req, res) => {
                 speed: p.speed ?? null, course: p.course ?? null,
                 altitude: p.altitude ?? null, sats: p.sats ?? null,
                 simulated: 1,
+                // A batch names one stream for the whole window; a per-point id
+                // wins if the caller sent one.
+                stream: p.stream || streamHeader || null,
                 timestamp: p.timestamp || new Date().toISOString(),
                 receivedAt: new Date().toISOString(),
                 deviceId,
@@ -180,6 +186,7 @@ router.post("/gps", async (req, res) => {
     if (simulated === true) {
         const point = {
             lat, lon, speed, course, altitude, sats,
+            stream: streamHeader || null,
             timestamp,
             receivedAt: new Date().toISOString(),
             deviceId,
@@ -208,6 +215,7 @@ router.post("/gps", async (req, res) => {
         altitude,
         sats,
         simulated,
+        stream: streamHeader || null,
         timestamp,
         receivedAt: new Date().toISOString(),
         deviceId,

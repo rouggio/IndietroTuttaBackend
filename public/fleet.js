@@ -21,20 +21,22 @@ function patchBoat(deviceId, patch) {
     renderDevices();
     return true;
 }
-// --- Track splitting (user, 2026-11-06) ------------------------------------
-// A boat's stored points are several streams end to end, and the map used to draw
-// them as ONE polyline: the chord between the last fix of a session and the first of
-// the next drew a leg nobody sailed. Nothing in gps_points identifies a session
+// --- Stream splitting (user, 2026-11-06) ------------------------------------
+// ONE rule for "what is one continuous stream", shared by the map's polylines and
+// the timeline's trips so the two can never disagree. gps_points has no session id
 // (deviceId/username/lat/lon/speed/course/alt/sats/simulated/timestamp/receivedAt),
-// so the cut has to come from the data itself:
-//   * a time gap above the timeline's IDLE_GAP_MS (one shared idea of "trip"),
-//   * an impossible speed between consecutive fixes - MAX_BOAT_MS is ~49 kn, high
-//     enough for any boat and low enough to catch a device that moved or a mock
-//     tape that restarted elsewhere.
-// Exact session boundaries (sessions.startTime + its end) would be better where a
-// session exists; that needs a per-boat lookup and still leaves free sailing, which
-// belongs to no session, so the gap/jump rule stays the base case.
+// and a FREE SAIL has no session row at all, so the stream has to be read off the
+// fixes themselves. A new stream starts when:
+//   1. fixes stop for IDLE_GAP_MS (device off between outings - the common case),
+//   2. the boat moves faster than MAX_BOAT_MS between fixes (a device that moved,
+//      a mock tape that restarted elsewhere - ~49 kn, above any boat),
+//   3. the boat has been PARKED (inside PARKED_M of one spot) for PARKED_MS and
+//      then moves: the device stayed on at the mooring, and the next outing is a
+//      new sail even though the fixes never stopped,
+//   4. the real/mock flag flips (keeps one overlap point, so no visual gap).
 const MAX_BOAT_MS = 25;
+const PARKED_MS = 10 * 60 * 1000;
+const PARKED_M = 40;
 
 function fixMs(p) {
     const t = new Date((p && (p.timestamp || p.receivedAt)) || 0).getTime();
@@ -48,6 +50,58 @@ function metresBetween(a, b) {
     const la1 = a.lat * rad, la2 = b.lat * rad;
     const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2;
     return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function splitStreams(points) {
+    const pts = [...points].sort((a, b) => fixMs(a) - fixMs(b));
+    const runs = [];
+    let cur = [];
+    let anchor = null;   // where the current "not moving" stretch began
+    const flush = (keep) => {
+        if (cur.length) runs.push(cur);
+        cur = keep || [];
+        anchor = null;
+    };
+
+    // EXACT mode (todo 67): the device stamps every fix with a random id it makes
+    // at boot, so a change of id IS a new stream - no guessing. Rows older than
+    // that build have no `stream` and fall through to the heuristic below.
+    if (pts.some(p => p.stream)) {
+        let last = null;
+        for (const p of pts) {
+            const s = p.stream || "";
+            if (cur.length && s !== last) flush();
+            last = s;
+            cur.push(p);
+        }
+        if (cur.length) runs.push(cur);
+        return runs;
+    }
+
+    for (const p of pts) {
+        const prev = cur.length ? cur[cur.length - 1] : null;
+        if (prev) {
+            if (Boolean(prev.simulated) !== Boolean(p.simulated)) {
+                flush([prev]);                     // overlap: no gap at the switch
+            } else {
+                const dt = (fixMs(p) - fixMs(prev)) / 1000;
+                const impossible = dt > 0 && metresBetween(prev, p) / dt > MAX_BOAT_MS;
+                if (impossible || fixMs(p) - fixMs(prev) > IDLE_GAP_MS) {
+                    flush();
+                } else if (anchor) {
+                    if (metresBetween(anchor, p) > PARKED_M) {
+                        // Moving again. Was the stop long enough to end a sail?
+                        if (fixMs(prev) - fixMs(anchor) >= PARKED_MS) flush();
+                        else anchor = p;           // a short pause, not a new stream
+                    }
+                }
+            }
+        }
+        if (!anchor) anchor = p;
+        cur.push(p);
+    }
+    if (cur.length) runs.push(cur);
+    return runs;
 }
 
 function renderDevices() {

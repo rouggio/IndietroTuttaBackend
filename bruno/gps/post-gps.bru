@@ -13,6 +13,7 @@ post {
 headers {
   Content-Type: application/json
   DeviceId: {{deviceId}}
+  Stream-Id: 1A2B3C4D
 }
 
 body:json {
@@ -25,4 +26,12 @@ body:json {
     "sats": 9,
     "username": "{{username}}"
   }
+}
+
+docs {
+  Stream-Id (optional, todo 67): the device's random per-boot stream id. Stored on
+  the point (`gps_points.stream`) and returned by GET /gps, so the map splits a
+  boat's day into streams EXACTLY instead of inferring a break from gaps. The
+  firmware sends it on every POST /gps; a request without it stores NULL and the
+  frontend falls back to the gap / impossible-speed / parked heuristics.
 }

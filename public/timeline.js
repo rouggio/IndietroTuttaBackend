@@ -17,22 +17,11 @@ let playbackMarkers = new Map(); // deviceId -> circleMarker
 // Gap larger than this splits activity into separate trips (idle stillness)
 const IDLE_GAP_MS = 5 * 60 * 1000; // 5 minutes — gps is ~40s, so >5min = idle/transport
 
+// Trips are the SAME thing the map draws as separate polylines (fleet.js
+// splitStreams: exact `stream` id when the device stamped one, otherwise gap /
+// impossible speed / parked). One rule, so the bar and the chart cannot disagree.
 function getTripsForDevice(deviceId) {
-    const pts = allPoints.filter(p=>p.deviceId===deviceId).sort((a,b)=> new Date(a.timestamp)-new Date(b.timestamp));
-    if (!pts.length) return [];
-    const trips = [];
-    let cur = [pts[0]];
-    for (let i=1;i<pts.length;i++) {
-        const gap = new Date(pts[i].timestamp).getTime() - new Date(pts[i-1].timestamp).getTime();
-        if (gap > IDLE_GAP_MS) {
-            trips.push(cur);
-            cur = [pts[i]];
-        } else {
-            cur.push(pts[i]);
-        }
-    }
-    trips.push(cur);
-    return trips;
+    return splitStreams(allPoints.filter(p => p.deviceId === deviceId));
 }
 
 function getDayBounds() {
