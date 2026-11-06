@@ -240,14 +240,23 @@ function showTime(timeMs) {
     }
     // Open boat panels follow their boat (nearest real point, never interpolated)
     updateOpenPanels();
-    // Keep all boats on screen: shift only when one leaves the viewport
+    // Keep all boats on screen: shift only when one leaves the viewport.
+    // NEVER ZOOM IN on our own (user, 2026-11-06): an outer zoom is a deliberate
+    // view, so the automation pans inside it instead of snapping back to a tight
+    // fit. It still zooms OUT when the fleet genuinely needs more room, because
+    // `min(current, fit)` only ever lowers the zoom.
     const latlngs = [];
     playbackMarkers.forEach(m => latlngs.push(m.getLatLng()));
     if (!latlngs.length && marker) latlngs.push(marker.getLatLng());
     if (latlngs.length && !latlngs.every(ll => map.getBounds().contains(ll))) {
         const bounds = L.latLngBounds(latlngs);
-        if (bounds.getNorthEast().equals(bounds.getSouthWest())) map.panTo(latlngs[0]);
-        else map.fitBounds(bounds.pad(0.25));
+        if (bounds.getNorthEast().equals(bounds.getSouthWest())) {
+            map.panTo(latlngs[0]);
+        } else {
+            const fit = bounds.pad(0.25);
+            const z = Math.min(map.getZoom(), map.getBoundsZoom(fit));
+            map.setView(fit.getCenter(), z, { animate: false });
+        }
     }
 }
 
