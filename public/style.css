@@ -177,6 +177,42 @@ html, body {
     gap: 8px;
 }
 
+/* Live | Timeline as one two-state switch (trial, 2026-11-06). The old
+   #timelineToggleBtn is hidden: choosing Timeline now shows the strip as part of
+   the mode, so a separate show/hide button would be a second control for the same
+   thing. */
+#viewSwitch {
+    display: inline-flex;
+    padding: 2px;
+    border-radius: 8px;
+    background: #e2e8f0;
+    gap: 2px;
+}
+
+#viewSwitch .seg-btn {
+    border: none;
+    background: transparent;
+    color: #475569;
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+}
+
+#viewSwitch .seg-btn:hover {
+    color: #0f172a;
+}
+
+#viewSwitch .seg-btn.active {
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .18);
+}
+
+#timelineToggleBtn { display: none; }
+
 #topbar-controls button {
     border: none;
     padding: 6px 12px;

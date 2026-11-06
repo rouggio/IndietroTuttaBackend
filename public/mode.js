@@ -148,6 +148,7 @@ const Bus = {
 function setMode(live, reason) {
     UI.isLive = !!live;
     if (liveBtn) liveBtn.classList.toggle("active", UI.isLive);
+    syncViewSwitch();   // the Live|Timeline pill follows every mode change
     updateTimeControlsVisibility();
     try {
         // Transition journal: one paste (`__modeLog`) shows exactly how the
@@ -246,6 +247,34 @@ function enterFrozenReplay(id, fromMs, toMs, reason) {
 updateTimeControlsVisibility();
 if (UI.isLive) liveBtn.classList.add("active"); else liveBtn.classList.remove("active");
 if (presetSelect) presetSelect.value = UI.timePreset;
+
+// --- Two-state view switch: Live | Timeline (trial, 2026-11-06) ------------
+// One control for the pair that used to be two: the Live button (live vs history)
+// and the Timeline toggle (show the playback strip). Timeline = history AND the
+// strip; Live = live, auto-refresh, strip parked. The transition itself still
+// lives in the liveBtn handler below, so there is exactly one implementation:
+// these two buttons click it when a flip is needed.
+function syncViewSwitch() {
+    const live = !!UI.isLive;
+    const a = document.getElementById("viewLive");
+    const b = document.getElementById("viewTimeline");
+    if (a) a.classList.toggle("active", live);
+    if (b) b.classList.toggle("active", !live);
+}
+document.getElementById("viewLive")?.addEventListener("click", () => {
+    if (!UI.isLive) liveBtn.click();   // history -> live
+    hideTimeline();
+    syncViewSwitch();
+});
+document.getElementById("viewTimeline")?.addEventListener("click", () => {
+    if (UI.isLive) liveBtn.click();    // live -> history
+    // Show the strip. No second toggle: the pair is a mode switch, so clicking
+    // Timeline again must not hide it (that was the old button's job).
+    toggleEl("playback", true);
+    updateTimelineTracks();
+    syncViewSwitch();
+});
+syncViewSwitch();
 
 liveBtn.addEventListener("click", () => {
     stopPlayback();

@@ -28,7 +28,15 @@
     <button id="featuresToggleBtn" class="dropbtn pane-toggle" title="Open TODOs and their cost">TODO</button>
         </div>
         <div id="topbar-controls">
-            <button id="liveBtn" class="active" title="Live = today, auto-refresh">● Live</button>
+            <!-- Two-state view switch (trial, 2026-11-06): one control for the pair
+                 that used to be two - the Live button (live vs history) and the
+                 Timeline toggle (show the playback strip). #liveBtn stays in the
+                 DOM, hidden, because the transition itself lives there. -->
+            <div id="viewSwitch" role="group" aria-label="Live or timeline">
+                <button id="viewLive" class="seg-btn active" title="Live: today, auto-refreshing">Live</button>
+                <button id="viewTimeline" class="seg-btn" title="Timeline: history plus the playback strip">Timeline</button>
+            </div>
+            <button id="liveBtn" class="active" title="Live = today, auto-refresh" style="display:none">● Live</button>
             <select id="liveMinsSelect" title="How much of the live trace to show">
                 <option value="-1">no track</option>
                 <option value="2">last 2 min</option>
