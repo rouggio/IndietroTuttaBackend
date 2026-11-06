@@ -46,21 +46,7 @@ function renderDevices() {
             return;
         }
 
-        // The tick is a FILTER, and the pane has to say so (user, 2026-11-05).
-        // Ticking a boat shows only the ticked ones - on the map, the timeline and
-        // in replay - so when the set is non-empty the list carries a banner that
-        // names how many are shown and offers one click back to the whole fleet.
-        // The rows themselves carry no highlight any more: the checkbox is the
-        // only state, so a row cannot look "selected" and mean something else.
-        const selN = selectedDeviceIds.size;
-        const selBanner = selN
-            ? `<div class="device-meta" id="boat-sel-banner" style="margin-bottom:6px;padding:4px 6px;background:#eff6ff;border-radius:6px">
-                   Showing <b>${selN}</b> of ${devices.length} boat${devices.length === 1 ? "" : "s"} —
-                   <span id="boat-sel-all" style="color:#1d4ed8;cursor:pointer;font-weight:600">show all</span>
-               </div>`
-            : "";
-
-        list.innerHTML = selBanner + filtered.map(d => {
+        list.innerHTML = filtered.map(d => {
             const status = d.status || "offline";
             const isActive = selectedDeviceIds.has(d.deviceId);
             const name = d.username || d.deviceId || "-";
@@ -94,23 +80,10 @@ function renderDevices() {
                 }
                 saveUI();
                 updateTimelineTracks();
-                renderDevices();   // the "showing N of M" banner lives in the list
-                refresh(true);
-            });
-        });
-        // "show all": clear the filter and repaint the fleet.
-        const showAll = document.getElementById("boat-sel-all");
-        if (showAll) {
-            showAll.addEventListener("click", e => {
-                e.stopPropagation();
-                if (!selectedDeviceIds.size) return;
-                selectedDeviceIds.clear();
-                saveUI();
-                updateTimelineTracks();
                 renderDevices();
                 refresh(true);
             });
-        }
+        });
         list.querySelectorAll(".device-item").forEach(el => {
             el.addEventListener("click", e => {
                 if (e.target.closest("input[type=checkbox]")) return;

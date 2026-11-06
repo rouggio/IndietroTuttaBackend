@@ -53,7 +53,17 @@ function updateTimelineTracks() {
     // the panel by a row that can never draw anything. Only boats that can paint
     // a segment are laid out.
     const ids = wanted.filter(id => getTripsForDevice(id).length > 0);
-    if (ids.length === 0) { timelineTracksEl.parentElement.style.height = ""; return; }
+    if (ids.length === 0) {
+        // No data in the range: ONE row tall with a label, instead of the 80 px
+        // box standing there empty (user, 2026-11-06). Picking a custom range that
+        // nobody sailed used to leave a tall blank strip and no explanation.
+        timelineTracksEl.parentElement.style.height = "40px";
+        const empty = document.createElement("div");
+        empty.className = "timeline-empty";
+        empty.textContent = "no data";
+        timelineTracksEl.appendChild(empty);
+        return;
+    }
     // one stacked stripe per boat
     const stripeH = 32, stripeGap = 6, stripePad = 4;
     const stripeTop = idx => stripePad + idx * (stripeH + stripeGap);

@@ -409,6 +409,19 @@ html, body {
     border-radius: 2px;
     opacity: 0.9;
 }
+/* The timeline with nothing to show: one row, and the reason (user, 2026-11-06). */
+.timeline-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    color: #94a3b8;
+    pointer-events: none;
+}
 /* Each boat's name, pinned to the left end of ITS stripe in the boat's colour
    (user, 2026-11-05). Inside the row on purpose: a label column would steal width
    from the time axis, and the cursor, range selection, hover readout and speed
