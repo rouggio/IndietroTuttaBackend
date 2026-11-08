@@ -5,6 +5,9 @@ const UI_KEY = "indietrotutta:ui";
 // loadUI() (called before the wind block) restores them.
 let windProvider = "auto";   // auto | wu | wc | om (see GET /wind)
 let windRefreshMin = 10;     // minutes between auto refreshes; 0 = off
+// Base map: "osm" (streets) or "sat" (Esri World Imagery). Applied by setBaseMap()
+// in core.js; settings pane, saved with the other prefs (user, 2026-11-08).
+let baseMap = "osm";
 
 // 2026-09-10: the Courses pane used to be #template-panel and the builder
 // draft carried templateId. Move those saved keys across so an existing
@@ -45,6 +48,7 @@ function saveUI() {
             boatFilter: document.getElementById("boatFilter")?.value || "",
             windProvider,
             windRefreshMin,
+            baseMap,
             liveMins,
             playbackSpeed: playbackSpeed,
             showSimPreview: !!showSimPreview,
@@ -95,6 +99,9 @@ function loadUI() {
         if (d.boatFilter !== undefined) { const el=document.getElementById("boatFilter"); if(el) el.value=d.boatFilter; }
         if (d.windProvider) windProvider = d.windProvider;
         if (typeof d.windRefreshMin === "number") windRefreshMin = d.windRefreshMin;
+        if (d.baseMap === "sat" || d.baseMap === "osm") baseMap = d.baseMap;
+        // Swap the tiles now: core.js started on streets before the prefs existed.
+        try { setBaseMap(baseMap); } catch {}
         if ([-1, 0, 2, 5, 15, 60].includes(Number(d.liveMins))) liveMins = Number(d.liveMins);
         if ([1,2,5,10,20].includes(Number(d.playbackSpeed))) { playbackSpeed=Number(d.playbackSpeed); const ps=document.getElementById("playSpeed"); if(ps) ps.value=String(playbackSpeed); }
         if (d.panels) Object.entries(d.panels).forEach(([id, disp]) => {

@@ -2,15 +2,41 @@
 // Load order is index.html script order; cross-file names resolve at call time.
 const map = L.map('map', { zoomControl: false, maxZoom: 22 }).setView([39.92, 9.65], 13);
 
-L.tileLayer(
-    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    {
-        attribution: '&copy; OpenStreetMap',
-        referrerPolicy: 'strict-origin-when-cross-origin',
-        maxNativeZoom: 19, // OSM serves to z19; beyond that tiles scale up
-        maxZoom: 22
-    }
-).addTo(map);
+// --- Base map: streets or satellite (user, 2026-11-08) ----------------------
+// Two tile layers, swapped by the Settings pane ("Base map"), persisted in the UI
+// prefs. The satellite layer is Esri World Imagery: public, no API key, and the
+// usual Leaflet-providers entry. Both stay in Leaflet's tilePane, i.e. UNDER the
+// tracks and every other overlay, so swapping them never re-orders the chart.
+const BASE_TILES = {
+    osm: {
+        url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        opts: {
+            attribution: '&copy; OpenStreetMap contributors',
+            referrerPolicy: 'strict-origin-when-cross-origin',
+            maxNativeZoom: 19, // OSM serves to z19; beyond that tiles scale up
+            maxZoom: 22,
+        },
+    },
+    sat: {
+        // Esri asks for the source credit to stay visible; the imagery is
+        // generally best around z17-19, so it scales up past that like OSM.
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        opts: {
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+            maxNativeZoom: 19,
+            maxZoom: 22,
+        },
+    },
+};
+let baseMapLayer = null;
+function setBaseMap(kind) {
+    const want = BASE_TILES[kind] ? kind : 'osm';
+    if (baseMapLayer) { map.removeLayer(baseMapLayer); baseMapLayer = null; }
+    const spec = BASE_TILES[want];
+    baseMapLayer = L.tileLayer(spec.url, spec.opts).addTo(map);
+    return want;
+}
+setBaseMap('osm');
 
 // Remember last map position across reloads
 let restoredMapView = false;
