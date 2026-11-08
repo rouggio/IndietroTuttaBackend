@@ -303,22 +303,31 @@ document.getElementById("featuresClose")?.addEventListener("click", () => toggle
 function syncSettingsForm() {
     const p = document.getElementById("setWindProvider");
     const r = document.getElementById("setWindRefresh");
-    const b = document.getElementById("setBaseMap");
     if (p) p.value = windProvider;
     if (r) r.value = String(windRefreshMin);
-    if (b) b.value = baseMap;
+    syncSatBtn();
 }
 document.getElementById("setWindProvider")?.addEventListener("change", e => {
     setWindProvider(e.target.value);
     refreshWind();
 });
 document.getElementById("setWindRefresh")?.addEventListener("change", e => setWindRefreshMin(e.target.value));
-// Base map: streets <-> satellite (user, 2026-11-08). Saved with the other prefs;
-// the tracks and every overlay stay on top because the tiles live in the tilePane.
-document.getElementById("setBaseMap")?.addEventListener("change", e => {
-    baseMap = setBaseMap(e.target.value);
+
+// --- Base map toggle, top bar (user, 2026-11-08) ---------------------------
+// Streets <-> satellite photo in one click: it is a moment-to-moment view choice,
+// not a settings trip. `baseMap` still lives in the UI prefs blob, so the choice
+// survives a reload (loadUI applies it before this runs and syncSatBtn picks the
+// state up). Rests on the pane's own green `.active`, like the other top-bar
+// switches, so "on" means satellite.
+const satBtn = document.getElementById("satToggleBtn");
+function syncSatBtn() {
+    if (satBtn) satBtn.classList.toggle("active", baseMap === "sat");
+}
+satBtn?.addEventListener("click", () => {
+    baseMap = setBaseMap(baseMap === "sat" ? "osm" : "sat");
     try { saveUI(); } catch {}
-    syncSettingsForm();
+    syncSatBtn();
 });
+syncSatBtn();
 syncSettingsForm();
 document.getElementById("boatFilter")?.addEventListener("input", () => { saveUI(); refreshDevices(); });

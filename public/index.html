@@ -36,6 +36,10 @@
                 <button id="viewLive" class="seg-btn active" title="Live: today, auto-refreshing">Live</button>
                 <button id="viewTimeline" class="seg-btn" title="Timeline: history plus the playback strip">Timeline</button>
             </div>
+            <!-- Base map on/off, in the top bar (user, 2026-11-08): a satellite
+                 photo is a thing you flick on for a fix, not a settings trip. The
+                 old Settings row is gone; the pref (baseMap) is unchanged. -->
+            <button id="satToggleBtn" title="Base map: streets / satellite photo">Sat</button>
             <button id="liveBtn" class="active" title="Live = today, auto-refresh" style="display:none">● Live</button>
             <select id="liveMinsSelect" title="How much of the live trace to show">
                 <option value="-1">no track</option>
@@ -146,16 +150,9 @@
             <option value="0">Off (manual only)</option>
         </select>
     </div>
-    <div class="setting-row">
-        <label for="setBaseMap">Base map</label>
-        <select id="setBaseMap">
-            <option value="osm">Streets (OpenStreetMap)</option>
-            <option value="sat">Satellite (Esri World Imagery)</option>
-        </select>
-    </div>
 <div class="device-meta">Provider applies to the wind pane and the course wind suggestion.
-  The refresh rate only runs while the wind pane is open. The base map is saved with
-  the other UI prefs.</div>
+  The refresh rate only runs while the wind pane is open. The base map is the
+  <b>Sat</b> button in the top bar.</div>
   </div>
 
   <div id="features-panel" style="display:none">
