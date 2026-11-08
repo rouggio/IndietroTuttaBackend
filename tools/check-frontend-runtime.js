@@ -70,6 +70,11 @@ const getEl = (id) => {
     return els.get(id);
 };
 const memStore = new Map();
+// Todo 68 (2026-11-08): seed a browser pref BEFORE the bundle loads, so the
+// runtime can prove a choice survives a reload - the base map is the case that
+// motivated it. UI_KEY is "indietrotutta:ui" (public/prefs.js).
+memStore.set("indietrotutta:ui", JSON.stringify({ baseMap: "sat" }));
+const tileUrls = [];
 const containerStub = {
     addEventListener() {}, style: {}, setPointerCapture() {},
 };
@@ -195,7 +200,7 @@ const sandbox = {
     AbortSignal: { timeout: () => ({}) },
     L: {
         map: () => mapStub,
-        tileLayer: () => ({ addTo() {} }),
+        tileLayer: (url) => { tileUrls.push(String(url)); return { addTo() { return this; } }; },
         layerGroup: recLayer("layerGroup"),
         marker: recLayer("marker"), circleMarker: recLayer("circleMarker"), circle: recLayer("circle"),
         polyline: recLayer("polyline"), polygon: recLayer("polygon"), tooltip: layerStub,
@@ -236,6 +241,24 @@ try {
     t("boot window is today", run("UI.timePreset") === "today");
     t("live button toggled", getEl("liveBtn")._cls["active"] === true);
 } catch (e) { t("boot state readable", false, String(e).slice(0, 120)); }
+
+// Base map: a browser pref must survive the reload (seeded above), and the top-bar
+// button must name the OTHER view in one constant colour (user, 2026-11-08).
+try {
+    t("base map: the saved pref restores the satellite layer",
+        tileUrls.length > 0 && /World_Imagery/.test(tileUrls[tileUrls.length - 1]),
+        tileUrls.slice(-1)[0] || "(no tiles)");
+    const satBtn = getEl("satToggleBtn");
+    t("base map: on the photo the button reads Map, with no active colour",
+        satBtn.textContent === "Map" && !satBtn._cls["active"]);
+    satBtn.dispatch("click");
+    t("base map: clicking swaps to the street tiles and the label back to Sat",
+        /openstreetmap/.test(tileUrls[tileUrls.length - 1]) && getEl("satToggleBtn").textContent === "Sat",
+        tileUrls.slice(-1)[0] || "(no tiles)");
+    const saved = JSON.parse(memStore.get("indietrotutta:ui") || "{}");
+    t("base map: the choice is written to the browser prefs", saved.baseMap === "osm",
+        JSON.stringify(saved.baseMap));
+} catch (e) { t("base map: the pref and the toggle round-trip", false, String(e).slice(0, 160)); }
 
 try {
     run("enterFrozenReplay(999, Date.now()-60000, Date.now()+60000, 'smoke')");

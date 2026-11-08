@@ -315,13 +315,18 @@ document.getElementById("setWindRefresh")?.addEventListener("change", e => setWi
 
 // --- Base map toggle, top bar (user, 2026-11-08) ---------------------------
 // Streets <-> satellite photo in one click: it is a moment-to-moment view choice,
-// not a settings trip. `baseMap` still lives in the UI prefs blob, so the choice
-// survives a reload (loadUI applies it before this runs and syncSatBtn picks the
-// state up). Rests on the pane's own green `.active`, like the other top-bar
-// switches, so "on" means satellite.
+// not a settings trip. The label names the OTHER view - `Sat` while the street map
+// is showing, `Map` while the photo is - and the button keeps ONE colour in both
+// states (no green "active"): it is not a mode being armed, just a swap. `baseMap`
+// still lives in the UI prefs blob, so the choice survives a reload (loadUI applies
+// it before this runs and syncSatBtn picks the label up).
 const satBtn = document.getElementById("satToggleBtn");
 function syncSatBtn() {
-    if (satBtn) satBtn.classList.toggle("active", baseMap === "sat");
+    if (!satBtn) return;
+    const sat = baseMap === "sat";
+    satBtn.textContent = sat ? "Map" : "Sat";
+    satBtn.title = sat ? "Back to the street map" : "Show the satellite photo";
+    satBtn.classList.remove("active"); // constant colour, deliberately
 }
 satBtn?.addEventListener("click", () => {
     baseMap = setBaseMap(baseMap === "sat" ? "osm" : "sat");
